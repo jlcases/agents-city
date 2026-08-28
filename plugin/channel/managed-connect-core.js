@@ -761,6 +761,9 @@ var ManagedRelaySession = class {
     this.city = city;
     this.transport = transport;
     this.options = options;
+    if (!options.onText && !options.onTextBatch) {
+      throw new Error("relay_text_handler_required");
+    }
     this.requestTimeoutMs = options.requestTimeoutMs ?? 1e4;
     this.readyTimeoutMs = options.readyTimeoutMs ?? 1e4;
     this.readyPromise = new Promise((resolve, reject) => {
@@ -937,31 +940,49 @@ var ManagedRelaySession = class {
       this.roadsById.set(frame.roadId, frame.road);
   }
   async acceptMessages(messages) {
-    const accepted = [];
+    const openedMessages = [];
     for (const message of messages) {
       const road = this.roadsById.get(message.envelope.roadId);
       if (!road) throw new Error("message_without_active_road");
       const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      openedMessages.push({
+        trust: "untrusted_remote_text",
+        roadId: road.id,
+        messageId: opened.messageId,
+        from: message.envelope.from,
+        to: message.envelope.to,
+        createdAt: new Date(message.envelope.createdAt).toISOString(),
+        text: opened.text
+      });
+    }
+    if (this.options.onTextBatch) {
       try {
-        await this.options.onText({
-          trust: "untrusted_remote_text",
-          roadId: road.id,
-          messageId: opened.messageId,
-          from: message.envelope.from,
-          to: message.envelope.to,
-          text: opened.text
-        });
+        await this.options.onTextBatch(openedMessages);
+      } catch (value) {
+        this.localHandoffFailure(value);
+        return;
+      }
+      this.acknowledgeBatch(openedMessages.map((message) => message.messageId));
+      return;
+    }
+    const accepted = [];
+    for (const opened of openedMessages) {
+      try {
+        await this.options.onText?.(opened);
       } catch (value) {
         this.acknowledgeBatch(accepted);
-        const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
-        this.options.onLocalError?.(error);
-        this.transport.close(1013, "local Road inbox unavailable");
-        this.closeState(error);
+        this.localHandoffFailure(value);
         return;
       }
       accepted.push(opened.messageId);
     }
     this.acknowledgeBatch(accepted);
+  }
+  localHandoffFailure(value) {
+    const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
+    this.options.onLocalError?.(error);
+    this.transport.close(1013, "local reception unavailable");
+    this.closeState(error);
   }
   acknowledgeBatch(messageIds) {
     if (!messageIds.length) return;

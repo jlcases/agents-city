@@ -63,16 +63,31 @@ For every message the sender:
 4. sends ciphertext over one outbound WSS connection.
 
 The receiver checks the strict protocol-v2 frame shape, active bilateral Road revision,
-addresses, key id, expiry and Ed25519 signature before HPKE decryption. It then
-hands the recovered body to the existing road controller as
-`untrusted_remote_text`. The controller adds the unforgeable untrusted boundary
-before durable inbox storage. The local handoff order is inbox, one content-free
-coalesced seat wake-up, receipt, then relay ACK. Protocol v2 may carry up to 32
-encrypted deliveries in one server frame and acknowledges locally accepted ids
-with one `ack_batch`. Replays use the stable message id and do not append a
-second inbox/history entry. A crash may retry an unacknowledged delivery, which
-is the intentional at-least-once side of avoiding message loss. A revocation
-directory update removes the Road immediately.
+addresses, key id, expiry and Ed25519 signature before HPKE decryption. The
+recovered body is then committed to the owner-level local reception database,
+not to a city inbox. The relay receives its ACK only after that SQLite commit.
+No city wake-up is emitted and `agents-city bus inbox` cannot read the pending
+text.
+
+The local Hall displays the body as HTML-escaped inert text. The owner may reject
+it with a reason or atomically route it to one or more of their local cities.
+Each chosen city consumes only its approved route, wraps the text in the
+unforgeable untrusted boundary, and then creates one content-free coalesced seat
+wake-up. A deterministic message id makes a crash between city persistence and
+route acknowledgement an idempotent retry. Once every selected city has the
+durable approved copy, reception purges the raw body. Rejection purges it
+immediately.
+
+A transient city handoff keeps the route queued and retains the body. Retries
+use exponential backoff capped at five minutes; reception does not mark a route
+delivered or purge its body merely because a disk or inbox operation failed
+once.
+
+Protocol v2 may carry up to 32 encrypted deliveries in one server frame and
+acknowledges locally quarantined ids with one `ack_batch`. Replays use the stable
+message id and do not append a second reception row. A crash may retry an
+unacknowledged delivery, which is the intentional at-least-once side of avoiding
+message loss. A revocation directory update removes the Road immediately.
 
 Large Road directories use client-driven flow control. The relay sends at most
 100 entries, waits for `directory_next`, and only then emits the next page.
@@ -87,14 +102,14 @@ computer, its agent or its human has received, read, processed or answered it.
 rejects the old `forwarded` status because it implied a stronger delivery state
 than the relay could prove.
 
-Slow models are a separate capacity boundary from relay throughput. The local
-Road inbox holds 500 messages by default and returns bounded batches of 20. A
-burst emits one wake-up without remote message bodies; the seat groups related
-requests and every native runtime permits only one active model turn. If the
-local inbox is full, the client withholds its relay ACK and reconnects with a
-retryable capacity error. No existing inbox, actor-outbox or local retry entry is
-silently evicted. Transport load and model-workload recovery are therefore two
-separate tests and two separate SLOs.
+Slow models are a separate capacity boundary from relay throughput. Reception
+holds at most 10,000 pending messages and 64 MiB by default; either limit applies
+backpressure by withholding the relay ACK. After human routing, each local Road
+inbox holds 500 messages and returns bounded batches of 20. A routed burst emits
+one wake-up without message bodies; the seat groups related requests and every
+native runtime permits only one active model turn. No existing reception row,
+city inbox, actor outbox or local retry entry is silently evicted. Transport,
+human-review and model-workload recovery are three separate SLOs.
 
 The deterministic workload tests make that distinction measurable. A burst of
 100 messages drains with depths `80 -> 60 -> 40 -> 20 -> 0` in five reads after
@@ -121,6 +136,20 @@ city addresses, timestamps, ciphertext size and delivery state. It does not
 receive either device private key or Road plaintext. Queued envelopes remain
 ciphertext.
 
+## Manual and automatic routing
+
+Manual review is the enforced default and the only enabled mode in this
+release. The reception schema reserves `auto`, but the Hall reports it as
+unavailable until there is a separately isolated router implementation.
+
+An automatic router is allowed to see only the inert message, opaque connection
+identity, and an allowlist of owner-supplied destination labels. It must receive
+no device keys, environment, city files, mounts, tools or network authority. Its
+only accepted output is a strict list of known city ids plus confidence and a
+reason; malformed, ambiguous or low-confidence output falls back to the human
+queue. A normal city agent does not satisfy this boundary merely because its
+prompt says "router", so Agents City does not silently promote one.
+
 This design does not claim to defend against the operating-system owner, a
 malicious process already running as that user, or a compromised seat that the
 owner has deliberately given filesystem/tool authority. Use separate OS
@@ -140,6 +169,8 @@ multi-tenant machine.
 | 0600/0700 local key custody | `plugin/channel/managed-connect/storage.ts` |
 | Node WSS adapter | `plugin/channel/managed-connect/transport.ts` |
 | local bus integration | `plugin/channel/managed-connect/bridge.ts` |
+| owner quarantine and approved-city delivery | `plugin/channel/reception.ts` |
+| Hall review, rejection and multi-city decision | `plugin/scripts/reception.py` |
 
 `plugin/channel/managed-connect-core.js` is the portable bundled core;
 `managed-connect-client.js` adds Node storage and transport; and

@@ -2275,7 +2275,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes2, createHash } = __require("crypto");
+    var { randomBytes: randomBytes2, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2943,7 +2943,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket2, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket2, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3312,7 +3312,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash2 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3619,7 +3619,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -5532,6 +5532,12 @@ function publishEndpoint(context2, endpoint) {
   atomicJson(endpointPath(context2), endpoint);
 }
 
+// reception.ts
+import { createHash } from "node:crypto";
+import { chmodSync as chmodSync3, existsSync as existsSync6, lstatSync, mkdirSync as mkdirSync7, realpathSync } from "node:fs";
+import { join as join9, resolve as resolve2 } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
 // untrusted.ts
 var SPECIAL_TOKEN = /<\|[a-zA-Z0-9_]+\|>|<\/?s>|\[INST\]|\[\/INST\]|<<SYS>>|<<\/SYS>>|<start_of_turn>|<end_of_turn>/g;
 function stripSpecialTokens(input) {
@@ -5550,15 +5556,427 @@ ${cleanBody}
 ${close2}`, markerId };
 }
 
+// reception.ts
+var RECEPTION_PROTOCOL = "agents-city-reception/1";
+var RECEPTION_SCHEMA_VERSION = 1;
+var DEFAULT_PENDING_MESSAGES = 1e4;
+var MAX_PENDING_MESSAGES = 1e5;
+var DEFAULT_PENDING_BYTES = 64 * 1024 * 1024;
+var MAX_PENDING_BYTES = 512 * 1024 * 1024;
+var DELIVERY_BATCH = 20;
+var databases = /* @__PURE__ */ new Map();
+function receptionDatabasePath(appHome) {
+  return join9(resolve2(appHome), ".runtime", "reception", "reception.sqlite3");
+}
+function recordReceptionMessage(context2, envelope) {
+  return recordReceptionMessages(context2, [envelope]);
+}
+function recordReceptionMessages(context2, envelopes) {
+  if (!envelopes.length || envelopes.length > 32) {
+    throw new Error("invalid_reception_message_batch");
+  }
+  const rows = envelopes.map(validateReceptionEnvelope);
+  if (new Set(rows.map((row) => row.envelope.id)).size !== rows.length) {
+    throw new Error("duplicate_reception_message_batch");
+  }
+  const database = receptionDatabase(context2.appHome);
+  const maximumMessages = boundedInteger(
+    process.env.CITY_RECEPTION_MAX_PENDING,
+    DEFAULT_PENDING_MESSAGES,
+    100,
+    MAX_PENDING_MESSAGES
+  );
+  const maximumBytes = boundedInteger(
+    process.env.CITY_RECEPTION_MAX_BYTES,
+    DEFAULT_PENDING_BYTES,
+    1024 * 1024,
+    MAX_PENDING_BYTES
+  );
+  let committed = false;
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    expireOldReception(database);
+    const fresh = rows.filter((row) => {
+      const existing = database.prepare("SELECT 1 AS found FROM reception_messages WHERE message_id = ? LIMIT 1").get(row.envelope.id);
+      return !existing;
+    });
+    if (!fresh.length) {
+      const current = receptionCounters(database);
+      database.exec("COMMIT");
+      committed = true;
+      return { inserted: false, ...current };
+    }
+    const counters = receptionCounters(database);
+    const bytes = fresh.reduce((sum, row) => sum + row.bytes, 0);
+    if (counters.pending + fresh.length > maximumMessages || counters.pendingBytes + bytes > maximumBytes) {
+      throw new Error("reception_inbox_full");
+    }
+    const insert = database.prepare(`
+      INSERT INTO reception_messages (
+        message_id, protocol, state, source_city, source_created_at,
+        received_city_id, received_city_address, body, body_sha256,
+        connection_id, road_id, remote_message_id, received_at
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
+    for (const row of fresh) {
+      const envelope = row.envelope;
+      insert.run(
+        envelope.id,
+        RECEPTION_PROTOCOL,
+        envelope.from.city,
+        envelope.createdAt,
+        context2.city.id,
+        context2.city.address,
+        row.body,
+        sha256(row.body),
+        optionalText(envelope.payload?.connectionId, 160),
+        optionalText(envelope.payload?.roadId, 160),
+        optionalText(envelope.payload?.remoteMessageId, 160),
+        receivedAt
+      );
+    }
+    const updated = receptionCounters(database);
+    database.exec("COMMIT");
+    committed = true;
+    return { inserted: true, ...updated };
+  } finally {
+    if (!committed) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+      }
+    }
+  }
+}
+function validateReceptionEnvelope(envelope) {
+  const body = envelope.payload?.text;
+  if (typeof body !== "string" || !body || body.length > MAX_BODY) {
+    throw new Error("invalid_reception_message_body");
+  }
+  if (envelope.payload?.transport !== "managed-e2ee") {
+    throw new Error("reception_accepts_managed_messages_only");
+  }
+  return { envelope, body, bytes: Buffer.byteLength(body, "utf8") };
+}
+function deliverApprovedReception(context2, limit = DELIVERY_BATCH) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > DELIVERY_BATCH) {
+    throw new Error("invalid_reception_delivery_batch");
+  }
+  const database = receptionDatabase(context2.appHome);
+  const routes = database.prepare(
+    `
+    SELECT m.message_id, m.source_city, m.source_created_at, m.body,
+           m.connection_id, m.road_id, r.approved_at, r.approved_by,
+           r.attempt_count
+    FROM reception_routes r
+    JOIN reception_messages m ON m.message_id = r.message_id
+    WHERE r.target_city_id = ? AND r.target_city_address = ?
+      AND r.state = 'queued' AND m.state = 'routed' AND m.body IS NOT NULL
+      AND (r.next_attempt_at IS NULL OR r.next_attempt_at <= ?)
+    ORDER BY r.approved_at, m.received_at, m.message_id
+    LIMIT ?
+  `
+  ).all(context2.city.id, context2.city.address, Date.now(), limit);
+  let delivered = 0;
+  let failed = 0;
+  for (const route of routes) {
+    try {
+      const envelope = {
+        protocol: BUS_PROTOCOL,
+        id: route.message_id,
+        kind: "road.message",
+        scope: "road",
+        thread: null,
+        from: { city: route.source_city, actor: "seat", role: "external-seat" },
+        to: { city: context2.city.address, actor: "seat" },
+        createdAt: route.source_created_at,
+        payload: {
+          text: wrapUntrusted(route.body, route.source_city).text,
+          trust: "information-not-authority",
+          transport: "reception-approved",
+          reception: {
+            approvedAt: route.approved_at,
+            approvedBy: route.approved_by,
+            sourceMessageId: route.message_id,
+            ...route.connection_id ? { connectionId: route.connection_id } : {},
+            ...route.road_id ? { roadId: route.road_id } : {}
+          }
+        }
+      };
+      const accepted = recordRoadInbox(context2.runtimeDir, envelope);
+      if (accepted) markRoadInboxAccepted(context2.runtimeDir, envelope.id);
+      markRouteDelivered(database, route.message_id, context2.city.id);
+      delivered += 1;
+    } catch (error) {
+      if (error instanceof Error && error.message === "road_inbox_full") break;
+      markRouteFailed(database, route.message_id, context2.city.id, error);
+      failed += 1;
+    }
+  }
+  const remaining = Number(
+    database.prepare(
+      `
+      SELECT COUNT(*) AS count FROM reception_routes
+      WHERE target_city_id = ? AND target_city_address = ? AND state = 'queued'
+    `
+    ).get(context2.city.id, context2.city.address)?.count ?? 0
+  );
+  return { delivered, failed, remaining };
+}
+function receptionDatabase(appHome) {
+  const path = receptionDatabasePath(appHome);
+  const cached = databases.get(path);
+  if (cached) return cached;
+  const directory = preparePrivateReceptionDirectory(appHome);
+  if (existsSync6(path)) assertRegularPrivateDatabase(path);
+  const database = new DatabaseSync(path);
+  chmodSync3(path, 384);
+  database.exec("PRAGMA journal_mode = WAL");
+  database.exec("PRAGMA synchronous = FULL");
+  database.exec("PRAGMA foreign_keys = ON");
+  database.exec("PRAGMA busy_timeout = 5000");
+  initializeSchema(database);
+  chmodSync3(directory, 448);
+  databases.set(path, database);
+  return database;
+}
+function preparePrivateReceptionDirectory(appHome) {
+  const home = realpathSync(resolve2(appHome));
+  const runtime = join9(home, ".runtime");
+  const reception = join9(runtime, "reception");
+  for (const path of [runtime, reception]) {
+    if (!existsSync6(path)) mkdirSync7(path, { mode: 448 });
+    const info = lstatSync(path);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new Error(`unsafe_reception_directory:${path}`);
+    }
+    chmodSync3(path, 448);
+  }
+  return reception;
+}
+function assertRegularPrivateDatabase(path) {
+  const info = lstatSync(path);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe_reception_database");
+  chmodSync3(path, 384);
+}
+function initializeSchema(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS reception_meta (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      schema_version INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reception_settings (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      routing_mode TEXT NOT NULL DEFAULT 'manual' CHECK (routing_mode IN ('manual', 'auto')),
+      review_policy TEXT NOT NULL DEFAULT 'every_message' CHECK (review_policy IN ('every_message', 'new_thread')),
+      router_profile TEXT CHECK (router_profile IS NULL OR length(router_profile) <= 160),
+      updated_at TEXT NOT NULL,
+      CHECK (routing_mode = 'manual' OR router_profile IS NOT NULL)
+    );
+    CREATE TABLE IF NOT EXISTS reception_messages (
+      message_id TEXT PRIMARY KEY CHECK (length(message_id) BETWEEN 1 AND 180),
+      protocol TEXT NOT NULL CHECK (protocol = '${RECEPTION_PROTOCOL}'),
+      state TEXT NOT NULL CHECK (state IN ('pending', 'routed', 'rejected', 'expired')),
+      source_city TEXT NOT NULL CHECK (length(source_city) BETWEEN 3 AND 160),
+      source_created_at TEXT NOT NULL,
+      received_city_id TEXT NOT NULL CHECK (length(received_city_id) BETWEEN 1 AND 160),
+      received_city_address TEXT NOT NULL CHECK (length(received_city_address) BETWEEN 3 AND 160),
+      body TEXT,
+      body_sha256 TEXT NOT NULL CHECK (length(body_sha256) = 64),
+      connection_id TEXT,
+      road_id TEXT,
+      remote_message_id TEXT,
+      received_at TEXT NOT NULL,
+      decided_at TEXT,
+      decision_reason TEXT CHECK (decision_reason IS NULL OR length(decision_reason) <= 500),
+      CHECK (state = 'pending' OR decided_at IS NOT NULL),
+      CHECK (state <> 'pending' OR body IS NOT NULL)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reception_messages_state_age
+      ON reception_messages (state, received_at, message_id);
+    CREATE TABLE IF NOT EXISTS reception_routes (
+      message_id TEXT NOT NULL REFERENCES reception_messages(message_id) ON DELETE CASCADE,
+      target_city_id TEXT NOT NULL CHECK (length(target_city_id) BETWEEN 1 AND 160),
+      target_city_address TEXT NOT NULL CHECK (length(target_city_address) BETWEEN 3 AND 160),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'delivered', 'failed')),
+      approved_by TEXT NOT NULL CHECK (approved_by IN ('human', 'auto')),
+      approved_at TEXT NOT NULL,
+      delivered_at TEXT,
+      error TEXT CHECK (error IS NULL OR length(error) <= 300),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      PRIMARY KEY (message_id, target_city_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reception_routes_city_state
+      ON reception_routes (target_city_id, state, approved_at);
+    CREATE TABLE IF NOT EXISTS reception_counters (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      pending_count INTEGER NOT NULL DEFAULT 0 CHECK (pending_count >= 0),
+      pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK (pending_bytes >= 0)
+    );
+    CREATE TRIGGER IF NOT EXISTS reception_message_count_after_insert
+    AFTER INSERT ON reception_messages WHEN NEW.state = 'pending'
+    BEGIN
+      UPDATE reception_counters
+      SET pending_count = pending_count + 1,
+          pending_bytes = pending_bytes + length(CAST(NEW.body AS BLOB))
+      WHERE singleton = 1;
+    END;
+    CREATE TRIGGER IF NOT EXISTS reception_message_count_after_decision
+    AFTER UPDATE OF state ON reception_messages
+    WHEN OLD.state = 'pending' AND NEW.state <> 'pending'
+    BEGIN
+      UPDATE reception_counters
+      SET pending_count = MAX(0, pending_count - 1),
+          pending_bytes = MAX(0, pending_bytes - length(CAST(OLD.body AS BLOB)))
+      WHERE singleton = 1;
+    END;
+    CREATE TRIGGER IF NOT EXISTS reception_message_count_after_delete
+    AFTER DELETE ON reception_messages WHEN OLD.state = 'pending'
+    BEGIN
+      UPDATE reception_counters
+      SET pending_count = MAX(0, pending_count - 1),
+          pending_bytes = MAX(0, pending_bytes - length(CAST(OLD.body AS BLOB)))
+      WHERE singleton = 1;
+    END;
+  `);
+  const meta = database.prepare("SELECT schema_version FROM reception_meta WHERE singleton = 1").get();
+  if (meta && meta.schema_version !== RECEPTION_SCHEMA_VERSION) {
+    throw new Error(`unsupported_reception_schema:${meta.schema_version}`);
+  }
+  database.prepare(
+    `
+    INSERT OR IGNORE INTO reception_meta (singleton, schema_version, created_at)
+    VALUES (1, ?, ?)
+  `
+  ).run(RECEPTION_SCHEMA_VERSION, (/* @__PURE__ */ new Date()).toISOString());
+  database.prepare(
+    `
+    INSERT OR IGNORE INTO reception_settings (
+      singleton, routing_mode, review_policy, router_profile, updated_at
+    ) VALUES (1, 'manual', 'every_message', NULL, ?)
+  `
+  ).run((/* @__PURE__ */ new Date()).toISOString());
+  database.prepare(
+    `
+    INSERT OR IGNORE INTO reception_counters (singleton, pending_count, pending_bytes)
+    VALUES (1, 0, 0)
+  `
+  ).run();
+}
+function receptionCounters(database) {
+  const row = database.prepare("SELECT pending_count, pending_bytes FROM reception_counters WHERE singleton = 1").get();
+  return {
+    pending: Number(row?.pending_count ?? 0),
+    pendingBytes: Number(row?.pending_bytes ?? 0)
+  };
+}
+function expireOldReception(database) {
+  const retentionDays = boundedInteger(process.env.CITY_RECEPTION_PENDING_DAYS, 30, 1, 90);
+  database.prepare(
+    `
+    UPDATE reception_messages
+    SET state = 'expired', body = NULL, decided_at = ?, decision_reason = 'expired locally'
+    WHERE state = 'pending' AND received_at < ?
+  `
+  ).run(
+    (/* @__PURE__ */ new Date()).toISOString(),
+    new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1e3).toISOString()
+  );
+  database.prepare(
+    `
+    DELETE FROM reception_messages
+    WHERE state IN ('rejected', 'expired') AND decided_at < ?
+  `
+  ).run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString());
+  database.prepare(
+    `
+    DELETE FROM reception_messages
+    WHERE state = 'routed' AND body IS NULL AND decided_at < ?
+  `
+  ).run(new Date(Date.now() - 30 * 24 * 60 * 60 * 1e3).toISOString());
+}
+function markRouteDelivered(database, messageId, cityId) {
+  let committed = false;
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    database.prepare(
+      `
+      UPDATE reception_routes
+      SET state = 'delivered', delivered_at = ?, error = NULL,
+          next_attempt_at = NULL
+      WHERE message_id = ? AND target_city_id = ? AND state = 'queued'
+    `
+    ).run((/* @__PURE__ */ new Date()).toISOString(), messageId, cityId);
+    const waiting = Number(
+      database.prepare(
+        `
+        SELECT COUNT(*) AS count FROM reception_routes
+        WHERE message_id = ? AND state <> 'delivered'
+      `
+      ).get(messageId)?.count ?? 0
+    );
+    if (!waiting) {
+      database.prepare(
+        `
+        UPDATE reception_messages SET body = NULL
+        WHERE message_id = ? AND state = 'routed'
+      `
+      ).run(messageId);
+    }
+    database.exec("COMMIT");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+      }
+    }
+  }
+}
+function markRouteFailed(database, messageId, cityId, error) {
+  const reason = String(error instanceof Error ? error.message : error).slice(0, 300);
+  const row = database.prepare(
+    `
+    SELECT attempt_count FROM reception_routes
+    WHERE message_id = ? AND target_city_id = ? AND state = 'queued'
+  `
+  ).get(messageId, cityId);
+  const attempts = Number(row?.attempt_count ?? 0) + 1;
+  const now = Date.now();
+  const retryAt = now + Math.min(3e5, 1e3 * 2 ** Math.min(attempts - 1, 8));
+  database.prepare(
+    `
+    UPDATE reception_routes
+    SET attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?, error = ?
+    WHERE message_id = ? AND target_city_id = ? AND state = 'queued'
+  `
+  ).run(attempts, now, retryAt, reason, messageId, cityId);
+}
+function optionalText(value, maximum) {
+  return typeof value === "string" && value ? value.slice(0, maximum) : null;
+}
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+function boundedInteger(raw, fallback, minimum, maximum) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
+}
+
 // hub/local-roads.ts
 import { readFileSync as readFileSync7 } from "fs";
-import { join as join9 } from "path";
+import { join as join10 } from "path";
 async function sendLocalRoad(context2, road, envelope) {
   const destinationRuntime = runtimeDirForCity(context2.appHome, road.id);
   let endpoint;
   try {
     endpoint = JSON.parse(
-      readFileSync7(join9(destinationRuntime, "endpoint.json"), "utf8")
+      readFileSync7(join10(destinationRuntime, "endpoint.json"), "utf8")
     );
     if (endpoint.cityId !== road.id || endpoint.cityAddress !== road.address)
       throw new Error("identity mismatch");
@@ -5576,7 +5994,7 @@ async function sendLocalRoad(context2, road, envelope) {
 function localRoadOnline(context2, road) {
   try {
     const endpoint = JSON.parse(
-      readFileSync7(join9(runtimeDirForCity(context2.appHome, road.id), "endpoint.json"), "utf8")
+      readFileSync7(join10(runtimeDirForCity(context2.appHome, road.id), "endpoint.json"), "utf8")
     );
     if (endpoint.cityId !== road.id || endpoint.cityAddress !== road.address || endpoint.pid <= 0)
       return false;
@@ -5587,7 +6005,7 @@ function localRoadOnline(context2, road) {
   }
 }
 function deliver(endpoint, from, envelope) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const url = new URL(endpoint.url);
     url.searchParams.set("mode", "road");
     url.searchParams.set("from", from);
@@ -5606,7 +6024,7 @@ function deliver(endpoint, from, envelope) {
       } catch {
       }
       if (error) reject(error);
-      else resolve3(`delivered locally to ${endpoint.cityAddress}`);
+      else resolve4(`delivered locally to ${endpoint.cityAddress}`);
     };
     ws.on("message", (raw) => {
       let message;
@@ -5634,21 +6052,21 @@ function deliver(endpoint, from, envelope) {
 import {
   closeSync as closeSync3,
   constants as constants2,
-  existsSync as existsSync6,
+  existsSync as existsSync7,
   fstatSync,
   fsyncSync as fsyncSync2,
-  lstatSync,
-  mkdirSync as mkdirSync7,
+  lstatSync as lstatSync2,
+  mkdirSync as mkdirSync8,
   openSync as openSync3,
   readFileSync as readFileSync8,
-  realpathSync,
+  realpathSync as realpathSync2,
   renameSync as renameSync5,
-  chmodSync as chmodSync3,
+  chmodSync as chmodSync4,
   unlinkSync as unlinkSync4,
   writeFileSync as writeFileSync6
 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join10, resolve as resolve2 } from "node:path";
+import { join as join11, resolve as resolve3 } from "node:path";
 
 // managed-connect/protocol.ts
 var RELAY_PROTOCOL = "agents-city-relay/2";
@@ -5913,35 +6331,35 @@ var parseRelayServerFrame = (raw, now = Date.now()) => {
 var CONNECT_STATE_PROTOCOL = "agents-city-connect-state/1";
 var MAX_STATE_BYTES = 64 * 1024;
 function agentsCityHome(explicit = "") {
-  const requested = resolve2(
-    explicit || process.env.AGENTS_CITY_HOME || join10(homedir2(), ".agents-city")
+  const requested = resolve3(
+    explicit || process.env.AGENTS_CITY_HOME || join11(homedir2(), ".agents-city")
   );
-  mkdirSync7(requested, { recursive: true, mode: 448 });
-  return realpathSync(requested);
+  mkdirSync8(requested, { recursive: true, mode: 448 });
+  return realpathSync2(requested);
 }
 function connectStateDirectory(appHome = "") {
-  return join10(agentsCityHome(appHome), ".runtime", "connect");
+  return join11(agentsCityHome(appHome), ".runtime", "connect");
 }
 function connectStatePath(appHome = "") {
-  return join10(connectStateDirectory(appHome), "device.json");
+  return join11(connectStateDirectory(appHome), "device.json");
 }
 function assertSafeStateDirectory(appHome = "") {
   const home = agentsCityHome(appHome);
-  const runtime = join10(home, ".runtime");
-  const connect = join10(runtime, "connect");
+  const runtime = join11(home, ".runtime");
+  const connect = join11(runtime, "connect");
   for (const path of [runtime, connect]) {
-    const info = lstatSync(path);
+    const info = lstatSync2(path);
     if (!info.isDirectory() || info.isSymbolicLink()) {
       throw new Error(`unsafe_connect_state_directory:${path}`);
     }
   }
-  if ((lstatSync(connect).mode & 63) !== 0) {
+  if ((lstatSync2(connect).mode & 63) !== 0) {
     throw new Error("connect_state_directory_permissions_too_open");
   }
   return connect;
 }
 function assertPrivateFile(path) {
-  const info = lstatSync(path);
+  const info = lstatSync2(path);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("unsafe_connect_state_file");
   if ((info.mode & 63) !== 0) throw new Error("connect_state_permissions_too_open");
   if (info.size < 2 || info.size > MAX_STATE_BYTES) throw new Error("invalid_connect_state_size");
@@ -5951,7 +6369,7 @@ function noFollowFlag() {
 }
 function readConnectState(appHome = "") {
   const path = connectStatePath(appHome);
-  if (!existsSync6(path)) return null;
+  if (!existsSync7(path)) return null;
   assertSafeStateDirectory(appHome);
   assertPrivateFile(path);
   const fd = openSync3(path, constants2.O_RDONLY | noFollowFlag());
@@ -6037,7 +6455,7 @@ function validateBinding(value) {
     throw new Error("invalid_connected_city");
   const city = value;
   const rawDataDir = String(city.dataDir ?? "");
-  const dataDir2 = resolve2(rawDataDir);
+  const dataDir2 = resolve3(rawDataDir);
   if (typeof city.localCityId !== "string" || !/^[A-Za-z0-9_-]{4,160}$/.test(city.localCityId) || typeof city.slug !== "string" || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(city.slug) || typeof city.name !== "string" || !city.name.trim() || city.name.length > 100 || !CITY_ADDRESS_RE.test(String(city.remoteAddress ?? "")) || typeof city.encryptionKeyId !== "string" || base64urlDecodedLength(city.encryptionKeyId) !== 32 || typeof city.connected !== "boolean" || !rawDataDir.startsWith("/") || !dataDir2.startsWith("/"))
     throw new Error("invalid_connected_city");
   return { ...city, dataDir: dataDir2 };
@@ -6443,10 +6861,13 @@ var ManagedRelaySession = class {
     this.city = city;
     this.transport = transport;
     this.options = options;
+    if (!options.onText && !options.onTextBatch) {
+      throw new Error("relay_text_handler_required");
+    }
     this.requestTimeoutMs = options.requestTimeoutMs ?? 1e4;
     this.readyTimeoutMs = options.readyTimeoutMs ?? 1e4;
-    this.readyPromise = new Promise((resolve3, reject) => {
-      this.readyResolve = resolve3;
+    this.readyPromise = new Promise((resolve4, reject) => {
+      this.readyResolve = resolve4;
       this.readyReject = reject;
     });
     this.readyTimer = setTimeout(
@@ -6490,12 +6911,12 @@ var ManagedRelaySession = class {
     if (!road) throw new Error("road_not_available");
     const envelope = await createRoadEnvelope(this.identity, road, text2);
     const result2 = new Promise(
-      (resolve3, reject) => {
+      (resolve4, reject) => {
         const timer = setTimeout(() => {
           this.pending.delete(envelope.requestId);
           reject(new Error("relay_request_timeout"));
         }, this.requestTimeoutMs);
-        this.pending.set(envelope.requestId, { resolve: resolve3, reject, timer });
+        this.pending.set(envelope.requestId, { resolve: resolve4, reject, timer });
       }
     );
     try {
@@ -6619,31 +7040,49 @@ var ManagedRelaySession = class {
       this.roadsById.set(frame.roadId, frame.road);
   }
   async acceptMessages(messages) {
-    const accepted = [];
+    const openedMessages = [];
     for (const message of messages) {
       const road = this.roadsById.get(message.envelope.roadId);
       if (!road) throw new Error("message_without_active_road");
       const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      openedMessages.push({
+        trust: "untrusted_remote_text",
+        roadId: road.id,
+        messageId: opened.messageId,
+        from: message.envelope.from,
+        to: message.envelope.to,
+        createdAt: new Date(message.envelope.createdAt).toISOString(),
+        text: opened.text
+      });
+    }
+    if (this.options.onTextBatch) {
       try {
-        await this.options.onText({
-          trust: "untrusted_remote_text",
-          roadId: road.id,
-          messageId: opened.messageId,
-          from: message.envelope.from,
-          to: message.envelope.to,
-          text: opened.text
-        });
+        await this.options.onTextBatch(openedMessages);
+      } catch (value) {
+        this.localHandoffFailure(value);
+        return;
+      }
+      this.acknowledgeBatch(openedMessages.map((message) => message.messageId));
+      return;
+    }
+    const accepted = [];
+    for (const opened of openedMessages) {
+      try {
+        await this.options.onText?.(opened);
       } catch (value) {
         this.acknowledgeBatch(accepted);
-        const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
-        this.options.onLocalError?.(error);
-        this.transport.close(1013, "local Road inbox unavailable");
-        this.closeState(error);
+        this.localHandoffFailure(value);
         return;
       }
       accepted.push(opened.messageId);
     }
     this.acknowledgeBatch(accepted);
+  }
+  localHandoffFailure(value) {
+    const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
+    this.options.onLocalError?.(error);
+    this.transport.close(1013, "local reception unavailable");
+    this.closeState(error);
   }
   acknowledgeBatch(messageIds) {
     if (!messageIds.length) return;
@@ -6706,11 +7145,11 @@ async function openManagedRelaySession(identity, city, options) {
   };
   const session = new ManagedRelaySession(identity, city, transport, options);
   try {
-    await new Promise((resolve3, reject) => {
+    await new Promise((resolve4, reject) => {
       const timer = setTimeout(() => reject(new Error("relay_connection_timeout")), 1e4);
       socket.once("open", () => {
         clearTimeout(timer);
-        resolve3();
+        resolve4();
       });
       socket.once("error", () => {
         clearTimeout(timer);
@@ -6731,7 +7170,7 @@ async function openManagedRelaySession(identity, city, options) {
 // managed-connect/bridge.ts
 var INITIAL_BACKOFF_MS = 1e3;
 var MAX_BACKOFF_MS = 3e4;
-function managedRoadBridge(context2, receive) {
+function managedRoadBridge(context2, receive, receiveBatch) {
   let session = null;
   let socket = null;
   let stopped = false;
@@ -6800,24 +7239,10 @@ function managedRoadBridge(context2, receive) {
         found.state.identity,
         found.binding.remoteAddress,
         {
-          onText: async (message) => {
-            receive({
-              protocol: BUS_PROTOCOL,
-              id: `managed_${message.messageId.replaceAll("-", "")}`,
-              kind: "road.message",
-              scope: "road",
-              thread: null,
-              from: { city: message.from, actor: "seat", role: "external-seat" },
-              to: { city: context2.city.address, actor: "seat" },
-              createdAt: isoNow(),
-              payload: {
-                text: message.text,
-                trust: "information-not-authority",
-                transport: "managed-e2ee",
-                remoteMessageId: message.messageId,
-                roadId: message.roadId
-              }
-            });
+          onTextBatch: async (messages) => {
+            const envelopes = messages.map((message) => managedEnvelope(context2, message));
+            if (receiveBatch) receiveBatch(envelopes);
+            else for (const envelope of envelopes) receive(envelope);
           },
           onSecurityError: (error) => {
             console.error(`[city-bus] managed Road frame rejected: ${error.message}`);
@@ -6897,6 +7322,25 @@ function managedRoadBridge(context2, receive) {
     online: (address) => Boolean(session) && updateCache().some((road) => road.address === address)
   };
 }
+function managedEnvelope(context2, message) {
+  return {
+    protocol: BUS_PROTOCOL,
+    id: `managed_${message.messageId.replaceAll("-", "")}`,
+    kind: "road.message",
+    scope: "road",
+    thread: null,
+    from: { city: message.from, actor: "seat", role: "external-seat" },
+    to: { city: context2.city.address, actor: "seat" },
+    createdAt: message.createdAt || isoNow(),
+    payload: {
+      text: message.text,
+      trust: "information-not-authority",
+      transport: "managed-e2ee",
+      remoteMessageId: message.messageId,
+      roadId: message.roadId
+    }
+  };
+}
 
 // hub/remote-roads.ts
 function legacyRemoteRoadBridge(context2, receive) {
@@ -6969,7 +7413,7 @@ function legacyRemoteRoadBridge(context2, receive) {
     }
     if (envelope.scope === "road" && envelope.to.city === context2.city.address) receive(envelope);
   };
-  const sendRaw = (to, envelope) => new Promise((resolve3, reject) => {
+  const sendRaw = (to, envelope) => new Promise((resolve4, reject) => {
     if (!enabled) return reject(new Error("no remote road transport is configured"));
     if (!online || !ws || ws.readyState !== wrapper_default.OPEN) {
       return reject(new Error("the remote road is not connected"));
@@ -6987,8 +7431,8 @@ function legacyRemoteRoadBridge(context2, receive) {
       cleanup();
       if (message.type === "error")
         reject(new Error(String(message.error || "remote road refused the message")));
-      else if (message.type === "queued") resolve3(`${to} is offline: queued remotely`);
-      else resolve3(`delivered remotely to ${to}`);
+      else if (message.type === "queued") resolve4(`${to} is offline: queued remotely`);
+      else resolve4(`delivered remotely to ${to}`);
     };
     const cleanup = () => {
       clearTimeout(timer);
@@ -7032,7 +7476,7 @@ function legacyRemoteRoadBridge(context2, receive) {
     online: (address) => roster.has(address)
   };
 }
-function remoteRoadBridge(context2, receive) {
+function remoteRoadBridge(context2, receive, receiveManagedBatch) {
   const legacy = legacyRemoteRoadBridge(context2, (envelope) => {
     try {
       receive(envelope);
@@ -7040,7 +7484,7 @@ function remoteRoadBridge(context2, receive) {
       console.error(`[city-bus] dropped remote envelope: ${error.message}`);
     }
   });
-  const managed = managedRoadBridge(context2, receive);
+  const managed = managedRoadBridge(context2, receive, receiveManagedBatch);
   return {
     start: () => {
       legacy.start();
@@ -7079,7 +7523,14 @@ function roadController(context2, router2) {
     60 * 6e4
   );
   const wakeCheckMs = Math.min(3e4, wakeIntervalMs);
+  const receptionCheckMs = duration(
+    process.env.CITY_RECEPTION_DELIVERY_INTERVAL_MS,
+    1e3,
+    250,
+    3e4
+  );
   let wakeTimer = null;
+  let receptionTimer = null;
   let remote;
   const roads2 = () => {
     const merged = [...context2.roads, ...remote?.roads() ?? []];
@@ -7087,11 +7538,18 @@ function roadController(context2, router2) {
       (road, index) => merged.findIndex((candidate) => candidate.address === road.address) === index
     );
   };
-  const inbound = (envelope) => {
+  const validateInbound = (envelope) => {
     const road = roads2().find((candidate) => candidate.address === envelope.from.city);
     if (!road) throw new Error(`there is no road from ${envelope.from.city}`);
     if (envelope.protocol !== BUS_PROTOCOL || envelope.scope !== "road" || envelope.from.actor !== "seat" || envelope.to.city !== context2.city.address || envelope.to.actor !== "seat") {
       throw new Error("invalid road envelope");
+    }
+  };
+  const inbound = (envelope) => {
+    validateInbound(envelope);
+    if (envelope.payload?.transport === "managed-e2ee") {
+      recordReceptionMessage(context2, envelope);
+      return;
     }
     const rawBody = envelope.payload?.text;
     const guarded = typeof rawBody === "string" ? {
@@ -7107,7 +7565,16 @@ function roadController(context2, router2) {
     if (!newlyRecorded) return;
     markRoadInboxAccepted(context2.runtimeDir, guarded.id);
   };
-  remote = remoteRoadBridge(context2, inbound);
+  const inboundManagedBatch = (envelopes) => {
+    for (const envelope of envelopes) {
+      validateInbound(envelope);
+      if (envelope.payload?.transport !== "managed-e2ee") {
+        throw new Error("managed batch contains a non-managed envelope");
+      }
+    }
+    recordReceptionMessages(context2, envelopes);
+  };
+  remote = remoteRoadBridge(context2, inbound, inboundManagedBatch);
   const notifyBacklog = () => {
     const status = roadInboxStatus(context2.runtimeDir);
     if (!status.pending || Date.now() - status.notifiedAt < wakeIntervalMs) return;
@@ -7159,7 +7626,10 @@ function roadController(context2, router2) {
   };
   const start = () => {
     remote.start();
+    deliverReception();
     notifyBacklog();
+    receptionTimer = setInterval(deliverReception, receptionCheckMs);
+    receptionTimer.unref();
     wakeTimer = setInterval(() => {
       try {
         notifyBacklog();
@@ -7171,10 +7641,20 @@ function roadController(context2, router2) {
   };
   const close2 = () => {
     if (wakeTimer) clearInterval(wakeTimer);
+    if (receptionTimer) clearInterval(receptionTimer);
     wakeTimer = null;
+    receptionTimer = null;
     remote.close();
   };
   return { command, inbound, start, close: close2 };
+  function deliverReception() {
+    try {
+      const result2 = deliverApprovedReception(context2);
+      if (result2.delivered) notifyBacklog();
+    } catch (error) {
+      console.error(`[city-bus] Reception delivery failed: ${error.message}`);
+    }
+  }
 }
 function duration(raw, fallback, minimum, maximum) {
   const value = Number(raw);

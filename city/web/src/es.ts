@@ -16,6 +16,7 @@ anota({
   'My seat': 'Mi asiento',
   Districts: 'Distritos',
   Roads: 'Carreteras',
+  Reception: 'Recepción',
   Committee: 'Comité',
   Houses: 'Casas',
   'All cities': 'Todas las ciudades',
@@ -23,6 +24,36 @@ anota({
   '{n} house': '{n} casa',
   '{n} houses': '{n} casas',
   'Create another city →': 'Crear otra ciudad →',
+
+  // ── reception ────────────────────────────────────────────────────────────
+  reception: 'recepción',
+  'Messages wait for you, not your agents': 'Los mensajes te esperan a ti, no a tus agentes',
+  'Remote text stops here as inert text. Read it, reject it with a reason, or choose the cities that should receive it. Until then no model can read it.':
+    'El texto remoto se detiene aquí como texto inerte. Léelo, recházalo con un motivo o elige qué ciudades deben recibirlo. Hasta entonces ningún modelo puede leerlo.',
+  'routing mode': 'modo de enrutado',
+  'Manual review': 'Revisión manual',
+  'Every message needs a person before it reaches a city.':
+    'Cada mensaje necesita a una persona antes de llegar a una ciudad.',
+  'Auto router not configured': 'Router automático sin configurar',
+  'Reading your reception…': 'Leyendo tu recepción…',
+  'Could not read your reception': 'No se ha podido leer tu recepción',
+  'Reception clear': 'Recepción despejada',
+  'No remote message is waiting for a decision.': 'No hay mensajes remotos esperando una decisión.',
+  'message waiting': '{n} mensaje en espera',
+  'messages waiting': '{n} mensajes en espera',
+  'local only': 'solo local',
+  'No agent has read this': 'Ningún agente ha leído esto',
+  'Send to': 'Enviar a',
+  'Route message': 'Enviar mensaje',
+  'Reject with a reason': 'Rechazar con un motivo',
+  'Reason for your records': 'Motivo para tus registros',
+  'Reason for rejecting this message': 'Motivo para rechazar este mensaje',
+  'Reject message': 'Rechazar mensaje',
+  'Could not route the message': 'No se pudo enviar el mensaje',
+  'Message routed. Only the selected cities can now read it.':
+    'Mensaje enviado. Solo las ciudades elegidas pueden leerlo ahora.',
+  'Could not reject the message': 'No se pudo rechazar el mensaje',
+  'Message rejected with your reason.': 'Mensaje rechazado con tu motivo.',
 
   // ── the guide ─────────────────────────────────────────────────────────────
   Welcome: 'Bienvenida',

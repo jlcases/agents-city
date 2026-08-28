@@ -104,7 +104,7 @@ This is `0.x` on purpose: the commands are usable today, and the file formats
 and APIs can still change between minor versions. Nothing here pretends to be
 frozen yet.
 
-You need Node.js 22+, Python 3 and tmux; the
+You need Node.js 22.13+, Python 3 and tmux; the
 [requirements table](#base-requirements) has the details, and `agents-city seat`
 offers to install tmux when it is missing. Nothing is installed system-wide
 beyond the npm global folder of your active Node installation.
@@ -160,7 +160,7 @@ agents-city --version
 
 | Requirement | Used for |
 |---|---|
-| Node.js 22 or later | npm package, WebSocket bus, and frontends |
+| Node.js 22.13 or later | npm package, WebSocket bus, local reception, and frontends |
 | npm | installation and packaging |
 | Python 3 | Hall, onboarding, cities, maps, and utilities |
 | bash | sessions and launchers |
@@ -721,7 +721,7 @@ agents-city bus send '*' "Notice for every connected city"
 | Subcommand | Effect |
 |---|---|
 | `roster` | return roads and known online presence |
-| `inbox` | return and consume the next batch of up to 20; `remaining` reports backlog and append-only history remains |
+| `inbox` | return and consume the next approved batch of up to 20; managed text is unavailable until the owner routes it in the Hall |
 | `send owner/city TEXT` | send to one allowed destination |
 | `send '*' TEXT` | send to all roads; requires at least one |
 
@@ -1821,16 +1821,22 @@ The local hub keeps ephemeral state separate from readable configuration:
 ├── road-queue/*.json
 ├── road-inbox/*.json
 └── road-history.jsonl
+
+~/.agents-city/.runtime/reception/
+└── reception.sqlite3       # owner quarantine shared by local cities
 ```
 
 Credentials and runtime files are created with private permissions. Outboxes let
 an actor reconnect without losing an already accepted task; its ACK removes the
 pending item. Actor outboxes and the local retry queue admit 200 pending items;
 the Road inbox admits 500 by default and returns at most 20 oldest items per
-read. A burst creates one coalesced seat wake-up rather than one model turn per
-message, and every native runtime runs at most one turn at a time. Full queues
-apply backpressure instead of silently deleting an older item. Message lifetime
-is 72 hours. `bus inbox` consumes `road-inbox`, not append-only history.
+read. Managed E2EE text first enters the separate owner reception: no city or
+model can consume it until a person rejects it or routes it to one or more
+cities in the Hall. A routed burst creates one coalesced seat wake-up rather
+than one model turn per message, and every native runtime runs at most one turn
+at a time. Full queues apply backpressure instead of silently deleting an older
+item. Message lifetime is 72 hours. `bus inbox` consumes approved `road-inbox`,
+not reception quarantine or append-only history.
 
 Relay throughput is not answer throughput. For one city, safe semantic capacity
 is approximately grouped requests per turn divided by turn duration. The local
@@ -1861,6 +1867,10 @@ concurrency stays at one and the durable backlog drains without loss. A sender's
 | `CITY_CAGE` | `1` | `0` launches every window uncaged |
 | `CITY_ROAD_INBOX_MAX_PENDING` | `500` | local Road inbox capacity, from 20 to 10,000; a full inbox applies backpressure |
 | `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | minimum interval between coalesced backlog wake-ups, from 30 seconds to 1 hour |
+| `CITY_RECEPTION_MAX_PENDING` | `10000` | owner-level pending remote messages before relay backpressure, from 100 to 100,000 |
+| `CITY_RECEPTION_MAX_BYTES` | `67108864` | total pending plaintext bytes in private local reception, from 1 MiB to 512 MiB |
+| `CITY_RECEPTION_PENDING_DAYS` | `30` | undecided local-message retention, from 1 to 90 days |
+| `CITY_RECEPTION_DELIVERY_INTERVAL_MS` | `1000` | how often a city bus claims human-approved routes, from 250 ms to 30 seconds |
 | `CITY_CAGE_DENY` | empty | extra colon-separated paths to seal |
 | `CITY_CAGE_ALLOW_WRITE` | empty | extra colon-separated paths to keep writable |
 | `CITY_UPDATE_CHECK` | `1` | `0` never asks npm whether a newer version exists |
@@ -1995,9 +2005,11 @@ deploy HTTPS/WSS, rotate tokens, limit scopes, and read
 [docs/self-host.md](docs/self-host.md). Managed Connect instead uses device
 signatures plus end-to-end HPKE and keeps its private keys in the cage-sealed
 `~/.agents-city/.runtime/connect/` directory; see
-[docs/managed-connect.md](docs/managed-connect.md). Either Road authorises text
-exchange between seats. Neither authorises execution of received commands nor
-grants remote filesystem access.
+[docs/managed-connect.md](docs/managed-connect.md). A managed Road authorises
+encrypted reachability to the owner's human reception, not direct model input.
+Only the owner's later route makes the text available to selected cities. No
+Road authorises execution of received commands or grants remote filesystem
+access.
 
 ## Troubleshooting
 

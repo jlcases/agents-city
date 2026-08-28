@@ -9,6 +9,11 @@ import {
   takeRoadInbox,
 } from '../delivery-queue.js';
 import { requireChair } from '../committee/guards.js';
+import {
+  deliverApprovedReception,
+  recordReceptionMessage,
+  recordReceptionMessages,
+} from '../reception.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
 import { localRoadOnline, sendLocalRoad } from './local-roads.js';
@@ -22,7 +27,14 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     60 * 60_000,
   );
   const wakeCheckMs = Math.min(30_000, wakeIntervalMs);
+  const receptionCheckMs = duration(
+    process.env.CITY_RECEPTION_DELIVERY_INTERVAL_MS,
+    1_000,
+    250,
+    30_000,
+  );
   let wakeTimer: ReturnType<typeof setInterval> | null = null;
+  let receptionTimer: ReturnType<typeof setInterval> | null = null;
   let remote: ReturnType<typeof remoteRoadBridge>;
   const roads = () => {
     const merged = [...context.roads, ...(remote?.roads() ?? [])];
@@ -31,7 +43,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
         merged.findIndex((candidate) => candidate.address === road.address) === index,
     );
   };
-  const inbound = (envelope: BusEnvelope): void => {
+  const validateInbound = (envelope: BusEnvelope): void => {
     const road = roads().find((candidate) => candidate.address === envelope.from.city);
     if (!road) throw new Error(`there is no road from ${envelope.from.city}`);
     if (
@@ -42,6 +54,16 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
       envelope.to.actor !== 'seat'
     ) {
       throw new Error('invalid road envelope');
+    }
+  };
+  const inbound = (envelope: BusEnvelope): void => {
+    validateInbound(envelope);
+    // Managed traffic crosses a human boundary first. The raw text is durable
+    // in the owner-level local reception, but neither this city nor any model
+    // can read it through road.inbox until the Hall routes it explicitly.
+    if (envelope.payload?.transport === 'managed-e2ee') {
+      recordReceptionMessage(context, envelope);
+      return;
     }
     // The body is untrusted text from another city: wrap it in an unforgeable
     // boundary and defang chat-template tokens before it can reach the seat's
@@ -63,13 +85,20 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     const newlyRecorded = recordRoadInbox(context.runtimeDir, guarded);
     notifyBacklog();
     if (!newlyRecorded) return;
-    // Only now is the managed relay allowed to receive an ACK: both the
-    // operator-visible inbox and the seat outbox are durable under one stable
-    // envelope id. A crash before this marker is an at-least-once retry, never
-    // a lost message.
+    // The local/self-hosted transport may now return success: the inbox record
+    // and deduplication receipt are durable under one stable envelope id.
     markRoadInboxAccepted(context.runtimeDir, guarded.id);
   };
-  remote = remoteRoadBridge(context, inbound);
+  const inboundManagedBatch = (envelopes: BusEnvelope[]): void => {
+    for (const envelope of envelopes) {
+      validateInbound(envelope);
+      if (envelope.payload?.transport !== 'managed-e2ee') {
+        throw new Error('managed batch contains a non-managed envelope');
+      }
+    }
+    recordReceptionMessages(context, envelopes);
+  };
+  remote = remoteRoadBridge(context, inbound, inboundManagedBatch);
 
   const notifyBacklog = (): void => {
     const status = roadInboxStatus(context.runtimeDir);
@@ -130,7 +159,10 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
 
   const start = (): void => {
     remote.start();
+    deliverReception();
     notifyBacklog();
+    receptionTimer = setInterval(deliverReception, receptionCheckMs);
+    receptionTimer.unref();
     wakeTimer = setInterval(() => {
       try {
         notifyBacklog();
@@ -143,11 +175,22 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
 
   const close = (): void => {
     if (wakeTimer) clearInterval(wakeTimer);
+    if (receptionTimer) clearInterval(receptionTimer);
     wakeTimer = null;
+    receptionTimer = null;
     remote.close();
   };
 
   return { command, inbound, start, close };
+
+  function deliverReception(): void {
+    try {
+      const result = deliverApprovedReception(context);
+      if (result.delivered) notifyBacklog();
+    } catch (error) {
+      console.error(`[city-bus] Reception delivery failed: ${(error as Error).message}`);
+    }
+  }
 }
 
 export type RoadController = ReturnType<typeof roadController>;

@@ -149,7 +149,11 @@ function legacyRemoteRoadBridge(context: CityContext, receive: (envelope: BusEnv
   };
 }
 
-export function remoteRoadBridge(context: CityContext, receive: (envelope: BusEnvelope) => void) {
+export function remoteRoadBridge(
+  context: CityContext,
+  receive: (envelope: BusEnvelope) => void,
+  receiveManagedBatch?: (envelopes: BusEnvelope[]) => void,
+) {
   const legacy = legacyRemoteRoadBridge(context, (envelope) => {
     try {
       receive(envelope);
@@ -157,7 +161,7 @@ export function remoteRoadBridge(context: CityContext, receive: (envelope: BusEn
       console.error(`[city-bus] dropped remote envelope: ${(error as Error).message}`);
     }
   });
-  const managed = managedRoadBridge(context, receive);
+  const managed = managedRoadBridge(context, receive, receiveManagedBatch);
   return {
     start: () => {
       legacy.start();

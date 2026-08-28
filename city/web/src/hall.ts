@@ -90,6 +90,38 @@ interface Road {
   domain?: string;
   role?: string;
 }
+interface ReceptionSummary {
+  pending: number;
+  pendingBytes: number;
+  routingMode: 'manual' | 'auto';
+  reviewPolicy: 'every_message' | 'new_thread';
+  routerProfile: string | null;
+  autoAvailable: boolean;
+  error?: string;
+}
+interface ReceptionState {
+  protocol: 'agents-city-reception/1';
+  error?: string;
+  settings: {
+    routingMode: 'manual' | 'auto';
+    reviewPolicy: 'every_message' | 'new_thread';
+    routerProfile: string | null;
+    autoAvailable: boolean;
+  };
+  summary: { pending: number; pendingBytes: number; shown: number };
+  messages: Array<{
+    id: string;
+    from: string;
+    createdAt: string;
+    receivedAt: string;
+    receivedVia: string;
+    text: string;
+    connectionId: string | null;
+    roadId: string | null;
+    agentExposure: false;
+  }>;
+  cities: Array<{ id: string; name: string; address: string }>;
+}
 interface SkillInfo {
   name: string;
   description: string;
@@ -179,6 +211,7 @@ interface Estado {
   sesion: string;
   ciudades: Ciudad[];
   roads: Road[];
+  reception: ReceptionSummary;
   invitation: Invitation;
   skills: Record<string, AgentCapabilities>;
   deliberations: Deliberation[];
@@ -291,6 +324,7 @@ const SECCIONES: Array<[string, string]> = [
   ['mapa', 'The map'],
   ['puesto', 'My seat'],
   ['barrios', 'Districts'],
+  ['recepcion', 'Reception'],
   ['red', 'Roads'],
   ['committee', 'Committee'],
   ['gente', 'Houses'],
@@ -770,11 +804,13 @@ function rail(): void {
             ? String(Object.keys(E.skills).length)
             : id === 'committee'
               ? String(E.deliberations.length)
-              : id === 'red'
-                ? String(E.roads.length)
-                : id === 'barrios'
-                  ? String(E.parcelas.length)
-                  : '';
+              : id === 'recepcion'
+                ? String(E.reception?.pending ?? 0)
+                : id === 'red'
+                  ? String(E.roads.length)
+                  : id === 'barrios'
+                    ? String(E.parcelas.length)
+                    : '';
       return `<li class="${id === SECCION ? 'aqui' : ''}" data-s="${id}">
       <span>${esc(_(et))}</span>${n ? `<span class="n">${n}</span>` : ''}</li>`;
     })
@@ -792,7 +828,8 @@ function rail(): void {
   q('#dondeDatos').textContent = corto(E.datos);
   const cs = q<HTMLElement>('#ciudades');
   if (E.ciudades.length > 1) {
-    cs.innerHTML = `<select id="cambiaCiudad" title="which city this hall manages">
+    cs.innerHTML = `<select id="cambiaCiudad" aria-label="which city this hall manages"
+      title="which city this hall manages">
       ${E.ciudades
         .map(
           (c) => `<option value="${esc(c.ruta)}" ${c.actual ? 'selected' : ''}>
@@ -1614,6 +1651,158 @@ VISTAS.red = () => {
     };
   });
 };
+
+// ── owner reception ─────────────────────────────────────────────────────────
+VISTAS.recepcion = () => {
+  q('#lienzo').innerHTML = `<div><span class="sub">${_('reception')}</span>
+    <h1 style="margin-top:6px">${_('Messages wait for you, not your agents')}</h1>
+    <p class="prosa" style="margin-top:8px">${_(
+      'Remote text stops here as inert text. Read it, reject it with a reason, or choose the cities that should receive it. Until then no model can read it.',
+    )}</p></div>
+    <div class="recModo">
+      <div><span class="et2">${_('routing mode')}</span><b>${_('Manual review')}</b>
+        <p>${_('Every message needs a person before it reaches a city.')}</p></div>
+      <button class="bt mini" type="button" disabled>${_('Auto router not configured')}</button>
+    </div>
+    <div id="recLista"><p class="prosa">${_('Reading your reception…')}</p></div>`;
+  void cargaRecepcion();
+};
+
+async function cargaRecepcion(): Promise<void> {
+  const hueco = q<HTMLElement>('#recLista');
+  let estado: ReceptionState;
+  try {
+    estado = await api<ReceptionState>('/api/reception');
+  } catch {
+    hueco.innerHTML = `<div class="recError">${_('Could not read your reception')}</div>`;
+    return;
+  }
+  if (estado.error) {
+    hueco.innerHTML = `<div class="recError">${esc(estado.error)}</div>`;
+    return;
+  }
+  E.reception = {
+    pending: estado.summary.pending,
+    pendingBytes: estado.summary.pendingBytes,
+    routingMode: estado.settings.routingMode,
+    reviewPolicy: estado.settings.reviewPolicy,
+    routerProfile: estado.settings.routerProfile,
+    autoAvailable: estado.settings.autoAvailable,
+  };
+  rail();
+  if (!estado.messages.length) {
+    hueco.innerHTML = `<div class="recVacia"><b>${_('Reception clear')}</b>
+      <p>${_('No remote message is waiting for a decision.')}</p></div>`;
+    return;
+  }
+  const ciudades = estado.cities
+    .map(
+      (ciudad) => `<label class="recDestino"><input type="checkbox" name="destination"
+        value="${esc(ciudad.id)}"><span><b>${esc(ciudad.name)}</b>
+        <small>${esc(ciudad.address)}</small></span></label>`,
+    )
+    .join('');
+  hueco.innerHTML = `<div class="recResumen"><b>${estado.summary.pending}</b>
+      <span>${plural(estado.summary.pending, 'message waiting', 'messages waiting')}</span>
+      <small>${formateaBytes(estado.summary.pendingBytes)} · ${_('local only')}</small></div>
+    <div class="recMensajes">${estado.messages
+      .map(
+        (mensaje) => `<article class="recMensaje">
+          <header><div><span class="recOrigen">${esc(mensaje.from)}</span>
+            <span>${esc(fechaRecepcion(mensaje.receivedAt))}</span></div>
+            <span class="recSeguro">${_('No agent has read this')}</span></header>
+          <pre class="recTexto">${esc(mensaje.text)}</pre>
+          <div class="recAcciones">
+            <form data-rec-route="${esc(mensaje.id)}">
+              <fieldset><legend>${_('Send to')}</legend><div class="recDestinos">${ciudades}</div></fieldset>
+              <button class="bt ppal" type="submit" disabled>${_('Route message')}</button>
+            </form>
+            <details><summary>${_('Reject with a reason')}</summary>
+              <form data-rec-reject="${esc(mensaje.id)}">
+                <label for="rec-reason-${esc(mensaje.id)}">${_('Reason for your records')}</label>
+                <input id="rec-reason-${esc(mensaje.id)}" type="text" name="reason"
+                  maxlength="500" required
+                  placeholder="${_('Reason for rejecting this message')}">
+                <button class="bt malo" type="submit">${_('Reject message')}</button>
+              </form>
+            </details>
+          </div>
+        </article>`,
+      )
+      .join('')}</div>`;
+  enlazaRecepcion();
+}
+
+function enlazaRecepcion(): void {
+  todos<HTMLFormElement>('[data-rec-route]').forEach((formulario) => {
+    const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+    const actualiza = () => {
+      boton.disabled = !formulario.querySelector<HTMLInputElement>('input:checked');
+    };
+    formulario.onchange = actualiza;
+    formulario.onsubmit = async (evento) => {
+      evento.preventDefault();
+      const destinations = todos<HTMLInputElement>(
+        'input[name=destination]:checked',
+        formulario,
+      ).map((campo) => campo.value);
+      if (!destinations.length) return;
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'route',
+          message_id: formulario.dataset.recRoute,
+          destinations,
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not route the message'), true);
+        return;
+      }
+      toast(_('Message routed. Only the selected cities can now read it.'));
+      await cargaRecepcion();
+    };
+  });
+  todos<HTMLFormElement>('[data-rec-reject]').forEach((formulario) => {
+    formulario.onsubmit = async (evento) => {
+      evento.preventDefault();
+      const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+      const reason = q<HTMLInputElement>('input[name=reason]', formulario).value.trim();
+      if (!reason) return;
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'reject',
+          message_id: formulario.dataset.recReject,
+          reason,
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not reject the message'), true);
+        return;
+      }
+      toast(_('Message rejected with your reason.'));
+      await cargaRecepcion();
+    };
+  });
+}
+
+function fechaRecepcion(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+function formateaBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // ── committee acts ───────────────────────────────────────────────────────────
 VISTAS.committee = () => {

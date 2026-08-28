@@ -1,14 +1,18 @@
 import type WebSocket from 'ws';
 import type { CityContext } from '../city-config.js';
 import { BUS_PROTOCOL, isoNow, type BusEnvelope, type Road } from '../protocol.js';
-import type { ManagedRelaySession } from './relay-session.js';
+import type { ManagedRelaySession, UntrustedRoadText } from './relay-session.js';
 import { connectedStateForCity } from './storage.js';
 import { openManagedRelaySession } from './transport.js';
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 30_000;
 
-export function managedRoadBridge(context: CityContext, receive: (envelope: BusEnvelope) => void) {
+export function managedRoadBridge(
+  context: CityContext,
+  receive: (envelope: BusEnvelope) => void,
+  receiveBatch?: (envelopes: BusEnvelope[]) => void,
+) {
   let session: ManagedRelaySession | null = null;
   let socket: WebSocket | null = null;
   let stopped = false;
@@ -82,28 +86,13 @@ export function managedRoadBridge(context: CityContext, receive: (envelope: BusE
         found.state.identity,
         found.binding.remoteAddress,
         {
-          onText: async (message) => {
-            // The managed protocol contains exactly one application field: text.
-            // It is converted into the ordinary road envelope here; the shared
-            // road controller applies the untrusted boundary before persistence
-            // or delivery to the seat.
-            receive({
-              protocol: BUS_PROTOCOL,
-              id: `managed_${message.messageId.replaceAll('-', '')}`,
-              kind: 'road.message',
-              scope: 'road',
-              thread: null,
-              from: { city: message.from, actor: 'seat', role: 'external-seat' },
-              to: { city: context.city.address, actor: 'seat' },
-              createdAt: isoNow(),
-              payload: {
-                text: message.text,
-                trust: 'information-not-authority',
-                transport: 'managed-e2ee',
-                remoteMessageId: message.messageId,
-                roadId: message.roadId,
-              },
-            });
+          onTextBatch: async (messages) => {
+            // Decrypt the relay frame first, then make one durable local
+            // reception transaction for the whole batch. The ACK follows only
+            // after this callback returns.
+            const envelopes = messages.map((message) => managedEnvelope(context, message));
+            if (receiveBatch) receiveBatch(envelopes);
+            else for (const envelope of envelopes) receive(envelope);
           },
           onSecurityError: (error) => {
             console.error(`[city-bus] managed Road frame rejected: ${error.message}`);
@@ -186,3 +175,23 @@ export function managedRoadBridge(context: CityContext, receive: (envelope: BusE
 }
 
 export type ManagedRoadBridge = ReturnType<typeof managedRoadBridge>;
+
+function managedEnvelope(context: CityContext, message: UntrustedRoadText): BusEnvelope {
+  return {
+    protocol: BUS_PROTOCOL,
+    id: `managed_${message.messageId.replaceAll('-', '')}`,
+    kind: 'road.message',
+    scope: 'road',
+    thread: null,
+    from: { city: message.from, actor: 'seat', role: 'external-seat' },
+    to: { city: context.city.address, actor: 'seat' },
+    createdAt: message.createdAt || isoNow(),
+    payload: {
+      text: message.text,
+      trust: 'information-not-authority',
+      transport: 'managed-e2ee',
+      remoteMessageId: message.messageId,
+      roadId: message.roadId,
+    },
+  };
+}

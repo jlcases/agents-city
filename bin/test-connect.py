@@ -26,7 +26,7 @@ def main():
            result.returncode == 0 and payload.get("ok") is True,
            result.stderr or result.stdout)
     comprueba("· crypto/custody/relay regressions are all exercised",
-              payload.get("checks"), 27)
+              payload.get("checks"), 38)
 
     package = json.load(open(os.path.join(RAIZ, "plugin", "channel", "package.json"),
                              encoding="utf-8"))

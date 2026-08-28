@@ -52,7 +52,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "os": [
     "darwin",

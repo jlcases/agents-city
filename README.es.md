@@ -106,7 +106,7 @@ Esto es `0.x` a propósito: los comandos ya se usan hoy, pero los formatos de
 fichero y las APIs todavía pueden cambiar entre versiones menores. Aquí nada
 pretende estar congelado.
 
-Necesitas Node.js 22 o superior, Python 3 y tmux; los detalles están en la
+Necesitas Node.js 22.13 o superior, Python 3 y tmux; los detalles están en la
 [tabla de requisitos](#requisitos-base), y `agents-city seat` se ofrece a
 instalar tmux si falta. No se instala nada en el sistema más allá de la carpeta
 global de npm de tu Node activo.
@@ -162,7 +162,7 @@ agents-city --version
 
 | Requisito | Para qué se usa |
 |---|---|
-| Node.js 22 o posterior | paquete npm, bus WebSocket y frontends |
+| Node.js 22.13 o posterior | paquete npm, bus WebSocket, recepción local y frontends |
 | npm | instalación y empaquetado |
 | Python 3 | Hall, onboarding, ciudades, mapas y utilidades |
 | bash | sesiones y launchers |
@@ -730,7 +730,7 @@ agents-city bus send '*' "Aviso para todas mis carreteras"
 | Subcomando | Efecto |
 |---|---|
 | `roster` | devuelve carreteras y presencia online conocida |
-| `inbox` | devuelve y consume el siguiente lote de hasta 20; `remaining` indica lo que queda y el historial append-only permanece |
+| `inbox` | devuelve y consume el siguiente lote aprobado de hasta 20; el texto gestionado no aparece hasta que el propietario lo envía desde el ayuntamiento |
 | `send owner/city TEXTO` | envía a un destino permitido |
 | `send '*' TEXTO` | envía a todas las carreteras; exige al menos una |
 
@@ -1845,17 +1845,24 @@ El hub local no mezcla datos efímeros con la configuración legible:
 ├── road-queue/*.json
 ├── road-inbox/*.json
 └── road-history.jsonl
+
+~/.agents-city/.runtime/reception/
+└── reception.sqlite3       # cuarentena del propietario compartida por sus ciudades
 ```
 
 Las credenciales y ficheros de runtime se crean con permisos privados. Los
 outboxes permiten que un actor se reconecte sin perder tareas ya aceptadas; el
 ACK elimina el pendiente. Los outboxes de actores y la cola local de reintentos
 admiten 200 pendientes; el inbox de Roads admite 500 por defecto y devuelve como
-máximo los 20 más antiguos en cada lectura. Una ráfaga crea una sola activación
-agrupada del asiento, no un turno del modelo por mensaje, y cada runtime nativo
-ejecuta como máximo un turno a la vez. Una cola llena aplica backpressure en vez
-de borrar silenciosamente un elemento anterior. La vida de cada mensaje es de
-72 horas. `bus inbox` consume `road-inbox`, no el historial append-only.
+máximo los 20 más antiguos en cada lectura. El texto E2EE gestionado entra
+primero en la recepción separada del propietario: ninguna ciudad ni modelo puede
+consumirlo hasta que una persona lo rechaza o lo envía a una o varias ciudades
+desde el ayuntamiento. Una ráfaga ya enrutada crea una sola activación agrupada
+del asiento, no un turno del modelo por mensaje, y cada runtime nativo ejecuta
+como máximo un turno a la vez. Una cola llena aplica backpressure en vez de
+borrar silenciosamente un elemento anterior. La vida de cada mensaje es de 72
+horas. `bus inbox` consume el `road-inbox` aprobado, no la cuarentena ni el
+historial append-only.
 
 El rendimiento del relay no es el rendimiento de respuestas. Para una ciudad,
 la capacidad semántica segura es aproximadamente las peticiones agrupadas por
@@ -1887,6 +1894,10 @@ resultado `queued` del remitente nunca significa leído ni respondido.
 | `CITY_CAGE` | `1` | `0` arranca todas las ventanas sin jaula |
 | `CITY_ROAD_INBOX_MAX_PENDING` | `500` | capacidad local del inbox de Roads, entre 20 y 10.000; al llenarse aplica backpressure |
 | `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | intervalo mínimo entre activaciones agrupadas del backlog, de 30 segundos a 1 hora |
+| `CITY_RECEPTION_MAX_PENDING` | `10000` | mensajes remotos pendientes del propietario antes de aplicar contrapresión al relay, de 100 a 100.000 |
+| `CITY_RECEPTION_MAX_BYTES` | `67108864` | bytes totales pendientes en la recepción local privada, de 1 MiB a 512 MiB |
+| `CITY_RECEPTION_PENDING_DAYS` | `30` | retención local de mensajes sin decidir, de 1 a 90 días |
+| `CITY_RECEPTION_DELIVERY_INTERVAL_MS` | `1000` | frecuencia con la que un bus reclama rutas aprobadas por la persona, de 250 ms a 30 segundos |
 | `CITY_CAGE_DENY` | vacío | rutas extra que sellar, separadas por `:` |
 | `CITY_CAGE_ALLOW_WRITE` | vacío | rutas extra que mantener escribibles, separadas por `:` |
 | `CITY_UPDATE_CHECK` | `1` | `0` no pregunta nunca a npm si hay versión más nueva |
@@ -2028,9 +2039,11 @@ con token, despliega HTTPS/WSS, rota tokens, limita los scopes y revisa
 [docs/self-host.md](docs/self-host.md). Managed Connect usa en cambio firmas de
 dispositivo y HPKE de extremo a extremo, y mantiene sus claves privadas en el
 directorio sellado por la jaula `~/.agents-city/.runtime/connect/`; consulta
-[docs/managed-connect.md](docs/managed-connect.md). Cualquiera de las dos Roads
-autoriza intercambio de texto entre asientos. Ninguna implica confianza para
-ejecutar comandos recibidos ni acceso al filesystem remoto.
+[docs/managed-connect.md](docs/managed-connect.md). Una Road gestionada autoriza
+alcance cifrado hasta la recepción humana del propietario, no entrada directa a
+un modelo. Solo la ruta posterior del propietario deja el texto disponible para
+las ciudades elegidas. Ninguna Road autoriza ejecutar comandos recibidos ni
+acceder al filesystem remoto.
 
 ## Resolución de problemas
 

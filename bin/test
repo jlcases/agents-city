@@ -96,6 +96,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "plugin/scripts/runtime_processes.py",
               "plugin/scripts/runtime_log.py", "plugin/scripts/logs.py",
               "plugin/scripts/launch.py", "plugin/scripts/hook_activity.py",
+              "plugin/scripts/reception.py",
               "plugin/scripts/city-session.sh", "plugin/scripts/city-runtime.sh",
               "plugin/scripts/find-repos.sh",
               "plugin/scripts/busca.py",
@@ -115,6 +116,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "benchmarks/latency/fake-native-server.mjs",
               "benchmarks/latency/fake-claude-cli.mjs",
               "benchmarks/stress/run.py", "benchmarks/stress/README.md",
+              "benchmarks/reception/run.mjs", "benchmarks/reception/README.md",
               "city/web/src/repo-roles.ts",
               "demo/show.py", "demo/city/city.yml", "demo/city/ada.md",
               "city/scripts/seed.py", "city/worker/schema.sql", "demo/parcels.yml"]

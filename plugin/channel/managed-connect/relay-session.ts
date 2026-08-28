@@ -20,13 +20,16 @@ export type UntrustedRoadText = {
   messageId: string;
   from: string;
   to: string;
+  createdAt: string;
   text: string;
 };
 
 export type RelaySessionOptions = {
   requestTimeoutMs?: number;
   readyTimeoutMs?: number;
-  onText: (message: UntrustedRoadText) => void | Promise<void>;
+  onText?: (message: UntrustedRoadText) => void | Promise<void>;
+  /** One durable local transaction per protocol-v2 server batch. */
+  onTextBatch?: (messages: UntrustedRoadText[]) => void | Promise<void>;
   onSecurityError?: (error: Error) => void;
   onLocalError?: (error: Error) => void;
 };
@@ -68,6 +71,9 @@ export class ManagedRelaySession {
     private readonly transport: RelayTransport,
     private readonly options: RelaySessionOptions,
   ) {
+    if (!options.onText && !options.onTextBatch) {
+      throw new Error('relay_text_handler_required');
+    }
     this.requestTimeoutMs = options.requestTimeoutMs ?? 10_000;
     this.readyTimeoutMs = options.readyTimeoutMs ?? 10_000;
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -254,33 +260,52 @@ export class ManagedRelaySession {
       delayedMs: number;
     }>,
   ) {
-    const accepted: string[] = [];
+    const openedMessages: UntrustedRoadText[] = [];
     for (const message of messages) {
       const road = this.roadsById.get(message.envelope.roadId);
       if (!road) throw new Error('message_without_active_road');
       const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      openedMessages.push({
+        trust: 'untrusted_remote_text',
+        roadId: road.id,
+        messageId: opened.messageId,
+        from: message.envelope.from,
+        to: message.envelope.to,
+        createdAt: new Date(message.envelope.createdAt).toISOString(),
+        text: opened.text,
+      });
+    }
+    if (this.options.onTextBatch) {
       try {
-        await this.options.onText({
-          trust: 'untrusted_remote_text',
-          roadId: road.id,
-          messageId: opened.messageId,
-          from: message.envelope.from,
-          to: message.envelope.to,
-          text: opened.text,
-        });
+        await this.options.onTextBatch(openedMessages);
+      } catch (value) {
+        this.localHandoffFailure(value);
+        return;
+      }
+      this.acknowledgeBatch(openedMessages.map((message) => message.messageId));
+      return;
+    }
+    const accepted: string[] = [];
+    for (const opened of openedMessages) {
+      try {
+        await this.options.onText?.(opened);
       } catch (value) {
         this.acknowledgeBatch(accepted);
-        const error = value instanceof Error ? value : new Error('local_road_handoff_failed');
-        this.options.onLocalError?.(error);
-        // 1013 is a retryable local-capacity failure, not a malformed or
-        // malicious relay frame. Unacknowledged messages remain at the relay.
-        this.transport.close(1013, 'local Road inbox unavailable');
-        this.closeState(error);
+        this.localHandoffFailure(value);
         return;
       }
       accepted.push(opened.messageId);
     }
     this.acknowledgeBatch(accepted);
+  }
+
+  private localHandoffFailure(value: unknown) {
+    const error = value instanceof Error ? value : new Error('local_road_handoff_failed');
+    this.options.onLocalError?.(error);
+    // 1013 is a retryable local-capacity failure, not a malformed or
+    // malicious relay frame. Unacknowledged ciphertext remains at the relay.
+    this.transport.close(1013, 'local reception unavailable');
+    this.closeState(error);
   }
 
   private acknowledgeBatch(messageIds: string[]) {
