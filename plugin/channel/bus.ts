@@ -110,7 +110,8 @@ function roadTools(): Array<Record<string, unknown>> {
     },
     {
       name: 'bus_inbox',
-      description: 'Return and clear road messages received by this city seat.',
+      description:
+        'Return and consume the next bounded batch of Road messages; repeat while remaining is above zero.',
       inputSchema: { type: 'object', properties: {} },
     },
   ];
@@ -126,6 +127,15 @@ function failure(message: string) {
 
 function render(value: unknown): string {
   if (Array.isArray(value) && value.length === 0) return 'Nothing new on the roads.';
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Array.isArray((value as { messages?: unknown }).messages) &&
+    (value as { messages: unknown[] }).messages.length === 0
+  ) {
+    return 'Nothing new on the roads.';
+  }
   if (typeof value === 'string') return value;
   return JSON.stringify(value, null, 2);
 }

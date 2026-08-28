@@ -1,10 +1,12 @@
-export const RELAY_PROTOCOL = 'agents-city-relay/1' as const;
+export const RELAY_PROTOCOL = 'agents-city-relay/2' as const;
 export const DEVICE_PROOF_PROTOCOL = 'agents-city-device-proof/1' as const;
 export const SEALED_SUITE = 'HPKE-BASE-X25519-HKDF-SHA256-AES128GCM' as const;
 export const RELAY_AAD_PROTOCOL = 'agents-city-relay-aad/1' as const;
 export const ROAD_TEXT_PROTOCOL = 'agents-city-road-text/1' as const;
 
 export const MAX_FRAME_BYTES = 32_768;
+export const MAX_SERVER_FRAME_BYTES = 262_144;
+export const MAX_BATCH_MESSAGES = 32;
 export const MAX_CIPHERTEXT_BYTES = 16_384;
 export const MAX_CLOCK_SKEW_MS = 90_000;
 export const MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1_000;
@@ -59,6 +61,7 @@ export type RelayEnvelope = {
 export type RelayClientFrame =
   | { type: 'send'; envelope: RelayEnvelope }
   | { type: 'ack'; messageId: string }
+  | { type: 'ack_batch'; messageIds: string[] }
   | { type: 'ping'; at?: number };
 
 export type RelayRoadDirectoryEntry = {
@@ -95,11 +98,12 @@ export type RelayServerFrame =
       road?: RelayRoadDirectoryEntry;
     }
   | { type: 'message'; envelope: RelayEnvelope; delayedMs: number }
+  | { type: 'message_batch'; messages: Array<{ envelope: RelayEnvelope; delayedMs: number }> }
   | {
       type: 'result';
       requestId: string;
       messageId: string;
-      status: 'forwarded' | 'queued' | 'duplicate';
+      status: 'queued' | 'duplicate';
     }
   | { type: 'error'; requestId?: string; code: string; retryAfterMs?: number }
   | { type: 'pong'; at: number };
@@ -221,6 +225,21 @@ export const parseRelayClientFrame = (
     }
     return { ok: true, frame: { type: 'ack', messageId: value.messageId } };
   }
+  if (value.type === 'ack_batch') {
+    if (
+      !hasOnlyKeys(value, ['type', 'messageIds']) ||
+      !Array.isArray(value.messageIds) ||
+      value.messageIds.length < 1 ||
+      value.messageIds.length > MAX_BATCH_MESSAGES ||
+      !value.messageIds.every(
+        (messageId) => typeof messageId === 'string' && UUID_RE.test(messageId),
+      ) ||
+      new Set(value.messageIds).size !== value.messageIds.length
+    ) {
+      return { ok: false, code: 'invalid_ack_batch' };
+    }
+    return { ok: true, frame: { type: 'ack_batch', messageIds: value.messageIds as string[] } };
+  }
   if (value.type !== 'send' || !value.envelope || typeof value.envelope !== 'object') {
     return { ok: false, code: 'invalid_frame' };
   }
@@ -324,11 +343,32 @@ const isRoadDirectoryEntry = (value: unknown): value is RelayRoadDirectoryEntry 
   );
 };
 
+const parseServerMessage = (
+  value: unknown,
+  now: number,
+): { envelope: RelayEnvelope; delayedMs: number } | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const message = value as Record<string, unknown>;
+  if (
+    !hasOnlyKeys(message, ['envelope', 'delayedMs']) ||
+    !Number.isSafeInteger(message.delayedMs) ||
+    Number(message.delayedMs) < 0
+  ) {
+    return null;
+  }
+  const parsed = parseRelayClientFrame(
+    JSON.stringify({ type: 'send', envelope: message.envelope }),
+    now,
+  );
+  if (!parsed.ok || parsed.frame.type !== 'send') return null;
+  return { envelope: parsed.frame.envelope, delayedMs: Number(message.delayedMs) };
+};
+
 export const parseRelayServerFrame = (
   raw: string,
   now = Date.now(),
 ): { ok: true; frame: RelayServerFrame } | { ok: false; code: string } => {
-  if (byteLength(raw) > MAX_FRAME_BYTES) return { ok: false, code: 'frame_too_large' };
+  if (byteLength(raw) > MAX_SERVER_FRAME_BYTES) return { ok: false, code: 'frame_too_large' };
   let candidate: unknown;
   try {
     candidate = JSON.parse(raw);
@@ -395,23 +435,40 @@ export const parseRelayServerFrame = (
     return { ok: true, frame: value as unknown as RelayServerFrame };
   }
   if (value.type === 'message') {
-    if (
-      !hasOnlyKeys(value, ['type', 'envelope', 'delayedMs']) ||
-      !Number.isSafeInteger(value.delayedMs) ||
-      Number(value.delayedMs) < 0
-    )
+    if (!hasOnlyKeys(value, ['type', 'envelope', 'delayedMs'])) {
       return { ok: false, code: 'invalid_message' };
-    const parsed = parseRelayClientFrame(
-      JSON.stringify({ type: 'send', envelope: value.envelope }),
+    }
+    const parsed = parseServerMessage(
+      { envelope: value.envelope, delayedMs: value.delayedMs },
       now,
     );
-    if (!parsed.ok || parsed.frame.type !== 'send') return { ok: false, code: 'invalid_message' };
+    if (!parsed) return { ok: false, code: 'invalid_message' };
+    return {
+      ok: true,
+      frame: { type: 'message', ...parsed },
+    };
+  }
+  if (value.type === 'message_batch') {
+    if (
+      !hasOnlyKeys(value, ['type', 'messages']) ||
+      !Array.isArray(value.messages) ||
+      value.messages.length < 1 ||
+      value.messages.length > MAX_BATCH_MESSAGES
+    ) {
+      return { ok: false, code: 'invalid_message_batch' };
+    }
+    const messages = value.messages.map((message) => parseServerMessage(message, now));
+    if (
+      messages.some((message) => message === null) ||
+      new Set(messages.map((message) => message?.envelope.id)).size !== messages.length
+    ) {
+      return { ok: false, code: 'invalid_message_batch' };
+    }
     return {
       ok: true,
       frame: {
-        type: 'message',
-        envelope: parsed.frame.envelope,
-        delayedMs: Number(value.delayedMs),
+        type: 'message_batch',
+        messages: messages as Array<{ envelope: RelayEnvelope; delayedMs: number }>,
       },
     };
   }
@@ -422,7 +479,7 @@ export const parseRelayServerFrame = (
       !UUID_RE.test(value.requestId) ||
       typeof value.messageId !== 'string' ||
       !UUID_RE.test(value.messageId) ||
-      !['forwarded', 'queued', 'duplicate'].includes(String(value.status))
+      !['queued', 'duplicate'].includes(String(value.status))
     )
       return { ok: false, code: 'invalid_result' };
     return { ok: true, frame: value as unknown as RelayServerFrame };

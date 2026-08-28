@@ -4192,7 +4192,7 @@ async function roadBusCli(args) {
   if (["help", "-h", "--help"].includes(verb)) {
     return {
       usage: "agents-city bus <roster | inbox | send owner/city text>",
-      note: "Only the seat can cross a road; repo agents are rejected by the bus ACL."
+      note: "Only the seat can cross a road. Inbox returns a bounded batch so a burst never becomes one model turn per message."
     };
   }
   if (verb === "roster") return busCommand("road.roster");

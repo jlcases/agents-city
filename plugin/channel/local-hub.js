@@ -4649,11 +4649,16 @@ function endpointPath(context2) {
 }
 
 // delivery-queue.ts
+var ROAD_INBOX_BATCH_SIZE = 20;
+var DEFAULT_ROAD_INBOX_LIMIT = 500;
+var MAX_ROAD_INBOX_LIMIT = 1e4;
+var ROAD_INBOX_WAKE_FILE = "road-inbox-wakeup.json";
 function enqueueForActor(runtimeDir, envelope) {
   const directory = join5(runtimeDir, "outbox", safeSegment(envelope.to.actor));
   mkdirSync3(directory, { recursive: true, mode: 448 });
-  trim(directory);
-  atomicJson(join5(directory, `${fileKey(envelope.id)}.json`), envelope);
+  const path = join5(directory, `${fileKey(envelope.id)}.json`);
+  requireCapacity(directory, path, MAX_PENDING, "actor_outbox_full");
+  atomicJson(path, envelope);
 }
 function pendingForActor(runtimeDir, actor) {
   const directory = join5(runtimeDir, "outbox", safeSegment(actor));
@@ -4687,16 +4692,20 @@ function acknowledge(runtimeDir, actor, envelopeId) {
 function queueRoad(runtimeDir, envelope) {
   const directory = join5(runtimeDir, "road-queue");
   mkdirSync3(directory, { recursive: true, mode: 448 });
-  trim(directory);
-  atomicJson(join5(directory, `${fileKey(envelope.id)}.json`), envelope);
+  const path = join5(directory, `${fileKey(envelope.id)}.json`);
+  requireCapacity(directory, path, MAX_PENDING, "road_queue_full");
+  atomicJson(path, envelope);
 }
-function drainRoadQueue(runtimeDir) {
+function pendingRoadQueue(runtimeDir) {
   const directory = join5(runtimeDir, "road-queue");
   const out = [];
-  for (const path of jsonFiles(directory)) {
+  for (const path of jsonFilesByAge(directory)) {
     try {
       const envelope = JSON.parse(readFileSync4(path, "utf8"));
-      if (Date.now() - Date.parse(envelope.createdAt) <= MESSAGE_TTL_MS) out.push(envelope);
+      if (Date.now() - Date.parse(envelope.createdAt) <= MESSAGE_TTL_MS) {
+        out.push({ envelope, queueFile: path });
+        continue;
+      }
     } catch {
     }
     try {
@@ -4706,6 +4715,12 @@ function drainRoadQueue(runtimeDir) {
   }
   return out;
 }
+function acknowledgeRoadQueue(queueFile) {
+  try {
+    unlinkSync2(queueFile);
+  } catch {
+  }
+}
 function recordRoadInbox(runtimeDir, envelope) {
   const directory = join5(runtimeDir, "road-inbox");
   const receipts = join5(runtimeDir, "road-receipts");
@@ -4714,10 +4729,10 @@ function recordRoadInbox(runtimeDir, envelope) {
   const key = fileKey(envelope.id);
   const receipt = join5(receipts, `${key}.json`);
   if (existsSync4(receipt)) return false;
-  trim(directory);
   const inbox = join5(directory, `${key}.json`);
   const recovered = existsSync4(inbox);
   if (!recovered) {
+    requireCapacity(directory, inbox, roadInboxLimit(), "road_inbox_full");
     atomicJson(inbox, envelope);
     appendFileSync2(join5(runtimeDir, "road-history.jsonl"), JSON.stringify(envelope) + "\n", {
       mode: 384
@@ -4734,10 +4749,33 @@ function markRoadInboxAccepted(runtimeDir, envelopeId) {
   trimTo(receipts, 1e3);
   atomicJson(receipt, { id: envelopeId, acceptedAt: (/* @__PURE__ */ new Date()).toISOString() });
 }
-function takeRoadInbox(runtimeDir) {
+function roadInboxStatus(runtimeDir) {
+  const directory = join5(runtimeDir, "road-inbox");
+  const paths = jsonFilesByAge(directory);
+  let notifiedAt = 0;
+  try {
+    const state = JSON.parse(readFileSync4(join5(runtimeDir, ROAD_INBOX_WAKE_FILE), "utf8"));
+    if (Number.isSafeInteger(state.notifiedAt) && Number(state.notifiedAt) > 0) {
+      notifiedAt = Number(state.notifiedAt);
+    }
+  } catch {
+  }
+  return {
+    pending: paths.length,
+    oldestAt: oldestTimestamp(paths),
+    notifiedAt
+  };
+}
+function markRoadInboxNotified(runtimeDir, notifiedAt = Date.now()) {
+  atomicJson(join5(runtimeDir, ROAD_INBOX_WAKE_FILE), { notifiedAt });
+}
+function takeRoadInbox(runtimeDir, limit = ROAD_INBOX_BATCH_SIZE) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > ROAD_INBOX_BATCH_SIZE) {
+    throw new Error("invalid_road_inbox_batch_size");
+  }
   const directory = join5(runtimeDir, "road-inbox");
   const out = [];
-  for (const path of jsonFiles(directory)) {
+  for (const path of jsonFilesByAge(directory).slice(0, limit)) {
     try {
       out.push(JSON.parse(readFileSync4(path, "utf8")));
     } catch {
@@ -4747,7 +4785,14 @@ function takeRoadInbox(runtimeDir) {
     } catch {
     }
   }
-  return out;
+  const remaining = jsonFiles(directory).length;
+  if (!remaining) {
+    try {
+      unlinkSync2(join5(runtimeDir, ROAD_INBOX_WAKE_FILE));
+    } catch {
+    }
+  }
+  return { messages: out, remaining };
 }
 function jsonFiles(directory) {
   if (!existsSync4(directory)) return [];
@@ -4757,13 +4802,37 @@ function jsonFiles(directory) {
     return [];
   }
 }
+function jsonFilesByAge(directory) {
+  return jsonFiles(directory).sort((left, right) => {
+    try {
+      const delta = statSync(left).mtimeMs - statSync(right).mtimeMs;
+      return delta || left.localeCompare(right);
+    } catch {
+      return left.localeCompare(right);
+    }
+  });
+}
+function oldestTimestamp(paths) {
+  for (const path of paths) {
+    try {
+      return new Date(statSync(path).mtimeMs).toISOString();
+    } catch {
+    }
+  }
+  return null;
+}
 function fileKey(value) {
   const out = String(value).replace(/[^a-zA-Z0-9_.-]+/g, "-").slice(0, 160);
   if (!out) throw new Error("invalid message id");
   return out;
 }
-function trim(directory) {
-  trimTo(directory, MAX_PENDING);
+function roadInboxLimit() {
+  const configured = Number(process.env.CITY_ROAD_INBOX_MAX_PENDING);
+  return Number.isSafeInteger(configured) && configured >= ROAD_INBOX_BATCH_SIZE ? Math.min(configured, MAX_ROAD_INBOX_LIMIT) : DEFAULT_ROAD_INBOX_LIMIT;
+}
+function requireCapacity(directory, target, maximum, code) {
+  if (existsSync4(target)) return;
+  if (jsonFiles(directory).length >= maximum) throw new Error(code);
 }
 function trimTo(directory, maximum) {
   const files2 = jsonFiles(directory).sort((left, right) => {
@@ -5582,12 +5651,14 @@ import { homedir as homedir2 } from "node:os";
 import { join as join10, resolve as resolve2 } from "node:path";
 
 // managed-connect/protocol.ts
-var RELAY_PROTOCOL = "agents-city-relay/1";
+var RELAY_PROTOCOL = "agents-city-relay/2";
 var DEVICE_PROOF_PROTOCOL = "agents-city-device-proof/1";
 var SEALED_SUITE = "HPKE-BASE-X25519-HKDF-SHA256-AES128GCM";
 var RELAY_AAD_PROTOCOL = "agents-city-relay-aad/1";
 var ROAD_TEXT_PROTOCOL = "agents-city-road-text/1";
 var MAX_FRAME_BYTES = 32768;
+var MAX_SERVER_FRAME_BYTES = 262144;
+var MAX_BATCH_MESSAGES = 32;
 var MAX_CIPHERTEXT_BYTES = 16384;
 var MAX_CLOCK_SKEW_MS = 9e4;
 var MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1e3;
@@ -5675,6 +5746,14 @@ var parseRelayClientFrame = (raw, now = Date.now()) => {
     }
     return { ok: true, frame: { type: "ack", messageId: value.messageId } };
   }
+  if (value.type === "ack_batch") {
+    if (!hasOnlyKeys(value, ["type", "messageIds"]) || !Array.isArray(value.messageIds) || value.messageIds.length < 1 || value.messageIds.length > MAX_BATCH_MESSAGES || !value.messageIds.every(
+      (messageId) => typeof messageId === "string" && UUID_RE.test(messageId)
+    ) || new Set(value.messageIds).size !== value.messageIds.length) {
+      return { ok: false, code: "invalid_ack_batch" };
+    }
+    return { ok: true, frame: { type: "ack_batch", messageIds: value.messageIds } };
+  }
   if (value.type !== "send" || !value.envelope || typeof value.envelope !== "object") {
     return { ok: false, code: "invalid_frame" };
   }
@@ -5720,8 +5799,21 @@ var isRoadDirectoryEntry = (value) => {
     "peerEncryptionPublicJwk"
   ]) && typeof road.id === "string" && UUID_RE.test(road.id) && Number.isSafeInteger(road.revision) && Number(road.revision) >= 1 && isCityAddress(road.localCity) && isCityAddress(road.peerCity) && road.localCity !== road.peerCity && typeof road.localEncryptionKeyId === "string" && base64urlDecodedLength(road.localEncryptionKeyId) === 32 && typeof road.peerEncryptionKeyId === "string" && base64urlDecodedLength(road.peerEncryptionKeyId) === 32 && publicOkp(road.peerSigningPublicJwk, "Ed25519") && publicOkp(road.peerEncryptionPublicJwk, "X25519");
 };
+var parseServerMessage = (value, now) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const message = value;
+  if (!hasOnlyKeys(message, ["envelope", "delayedMs"]) || !Number.isSafeInteger(message.delayedMs) || Number(message.delayedMs) < 0) {
+    return null;
+  }
+  const parsed = parseRelayClientFrame(
+    JSON.stringify({ type: "send", envelope: message.envelope }),
+    now
+  );
+  if (!parsed.ok || parsed.frame.type !== "send") return null;
+  return { envelope: parsed.frame.envelope, delayedMs: Number(message.delayedMs) };
+};
 var parseRelayServerFrame = (raw, now = Date.now()) => {
-  if (byteLength(raw) > MAX_FRAME_BYTES) return { ok: false, code: "frame_too_large" };
+  if (byteLength(raw) > MAX_SERVER_FRAME_BYTES) return { ok: false, code: "frame_too_large" };
   let candidate;
   try {
     candidate = JSON.parse(raw);
@@ -5749,24 +5841,37 @@ var parseRelayServerFrame = (raw, now = Date.now()) => {
     return { ok: true, frame: value };
   }
   if (value.type === "message") {
-    if (!hasOnlyKeys(value, ["type", "envelope", "delayedMs"]) || !Number.isSafeInteger(value.delayedMs) || Number(value.delayedMs) < 0)
+    if (!hasOnlyKeys(value, ["type", "envelope", "delayedMs"])) {
       return { ok: false, code: "invalid_message" };
-    const parsed = parseRelayClientFrame(
-      JSON.stringify({ type: "send", envelope: value.envelope }),
+    }
+    const parsed = parseServerMessage(
+      { envelope: value.envelope, delayedMs: value.delayedMs },
       now
     );
-    if (!parsed.ok || parsed.frame.type !== "send") return { ok: false, code: "invalid_message" };
+    if (!parsed) return { ok: false, code: "invalid_message" };
+    return {
+      ok: true,
+      frame: { type: "message", ...parsed }
+    };
+  }
+  if (value.type === "message_batch") {
+    if (!hasOnlyKeys(value, ["type", "messages"]) || !Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > MAX_BATCH_MESSAGES) {
+      return { ok: false, code: "invalid_message_batch" };
+    }
+    const messages = value.messages.map((message) => parseServerMessage(message, now));
+    if (messages.some((message) => message === null) || new Set(messages.map((message) => message?.envelope.id)).size !== messages.length) {
+      return { ok: false, code: "invalid_message_batch" };
+    }
     return {
       ok: true,
       frame: {
-        type: "message",
-        envelope: parsed.frame.envelope,
-        delayedMs: Number(value.delayedMs)
+        type: "message_batch",
+        messages
       }
     };
   }
   if (value.type === "result") {
-    if (!hasOnlyKeys(value, ["type", "requestId", "messageId", "status"]) || typeof value.requestId !== "string" || !UUID_RE.test(value.requestId) || typeof value.messageId !== "string" || !UUID_RE.test(value.messageId) || !["forwarded", "queued", "duplicate"].includes(String(value.status)))
+    if (!hasOnlyKeys(value, ["type", "requestId", "messageId", "status"]) || typeof value.requestId !== "string" || !UUID_RE.test(value.requestId) || typeof value.messageId !== "string" || !UUID_RE.test(value.messageId) || !["queued", "duplicate"].includes(String(value.status)))
       return { ok: false, code: "invalid_result" };
     return { ok: true, frame: value };
   }
@@ -6434,7 +6539,8 @@ var ManagedRelaySession = class {
       else throw new Error(frame.code);
       return;
     }
-    if (frame.type === "message") return this.acceptMessage(frame);
+    if (frame.type === "message") return this.acceptMessages([frame]);
+    if (frame.type === "message_batch") return this.acceptMessages(frame.messages);
   }
   applyDirectory(frame) {
     if (this.expectedRoads === null) throw new Error("road_directory_before_welcome");
@@ -6480,27 +6586,36 @@ var ManagedRelaySession = class {
     if (!current || frame.revision >= current.revision)
       this.roadsById.set(frame.roadId, frame.road);
   }
-  async acceptMessage(frame) {
-    const road = this.roadsById.get(frame.envelope.roadId);
-    if (!road) throw new Error("message_without_active_road");
-    const opened = await openRoadEnvelope(this.identity, road, frame.envelope);
-    try {
-      await this.options.onText({
-        trust: "untrusted_remote_text",
-        roadId: road.id,
-        messageId: opened.messageId,
-        from: frame.envelope.from,
-        to: frame.envelope.to,
-        text: opened.text
-      });
-    } catch (value) {
-      const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
-      this.options.onLocalError?.(error);
-      this.transport.close(1011, "local road handoff failed");
-      this.closeState(error);
-      return;
+  async acceptMessages(messages) {
+    const accepted = [];
+    for (const message of messages) {
+      const road = this.roadsById.get(message.envelope.roadId);
+      if (!road) throw new Error("message_without_active_road");
+      const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      try {
+        await this.options.onText({
+          trust: "untrusted_remote_text",
+          roadId: road.id,
+          messageId: opened.messageId,
+          from: message.envelope.from,
+          to: message.envelope.to,
+          text: opened.text
+        });
+      } catch (value) {
+        this.acknowledgeBatch(accepted);
+        const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
+        this.options.onLocalError?.(error);
+        this.transport.close(1013, "local Road inbox unavailable");
+        this.closeState(error);
+        return;
+      }
+      accepted.push(opened.messageId);
     }
-    this.transport.send(JSON.stringify({ type: "ack", messageId: opened.messageId }));
+    this.acknowledgeBatch(accepted);
+  }
+  acknowledgeBatch(messageIds) {
+    if (!messageIds.length) return;
+    this.transport.send(JSON.stringify({ type: "ack_batch", messageIds }));
   }
   rejectPending(requestId, error) {
     const request = this.pending.get(requestId);
@@ -6539,7 +6654,7 @@ async function openManagedRelaySession(identity, city, options) {
   const socket = new wrapper_default(url, {
     headers,
     handshakeTimeout: 1e4,
-    maxPayload: 32768,
+    maxPayload: MAX_SERVER_FRAME_BYTES,
     perMessageDeflate: false,
     followRedirects: false
   });
@@ -6718,9 +6833,8 @@ function managedRoadBridge(context2, receive) {
     const body = envelope.payload?.text;
     if (typeof body !== "string") throw new Error("managed Roads carry text only");
     const result2 = await active.sendRoadText(matches[0].id, body);
-    if (result2.status === "queued") return `${to} is offline: encrypted message queued remotely`;
     if (result2.status === "duplicate") return `duplicate already accepted by ${to}`;
-    return `forwarded over the encrypted managed Road to ${to}`;
+    return `encrypted message durably queued for ${to}`;
   };
   const close2 = () => {
     stopped = true;
@@ -6926,6 +7040,14 @@ function legacyEnvelope(context2, from, body, id) {
 
 // hub/road-controller.ts
 function roadController(context2, router2) {
+  const wakeIntervalMs = duration(
+    process.env.CITY_ROAD_INBOX_WAKE_INTERVAL_MS,
+    5 * 6e4,
+    3e4,
+    60 * 6e4
+  );
+  const wakeCheckMs = Math.min(3e4, wakeIntervalMs);
+  let wakeTimer = null;
   let remote;
   const roads2 = () => {
     const merged = [...context2.roads, ...remote?.roads() ?? []];
@@ -6948,11 +7070,22 @@ function roadController(context2, router2) {
         textRaw: void 0
       }
     } : envelope;
-    if (!recordRoadInbox(context2.runtimeDir, guarded)) return;
-    router2.roadInbound(guarded);
+    const newlyRecorded = recordRoadInbox(context2.runtimeDir, guarded);
+    notifyBacklog();
+    if (!newlyRecorded) return;
     markRoadInboxAccepted(context2.runtimeDir, guarded.id);
   };
   remote = remoteRoadBridge(context2, inbound);
+  const notifyBacklog = () => {
+    const status = roadInboxStatus(context2.runtimeDir);
+    if (!status.pending || Date.now() - status.notifiedAt < wakeIntervalMs) return;
+    router2.internal("road.inbox.ready", "seat", "chair", "seat", null, {
+      pending: status.pending,
+      oldestAt: status.oldestAt,
+      batchSize: ROAD_INBOX_BATCH_SIZE
+    });
+    markRoadInboxNotified(context2.runtimeDir);
+  };
   const sendOne = async (to, body) => {
     const road = roads2().find((candidate) => candidate.address === to);
     if (!road) throw new Error(`no road from ${context2.city.address} to ${to}`);
@@ -6992,7 +7125,28 @@ function roadController(context2, router2) {
     for (const road of currentRoads) results.push(await sendOne(road.address, body));
     return { results };
   };
-  return { command, inbound, start: remote.start, close: remote.close };
+  const start = () => {
+    remote.start();
+    notifyBacklog();
+    wakeTimer = setInterval(() => {
+      try {
+        notifyBacklog();
+      } catch (error) {
+        console.error(`[city-bus] Road inbox wake-up failed: ${error.message}`);
+      }
+    }, wakeCheckMs);
+    wakeTimer.unref();
+  };
+  const close2 = () => {
+    if (wakeTimer) clearInterval(wakeTimer);
+    wakeTimer = null;
+    remote.close();
+  };
+  return { command, inbound, start, close: close2 };
+}
+function duration(raw, fallback, minimum, maximum) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
 }
 
 // local-hub.ts
@@ -7119,11 +7273,12 @@ server.listen(0, "127.0.0.1", () => {
   };
   publishEndpoint(context, endpoint);
   diagnostics("hub.listening", { outcome: "ready", message: endpoint.url });
-  for (const envelope of drainRoadQueue(context.runtimeDir)) {
+  for (const queued of pendingRoadQueue(context.runtimeDir)) {
     try {
-      roads.inbound(envelope);
+      roads.inbound(queued.envelope);
+      acknowledgeRoadQueue(queued.queueFile);
     } catch (error) {
-      console.error(`[city-bus] dropped queued road envelope: ${error.message}`);
+      console.error(`[city-bus] kept queued Road envelope: ${error.message}`);
     }
   }
   roads.start();

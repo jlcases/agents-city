@@ -172,7 +172,30 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                    row.get('kind') == 'conversation.agent'
                    and row.get('thread') == thread
                    and 'Fake Claude answer' in row.get('summary', '')
-                   for row in rows(activity))), json.dumps(rows(activity)[-4:]))
+               for row in rows(activity))), json.dumps(rows(activity)[-4:]))
+
+        # A provider ACK is not turn completion. Two assignments arriving while
+        # Claude is slow must remain serialized: the second stays in the durable
+        # actor outbox until the first result finishes instead of starting a
+        # concurrent model call.
+        open(behavior, 'w', encoding='utf-8').write('slow\n')
+        first_slow = open_committee(env, 'First slow assignment.')
+        second_slow = open_committee(env, 'Second assignment waits behind the first.')
+        afirma('· load: two slow assignments are admitted to the durable city queue',
+               bool(first_slow) and bool(second_slow))
+        afirma('· load: Claude receives the first slow turn',
+               espera(lambda: len(rows(capture)) == 2), text(log)[-800:])
+        time.sleep(.12)
+        afirma('· load: a busy Claude never starts the second model turn concurrently',
+               len(rows(capture)) == 2,
+               json.dumps(rows(capture)[-2:], ensure_ascii=False))
+        afirma('· load: the queued turn starts after the first completes',
+               espera(lambda: len(rows(capture)) == 3), text(log)[-1000:])
+        afirma('· load: both serialized assignments eventually drain',
+               espera(lambda: (not os.path.isdir(outbox) or not os.listdir(outbox))
+                      and len(rows(metrics)) == 3),
+               f'metrics={json.dumps(rows(metrics))}')
+        open(behavior, 'w', encoding='utf-8').write('healthy\n')
         afirma('· regression: no terminal adapter or managed machine policy is created',
                not os.path.exists(os.path.join(runtime_dir, 'adapters'))
                and not os.path.exists(os.path.join(base, 'Library', 'Application Support',
@@ -190,7 +213,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
         rejected_thread = open_committee(env, 'Retain a provider-rejected assignment.')
         afirma('· non-happy: Claude rejection is visible in diagnostics',
                espera(lambda: 'fake Claude rejected the prompt' in text(log)), text(log)[-800:])
-        comprueba('· non-happy: rejection writes no false native metric', len(rows(metrics)), 1)
+        comprueba('· non-happy: rejection writes no false native metric', len(rows(metrics)), 3)
         afirma('· non-happy: rejected work remains exactly once in the actor outbox',
                espera(lambda: os.path.isdir(outbox) and len(os.listdir(outbox)) == 1),
                str(os.listdir(outbox) if os.path.isdir(outbox) else []))
@@ -206,7 +229,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                    for row in rows(capture))), text(log)[-1000:])
         afirma('· recovery: only native acceptance drains retained work',
                espera(lambda: (not os.path.isdir(outbox) or not os.listdir(outbox))
-                      and len(rows(metrics)) == 2), json.dumps(rows(metrics)))
+                      and len(rows(metrics)) == 4), json.dumps(rows(metrics)))
         stop(recovered)
         espera(lambda: not os.path.exists(status))
 
@@ -224,7 +247,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                text(log)[-1000:])
         afirma('· non-happy: timed-out work remains durable and unmeasured',
                os.path.isdir(outbox) and len(os.listdir(outbox)) == 1
-               and len(rows(metrics)) == 2,
+               and len(rows(metrics)) == 4,
                f'outbox={os.listdir(outbox) if os.path.isdir(outbox) else []} '
                f'metrics={rows(metrics)}')
 

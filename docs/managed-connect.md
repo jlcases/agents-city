@@ -62,27 +62,40 @@ For every message the sender:
 3. signs the complete relay envelope with Ed25519;
 4. sends ciphertext over one outbound WSS connection.
 
-The receiver checks the strict frame shape, active bilateral Road revision,
+The receiver checks the strict protocol-v2 frame shape, active bilateral Road revision,
 addresses, key id, expiry and Ed25519 signature before HPKE decryption. It then
 hands the recovered body to the existing road controller as
 `untrusted_remote_text`. The controller adds the unforgeable untrusted boundary
-before durable inbox storage or delivery to the seat. The local handoff order is
-inbox, seat outbox, receipt, then relay ACK. Replays use the stable message id and
-do not append a second inbox/history entry. A crash may retry an unacknowledged
-seat notification, which is the intentional at-least-once side of avoiding
-message loss. A revocation directory update removes the Road immediately.
+before durable inbox storage. The local handoff order is inbox, one content-free
+coalesced seat wake-up, receipt, then relay ACK. Protocol v2 may carry up to 32
+encrypted deliveries in one server frame and acknowledges locally accepted ids
+with one `ack_batch`. Replays use the stable message id and do not append a
+second inbox/history entry. A crash may retry an unacknowledged delivery, which
+is the intentional at-least-once side of avoiding message loss. A revocation
+directory update removes the Road immediately.
 
-A sender result of `forwarded` means the relay handed the ciphertext to an
-online destination socket; it is not an end-to-end read or processing receipt.
-`queued` means the relay retained ciphertext for an offline destination, and
-`duplicate` means it had already accepted that message id.
+A sender result of `queued` means only that the relay durably admitted the
+ciphertext to the destination route. It does not mean that the destination
+computer, its agent or its human has received, read, processed or answered it.
+`duplicate` means the relay had already admitted that message id. Protocol v2
+rejects the old `forwarded` status because it implied a stronger delivery state
+than the relay could prove.
+
+Slow models are a separate capacity boundary from relay throughput. The local
+Road inbox holds 500 messages by default and returns bounded batches of 20. A
+burst emits one wake-up without remote message bodies; the seat groups related
+requests and every native runtime permits only one active model turn. If the
+local inbox is full, the client withholds its relay ACK and reconnects with a
+retryable capacity error. No existing inbox, actor-outbox or local retry entry is
+silently evicted. Transport load and model-workload recovery are therefore two
+separate tests and two separate SLOs.
 
 The HPKE implementation is locked to the RFC 9180 A.1.1 test vector. The
 regression suite also proves ciphertext-only frames, post-acceptance ACK,
 revocation, 0600/0700 custody and symlink refusal:
 
 ```bash
-./bin/test connect cage security
+./bin/test connect channel claude-runtime cage security
 ```
 
 ## What the relay can and cannot know

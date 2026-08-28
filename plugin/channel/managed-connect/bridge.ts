@@ -151,9 +151,8 @@ export function managedRoadBridge(context: CityContext, receive: (envelope: BusE
     const body = envelope.payload?.text;
     if (typeof body !== 'string') throw new Error('managed Roads carry text only');
     const result = await active.sendRoadText(matches[0].id, body);
-    if (result.status === 'queued') return `${to} is offline: encrypted message queued remotely`;
     if (result.status === 'duplicate') return `duplicate already accepted by ${to}`;
-    return `forwarded over the encrypted managed Road to ${to}`;
+    return `encrypted message durably queued for ${to}`;
   };
 
   const close = (): void => {

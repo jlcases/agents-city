@@ -730,7 +730,7 @@ agents-city bus send '*' "Aviso para todas mis carreteras"
 | Subcomando | Efecto |
 |---|---|
 | `roster` | devuelve carreteras y presencia online conocida |
-| `inbox` | devuelve y consume el inbox pendiente; el historial append-only permanece |
+| `inbox` | devuelve y consume el siguiente lote de hasta 20; `remaining` indica lo que queda y el historial append-only permanece |
 | `send owner/city TEXTO` | envía a un destino permitido |
 | `send '*' TEXTO` | envía a todas las carreteras; exige al menos una |
 
@@ -1849,8 +1849,13 @@ El hub local no mezcla datos efímeros con la configuración legible:
 
 Las credenciales y ficheros de runtime se crean con permisos privados. Los
 outboxes permiten que un actor se reconecte sin perder tareas ya aceptadas; el
-ACK elimina el pendiente. El límite actual es 200 pendientes por cola y 72 horas
-de vida por mensaje. `bus inbox` consume `road-inbox`, no el historial append-only.
+ACK elimina el pendiente. Los outboxes de actores y la cola local de reintentos
+admiten 200 pendientes; el inbox de Roads admite 500 por defecto y devuelve como
+máximo los 20 más antiguos en cada lectura. Una ráfaga crea una sola activación
+agrupada del asiento, no un turno del modelo por mensaje, y cada runtime nativo
+ejecuta como máximo un turno a la vez. Una cola llena aplica backpressure en vez
+de borrar silenciosamente un elemento anterior. La vida de cada mensaje es de
+72 horas. `bus inbox` consume `road-inbox`, no el historial append-only.
 
 ### Variables configurables
 
@@ -1872,6 +1877,8 @@ de vida por mensaje. `bus inbox` consume `road-inbox`, no el historial append-on
 | `CITY_HOOKS` | `city` | `everywhere` ejecuta los hooks de conciencia en todas las sesiones de Claude, no solo en runtimes de ciudad |
 | `CITY_DESKTOP` | `~/Desktop`, o el escritorio de Windows bajo WSL | dónde escribe `agents-city shortcut` |
 | `CITY_CAGE` | `1` | `0` arranca todas las ventanas sin jaula |
+| `CITY_ROAD_INBOX_MAX_PENDING` | `500` | capacidad local del inbox de Roads, entre 20 y 10.000; al llenarse aplica backpressure |
+| `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | intervalo mínimo entre activaciones agrupadas del backlog, de 30 segundos a 1 hora |
 | `CITY_CAGE_DENY` | vacío | rutas extra que sellar, separadas por `:` |
 | `CITY_CAGE_ALLOW_WRITE` | vacío | rutas extra que mantener escribibles, separadas por `:` |
 | `CITY_UPDATE_CHECK` | `1` | `0` no pregunta nunca a npm si hay versión más nueva |

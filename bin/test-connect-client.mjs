@@ -194,18 +194,18 @@ async function relayBoundary() {
   const rightWire = new MemoryTransport();
   let releaseLocal;
   const locallyAccepted = new Promise((resolve) => { releaseLocal = resolve; });
-  let received;
+  const received = [];
   const leftSession = new ManagedRelaySession(left, 'alice/product', leftWire, {
     onText: () => { throw new Error('unexpected reverse text'); },
   });
   const rightSession = new ManagedRelaySession(right, 'bob/engineering', rightWire, {
     onText: async (message) => {
-      received = message;
-      await locallyAccepted;
+      received.push(message);
+      if (received.length === 1) await locallyAccepted;
     },
   });
-  leftWire.deliver({ type: 'welcome', city: 'alice/product', deviceId: left.deviceId, protocol: 'agents-city-relay/1', roadCount: 1 });
-  rightWire.deliver({ type: 'welcome', city: 'bob/engineering', deviceId: right.deviceId, protocol: 'agents-city-relay/1', roadCount: 1 });
+  leftWire.deliver({ type: 'welcome', city: 'alice/product', deviceId: left.deviceId, protocol: 'agents-city-relay/2', roadCount: 1 });
+  rightWire.deliver({ type: 'welcome', city: 'bob/engineering', deviceId: right.deviceId, protocol: 'agents-city-relay/2', roadCount: 1 });
   leftWire.deliver(directoryFrame('alice/product', leftRoad));
   rightWire.deliver(directoryFrame('bob/engineering', rightRoad));
   await Promise.all([leftSession.ready(), rightSession.ready()]);
@@ -219,15 +219,27 @@ async function relayBoundary() {
   await eventually(() => leftWire.sent.length > 0);
   const outbound = JSON.parse(leftWire.sent.at(-1));
   check('relay send frame contains ciphertext only', outbound.type === 'send' && !leftWire.sent.at(-1).includes(text));
-  rightWire.deliver({ type: 'message', envelope: outbound.envelope, delayedMs: 0 });
-  await eventually(() => received !== undefined);
-  check('inbound callback labels remote text untrusted', received?.trust === 'untrusted_remote_text');
-  check('delivery is not ACKed before the local boundary accepts it', !rightWire.sent.some((raw) => JSON.parse(raw).type === 'ack'));
+  const secondEnvelope = await createRoadEnvelope(left, leftRoad, 'A second batched request');
+  rightWire.deliver({
+    type: 'message_batch',
+    messages: [
+      { envelope: outbound.envelope, delayedMs: 0 },
+      { envelope: secondEnvelope, delayedMs: 1 },
+    ],
+  });
+  await eventually(() => received.length === 1);
+  check('inbound callback labels remote text untrusted', received[0]?.trust === 'untrusted_remote_text');
+  check('delivery is not ACKed before the local boundary accepts it',
+    !rightWire.sent.some((raw) => JSON.parse(raw).type === 'ack_batch'));
   releaseLocal();
-  await new Promise((resolve) => setImmediate(resolve));
-  check('delivery is ACKed after local acceptance', rightWire.sent.some((raw) => JSON.parse(raw).type === 'ack'));
-  leftWire.deliver({ type: 'result', requestId: outbound.envelope.requestId, messageId: outbound.envelope.id, status: 'forwarded' });
-  check('sender resolves the honest forwarded result', (await sent).status === 'forwarded');
+  await eventually(() => received.length === 2);
+  const batchAck = rightWire.sent.map((raw) => JSON.parse(raw)).find((frame) => frame.type === 'ack_batch');
+  check('one batch ACK follows durable local acceptance',
+    batchAck?.messageIds?.length === 2
+    && batchAck.messageIds.includes(outbound.envelope.id)
+    && batchAck.messageIds.includes(secondEnvelope.id));
+  leftWire.deliver({ type: 'result', requestId: outbound.envelope.requestId, messageId: outbound.envelope.id, status: 'queued' });
+  check('sender resolves only the honest durable-queue result', (await sent).status === 'queued');
 
   leftWire.deliver({ type: 'road_update', roadId, revision: 2, status: 'revoked' });
   await new Promise((resolve) => setImmediate(resolve));
@@ -241,14 +253,19 @@ async function relayBoundary() {
   const failedSession = new ManagedRelaySession(right, 'bob/engineering', failedWire, {
     onText: () => { throw new Error('disk_unavailable'); },
   });
-  failedWire.deliver({ type: 'welcome', city: 'bob/engineering', deviceId: right.deviceId, protocol: 'agents-city-relay/1', roadCount: 1 });
+  failedWire.deliver({ type: 'welcome', city: 'bob/engineering', deviceId: right.deviceId, protocol: 'agents-city-relay/2', roadCount: 1 });
   failedWire.deliver(directoryFrame('bob/engineering', rightRoad));
   await failedSession.ready();
   failedWire.deliver({ type: 'message', envelope: outbound.envelope, delayedMs: 0 });
   await eventually(() => failedWire.closed.length > 0);
   check('a failed local handoff is not ACKed and remains retryable',
-    failedWire.closed.some((entry) => entry.code === 1011)
-    && !failedWire.sent.some((raw) => JSON.parse(raw).type === 'ack'));
+    failedWire.closed.some((entry) => entry.code === 1013)
+    && !failedWire.sent.some((raw) => JSON.parse(raw).type === 'ack_batch'));
+
+  check('protocol v2 rejects the misleading legacy forwarded result',
+    parseRelayServerFrame(JSON.stringify({
+      type: 'result', requestId: randomUUID(), messageId: randomUUID(), status: 'forwarded',
+    })).ok === false);
 
   const malformed = JSON.stringify({ type: 'pong', at: Date.now(), injected: true });
   check('unknown relay fields are rejected', parseRelayServerFrame(malformed).ok === false);

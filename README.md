@@ -721,7 +721,7 @@ agents-city bus send '*' "Notice for every connected city"
 | Subcommand | Effect |
 |---|---|
 | `roster` | return roads and known online presence |
-| `inbox` | return and consume pending inbox; append-only history remains |
+| `inbox` | return and consume the next batch of up to 20; `remaining` reports backlog and append-only history remains |
 | `send owner/city TEXT` | send to one allowed destination |
 | `send '*' TEXT` | send to all roads; requires at least one |
 
@@ -1825,8 +1825,12 @@ The local hub keeps ephemeral state separate from readable configuration:
 
 Credentials and runtime files are created with private permissions. Outboxes let
 an actor reconnect without losing an already accepted task; its ACK removes the
-pending item. Current limits are 200 pending items per queue and a 72-hour
-message lifetime. `bus inbox` consumes `road-inbox`, not append-only history.
+pending item. Actor outboxes and the local retry queue admit 200 pending items;
+the Road inbox admits 500 by default and returns at most 20 oldest items per
+read. A burst creates one coalesced seat wake-up rather than one model turn per
+message, and every native runtime runs at most one turn at a time. Full queues
+apply backpressure instead of silently deleting an older item. Message lifetime
+is 72 hours. `bus inbox` consumes `road-inbox`, not append-only history.
 
 ### Configurable variables
 
@@ -1848,6 +1852,8 @@ message lifetime. `bus inbox` consumes `road-inbox`, not append-only history.
 | `CITY_HOOKS` | `city` | `everywhere` runs the conscience hooks in every Claude session, not only city runtimes |
 | `CITY_DESKTOP` | `~/Desktop`, or the Windows desktop under WSL | where `agents-city shortcut` writes |
 | `CITY_CAGE` | `1` | `0` launches every window uncaged |
+| `CITY_ROAD_INBOX_MAX_PENDING` | `500` | local Road inbox capacity, from 20 to 10,000; a full inbox applies backpressure |
+| `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | minimum interval between coalesced backlog wake-ups, from 30 seconds to 1 hour |
 | `CITY_CAGE_DENY` | empty | extra colon-separated paths to seal |
 | `CITY_CAGE_ALLOW_WRITE` | empty | extra colon-separated paths to keep writable |
 | `CITY_UPDATE_CHECK` | `1` | `0` never asks npm whether a newer version exists |

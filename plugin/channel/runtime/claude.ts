@@ -17,6 +17,7 @@ interface ClaudeTurn {
   timer: NodeJS.Timeout;
   resolveAcceptance: (at: string) => void;
   rejectAcceptance: (error: Error) => void;
+  releaseTurn: () => void;
 }
 
 /**
@@ -33,6 +34,7 @@ export class ClaudeConnector implements RuntimeConnector {
   private stderrTail = '';
   private sessionId = '';
   private turns: ClaudeTurn[] = [];
+  private turnDone: Promise<void> = Promise.resolve();
   private closing = false;
   private ready = false;
   private fatalError: Error | null = null;
@@ -123,8 +125,20 @@ export class ClaudeConnector implements RuntimeConnector {
   }
 
   async accept(prompt: string, envelope: BusEnvelope): Promise<NativeAcceptance> {
+    // Claude's stream-json transport acknowledges input before the model has
+    // finished its turn. Serialize here, as the Codex/OpenCode/Kimi connectors
+    // already do, so a busy seat applies durable local backpressure instead of
+    // starting an unbounded number of concurrent model turns.
+    const previousTurn = this.turnDone;
+    let releaseTurn: () => void = () => {};
+    const currentTurn = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    this.turnDone = previousTurn.then(() => currentTurn);
+    await previousTurn;
     const child = this.child;
     if (!this.ready || !child?.stdin?.writable) {
+      releaseTurn();
       throw this.fatalError || new Error('Claude stream connector is not ready');
     }
     const uuid = randomUUID();
@@ -151,6 +165,7 @@ export class ClaudeConnector implements RuntimeConnector {
       }, acknowledgementTimeoutMs()),
       resolveAcceptance,
       rejectAcceptance,
+      releaseTurn,
     };
     this.turns.push(turn);
     const input = {
@@ -184,6 +199,7 @@ export class ClaudeConnector implements RuntimeConnector {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.ready = false;
     const child = this.child;
     this.child = null;
     for (const turn of this.turns) {
@@ -326,6 +342,7 @@ export class ClaudeConnector implements RuntimeConnector {
     turn.completed = true;
     clearTimeout(turn.timer);
     this.turns = this.turns.filter((candidate) => candidate !== turn);
+    turn.releaseTurn();
   }
 
   private currentTurn(): ClaudeTurn | undefined {
@@ -337,6 +354,7 @@ export class ClaudeConnector implements RuntimeConnector {
     if (!turn.acknowledged) turn.rejectAcceptance(error);
     turn.completed = true;
     this.turns = this.turns.filter((candidate) => candidate !== turn);
+    turn.releaseTurn();
   }
 
   private errorOutput(chunk: string): void {

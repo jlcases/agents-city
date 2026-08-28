@@ -1,6 +1,6 @@
 import WebSocket, { type RawData } from 'ws';
 import { signedRelayHeaders, type DeviceIdentity } from './device.js';
-import { isCityAddress } from './protocol.js';
+import { isCityAddress, MAX_SERVER_FRAME_BYTES } from './protocol.js';
 import {
   ManagedRelaySession,
   type RelaySessionOptions,
@@ -34,7 +34,7 @@ export async function openManagedRelaySession(
   const socket = new WebSocket(url, {
     headers,
     handshakeTimeout: 10_000,
-    maxPayload: 32_768,
+    maxPayload: MAX_SERVER_FRAME_BYTES,
     perMessageDeflate: false,
     followRedirects: false,
   });

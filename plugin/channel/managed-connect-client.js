@@ -3706,12 +3706,14 @@ var require_websocket_server = __commonJS({
 });
 
 // managed-connect/protocol.ts
-var RELAY_PROTOCOL = "agents-city-relay/1";
+var RELAY_PROTOCOL = "agents-city-relay/2";
 var DEVICE_PROOF_PROTOCOL = "agents-city-device-proof/1";
 var SEALED_SUITE = "HPKE-BASE-X25519-HKDF-SHA256-AES128GCM";
 var RELAY_AAD_PROTOCOL = "agents-city-relay-aad/1";
 var ROAD_TEXT_PROTOCOL = "agents-city-road-text/1";
 var MAX_FRAME_BYTES = 32768;
+var MAX_SERVER_FRAME_BYTES = 262144;
+var MAX_BATCH_MESSAGES = 32;
 var MAX_CIPHERTEXT_BYTES = 16384;
 var MAX_CLOCK_SKEW_MS = 9e4;
 var MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1e3;
@@ -3806,6 +3808,14 @@ var parseRelayClientFrame = (raw, now = Date.now()) => {
     }
     return { ok: true, frame: { type: "ack", messageId: value.messageId } };
   }
+  if (value.type === "ack_batch") {
+    if (!hasOnlyKeys(value, ["type", "messageIds"]) || !Array.isArray(value.messageIds) || value.messageIds.length < 1 || value.messageIds.length > MAX_BATCH_MESSAGES || !value.messageIds.every(
+      (messageId) => typeof messageId === "string" && UUID_RE.test(messageId)
+    ) || new Set(value.messageIds).size !== value.messageIds.length) {
+      return { ok: false, code: "invalid_ack_batch" };
+    }
+    return { ok: true, frame: { type: "ack_batch", messageIds: value.messageIds } };
+  }
   if (value.type !== "send" || !value.envelope || typeof value.envelope !== "object") {
     return { ok: false, code: "invalid_frame" };
   }
@@ -3851,8 +3861,21 @@ var isRoadDirectoryEntry = (value) => {
     "peerEncryptionPublicJwk"
   ]) && typeof road.id === "string" && UUID_RE.test(road.id) && Number.isSafeInteger(road.revision) && Number(road.revision) >= 1 && isCityAddress(road.localCity) && isCityAddress(road.peerCity) && road.localCity !== road.peerCity && typeof road.localEncryptionKeyId === "string" && base64urlDecodedLength(road.localEncryptionKeyId) === 32 && typeof road.peerEncryptionKeyId === "string" && base64urlDecodedLength(road.peerEncryptionKeyId) === 32 && publicOkp(road.peerSigningPublicJwk, "Ed25519") && publicOkp(road.peerEncryptionPublicJwk, "X25519");
 };
+var parseServerMessage = (value, now) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const message = value;
+  if (!hasOnlyKeys(message, ["envelope", "delayedMs"]) || !Number.isSafeInteger(message.delayedMs) || Number(message.delayedMs) < 0) {
+    return null;
+  }
+  const parsed = parseRelayClientFrame(
+    JSON.stringify({ type: "send", envelope: message.envelope }),
+    now
+  );
+  if (!parsed.ok || parsed.frame.type !== "send") return null;
+  return { envelope: parsed.frame.envelope, delayedMs: Number(message.delayedMs) };
+};
 var parseRelayServerFrame = (raw, now = Date.now()) => {
-  if (byteLength(raw) > MAX_FRAME_BYTES) return { ok: false, code: "frame_too_large" };
+  if (byteLength(raw) > MAX_SERVER_FRAME_BYTES) return { ok: false, code: "frame_too_large" };
   let candidate;
   try {
     candidate = JSON.parse(raw);
@@ -3880,24 +3903,37 @@ var parseRelayServerFrame = (raw, now = Date.now()) => {
     return { ok: true, frame: value };
   }
   if (value.type === "message") {
-    if (!hasOnlyKeys(value, ["type", "envelope", "delayedMs"]) || !Number.isSafeInteger(value.delayedMs) || Number(value.delayedMs) < 0)
+    if (!hasOnlyKeys(value, ["type", "envelope", "delayedMs"])) {
       return { ok: false, code: "invalid_message" };
-    const parsed = parseRelayClientFrame(
-      JSON.stringify({ type: "send", envelope: value.envelope }),
+    }
+    const parsed = parseServerMessage(
+      { envelope: value.envelope, delayedMs: value.delayedMs },
       now
     );
-    if (!parsed.ok || parsed.frame.type !== "send") return { ok: false, code: "invalid_message" };
+    if (!parsed) return { ok: false, code: "invalid_message" };
+    return {
+      ok: true,
+      frame: { type: "message", ...parsed }
+    };
+  }
+  if (value.type === "message_batch") {
+    if (!hasOnlyKeys(value, ["type", "messages"]) || !Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > MAX_BATCH_MESSAGES) {
+      return { ok: false, code: "invalid_message_batch" };
+    }
+    const messages = value.messages.map((message) => parseServerMessage(message, now));
+    if (messages.some((message) => message === null) || new Set(messages.map((message) => message?.envelope.id)).size !== messages.length) {
+      return { ok: false, code: "invalid_message_batch" };
+    }
     return {
       ok: true,
       frame: {
-        type: "message",
-        envelope: parsed.frame.envelope,
-        delayedMs: Number(value.delayedMs)
+        type: "message_batch",
+        messages
       }
     };
   }
   if (value.type === "result") {
-    if (!hasOnlyKeys(value, ["type", "requestId", "messageId", "status"]) || typeof value.requestId !== "string" || !UUID_RE.test(value.requestId) || typeof value.messageId !== "string" || !UUID_RE.test(value.messageId) || !["forwarded", "queued", "duplicate"].includes(String(value.status)))
+    if (!hasOnlyKeys(value, ["type", "requestId", "messageId", "status"]) || typeof value.requestId !== "string" || !UUID_RE.test(value.requestId) || typeof value.messageId !== "string" || !UUID_RE.test(value.messageId) || !["queued", "duplicate"].includes(String(value.status)))
       return { ok: false, code: "invalid_result" };
     return { ok: true, frame: value };
   }
@@ -4526,7 +4562,8 @@ var ManagedRelaySession = class {
       else throw new Error(frame.code);
       return;
     }
-    if (frame.type === "message") return this.acceptMessage(frame);
+    if (frame.type === "message") return this.acceptMessages([frame]);
+    if (frame.type === "message_batch") return this.acceptMessages(frame.messages);
   }
   applyDirectory(frame) {
     if (this.expectedRoads === null) throw new Error("road_directory_before_welcome");
@@ -4572,27 +4609,36 @@ var ManagedRelaySession = class {
     if (!current || frame.revision >= current.revision)
       this.roadsById.set(frame.roadId, frame.road);
   }
-  async acceptMessage(frame) {
-    const road = this.roadsById.get(frame.envelope.roadId);
-    if (!road) throw new Error("message_without_active_road");
-    const opened = await openRoadEnvelope(this.identity, road, frame.envelope);
-    try {
-      await this.options.onText({
-        trust: "untrusted_remote_text",
-        roadId: road.id,
-        messageId: opened.messageId,
-        from: frame.envelope.from,
-        to: frame.envelope.to,
-        text: opened.text
-      });
-    } catch (value) {
-      const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
-      this.options.onLocalError?.(error);
-      this.transport.close(1011, "local road handoff failed");
-      this.closeState(error);
-      return;
+  async acceptMessages(messages) {
+    const accepted = [];
+    for (const message of messages) {
+      const road = this.roadsById.get(message.envelope.roadId);
+      if (!road) throw new Error("message_without_active_road");
+      const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      try {
+        await this.options.onText({
+          trust: "untrusted_remote_text",
+          roadId: road.id,
+          messageId: opened.messageId,
+          from: message.envelope.from,
+          to: message.envelope.to,
+          text: opened.text
+        });
+      } catch (value) {
+        this.acknowledgeBatch(accepted);
+        const error = value instanceof Error ? value : new Error("local_road_handoff_failed");
+        this.options.onLocalError?.(error);
+        this.transport.close(1013, "local Road inbox unavailable");
+        this.closeState(error);
+        return;
+      }
+      accepted.push(opened.messageId);
     }
-    this.transport.send(JSON.stringify({ type: "ack", messageId: opened.messageId }));
+    this.acknowledgeBatch(accepted);
+  }
+  acknowledgeBatch(messageIds) {
+    if (!messageIds.length) return;
+    this.transport.send(JSON.stringify({ type: "ack_batch", messageIds }));
   }
   rejectPending(requestId, error) {
     const request = this.pending.get(requestId);
@@ -4894,7 +4940,7 @@ async function openManagedRelaySession(identity, city, options) {
   const socket = new wrapper_default(url, {
     headers,
     handshakeTimeout: 1e4,
-    maxPayload: 32768,
+    maxPayload: MAX_SERVER_FRAME_BYTES,
     perMessageDeflate: false,
     followRedirects: false
   });
@@ -4943,11 +4989,13 @@ export {
   DEVICE_PROOF_LIFETIME_MS,
   DEVICE_PROOF_PROTOCOL,
   HPKE_INFO,
+  MAX_BATCH_MESSAGES,
   MAX_CIPHERTEXT_BYTES,
   MAX_CLOCK_SKEW_MS,
   MAX_FRAME_BYTES,
   MAX_MESSAGE_LIFETIME_MS,
   MAX_PENDING_PER_CITY,
+  MAX_SERVER_FRAME_BYTES,
   ManagedRelaySession,
   RELAY_AAD_PROTOCOL,
   RELAY_PROTOCOL,

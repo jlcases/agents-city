@@ -1,6 +1,13 @@
 import { ActorRole, BUS_PROTOCOL, BusEnvelope, isoNow, randomId, text } from '../protocol.js';
 import { CityContext } from '../city-config.js';
-import { markRoadInboxAccepted, recordRoadInbox, takeRoadInbox } from '../delivery-queue.js';
+import {
+  ROAD_INBOX_BATCH_SIZE,
+  markRoadInboxAccepted,
+  markRoadInboxNotified,
+  recordRoadInbox,
+  roadInboxStatus,
+  takeRoadInbox,
+} from '../delivery-queue.js';
 import { requireChair } from '../committee/guards.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
@@ -8,6 +15,14 @@ import { localRoadOnline, sendLocalRoad } from './local-roads.js';
 import { remoteRoadBridge } from './remote-roads.js';
 
 export function roadController(context: CityContext, router: EnvelopeRouter) {
+  const wakeIntervalMs = duration(
+    process.env.CITY_ROAD_INBOX_WAKE_INTERVAL_MS,
+    5 * 60_000,
+    30_000,
+    60 * 60_000,
+  );
+  const wakeCheckMs = Math.min(30_000, wakeIntervalMs);
+  let wakeTimer: ReturnType<typeof setInterval> | null = null;
   let remote: ReturnType<typeof remoteRoadBridge>;
   const roads = () => {
     const merged = [...context.roads, ...(remote?.roads() ?? [])];
@@ -45,8 +60,9 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
             },
           }
         : envelope;
-    if (!recordRoadInbox(context.runtimeDir, guarded)) return;
-    router.roadInbound(guarded);
+    const newlyRecorded = recordRoadInbox(context.runtimeDir, guarded);
+    notifyBacklog();
+    if (!newlyRecorded) return;
     // Only now is the managed relay allowed to receive an ACK: both the
     // operator-visible inbox and the seat outbox are durable under one stable
     // envelope id. A crash before this marker is an at-least-once retry, never
@@ -54,6 +70,17 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     markRoadInboxAccepted(context.runtimeDir, guarded.id);
   };
   remote = remoteRoadBridge(context, inbound);
+
+  const notifyBacklog = (): void => {
+    const status = roadInboxStatus(context.runtimeDir);
+    if (!status.pending || Date.now() - status.notifiedAt < wakeIntervalMs) return;
+    router.internal('road.inbox.ready', 'seat', 'chair', 'seat', null, {
+      pending: status.pending,
+      oldestAt: status.oldestAt,
+      batchSize: ROAD_INBOX_BATCH_SIZE,
+    });
+    markRoadInboxNotified(context.runtimeDir);
+  };
 
   const sendOne = async (to: string, body: string): Promise<string> => {
     const road = roads().find((candidate) => candidate.address === to);
@@ -101,7 +128,31 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     return { results };
   };
 
-  return { command, inbound, start: remote.start, close: remote.close };
+  const start = (): void => {
+    remote.start();
+    notifyBacklog();
+    wakeTimer = setInterval(() => {
+      try {
+        notifyBacklog();
+      } catch (error) {
+        console.error(`[city-bus] Road inbox wake-up failed: ${(error as Error).message}`);
+      }
+    }, wakeCheckMs);
+    wakeTimer.unref();
+  };
+
+  const close = (): void => {
+    if (wakeTimer) clearInterval(wakeTimer);
+    wakeTimer = null;
+    remote.close();
+  };
+
+  return { command, inbound, start, close };
 }
 
 export type RoadController = ReturnType<typeof roadController>;
+
+function duration(raw: string | undefined, fallback: number, minimum: number, maximum: number) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
+}

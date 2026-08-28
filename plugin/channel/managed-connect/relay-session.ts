@@ -32,7 +32,7 @@ export type RelaySessionOptions = {
 };
 
 type PendingRequest = {
-  resolve: (value: { messageId: string; status: 'forwarded' | 'queued' | 'duplicate' }) => void;
+  resolve: (value: { messageId: string; status: 'queued' | 'duplicate' }) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
@@ -100,7 +100,7 @@ export class ManagedRelaySession {
     const road = this.roadsById.get(roadId);
     if (!road) throw new Error('road_not_available');
     const envelope = await createRoadEnvelope(this.identity, road, text);
-    const result = new Promise<{ messageId: string; status: 'forwarded' | 'queued' | 'duplicate' }>(
+    const result = new Promise<{ messageId: string; status: 'queued' | 'duplicate' }>(
       (resolve, reject) => {
         const timer = setTimeout(() => {
           this.pending.delete(envelope.requestId);
@@ -175,7 +175,8 @@ export class ManagedRelaySession {
       else throw new Error(frame.code);
       return;
     }
-    if (frame.type === 'message') return this.acceptMessage(frame);
+    if (frame.type === 'message') return this.acceptMessages([frame]);
+    if (frame.type === 'message_batch') return this.acceptMessages(frame.messages);
     // pong is intentionally state-free.
   }
 
@@ -228,28 +229,44 @@ export class ManagedRelaySession {
       this.roadsById.set(frame.roadId, frame.road);
   }
 
-  private async acceptMessage(frame: Extract<RelayServerFrame, { type: 'message' }>) {
-    const road = this.roadsById.get(frame.envelope.roadId);
-    if (!road) throw new Error('message_without_active_road');
-    const opened = await openRoadEnvelope(this.identity, road, frame.envelope);
-    try {
-      await this.options.onText({
-        trust: 'untrusted_remote_text',
-        roadId: road.id,
-        messageId: opened.messageId,
-        from: frame.envelope.from,
-        to: frame.envelope.to,
-        text: opened.text,
-      });
-    } catch (value) {
-      const error = value instanceof Error ? value : new Error('local_road_handoff_failed');
-      this.options.onLocalError?.(error);
-      this.transport.close(1011, 'local road handoff failed');
-      this.closeState(error);
-      return;
+  private async acceptMessages(
+    messages: Array<{
+      envelope: Extract<RelayServerFrame, { type: 'message' }>['envelope'];
+      delayedMs: number;
+    }>,
+  ) {
+    const accepted: string[] = [];
+    for (const message of messages) {
+      const road = this.roadsById.get(message.envelope.roadId);
+      if (!road) throw new Error('message_without_active_road');
+      const opened = await openRoadEnvelope(this.identity, road, message.envelope);
+      try {
+        await this.options.onText({
+          trust: 'untrusted_remote_text',
+          roadId: road.id,
+          messageId: opened.messageId,
+          from: message.envelope.from,
+          to: message.envelope.to,
+          text: opened.text,
+        });
+      } catch (value) {
+        this.acknowledgeBatch(accepted);
+        const error = value instanceof Error ? value : new Error('local_road_handoff_failed');
+        this.options.onLocalError?.(error);
+        // 1013 is a retryable local-capacity failure, not a malformed or
+        // malicious relay frame. Unacknowledged messages remain at the relay.
+        this.transport.close(1013, 'local Road inbox unavailable');
+        this.closeState(error);
+        return;
+      }
+      accepted.push(opened.messageId);
     }
-    // Delivery is acknowledged only after the local boundary has accepted it.
-    this.transport.send(JSON.stringify({ type: 'ack', messageId: opened.messageId }));
+    this.acknowledgeBatch(accepted);
+  }
+
+  private acknowledgeBatch(messageIds: string[]) {
+    if (!messageIds.length) return;
+    this.transport.send(JSON.stringify({ type: 'ack_batch', messageIds }));
   }
 
   private rejectPending(requestId: string, error: Error) {

@@ -324,6 +324,16 @@ def main():
         afirma('· an offline city is durably queued by the same hub',
                not enviado.get('result', {}).get('isError')
                and 'queued on the local bus' in texto(enviado), texto(enviado))
+        burst = [
+            a.herramienta(100 + i, 'bus_send', {
+                'to': 'alice/lab',
+                'text': f'burst item {i + 1}',
+            })
+            for i in range(24)
+        ]
+        afirma('· a two-dozen burst is admitted without waking an agent per message',
+               all(not item.get('result', {}).get('isError') for item in burst),
+               str([texto(item) for item in burst if item.get('result', {}).get('isError')]))
         queued_dir = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-queue')
         queued_file = os.path.join(queued_dir, os.listdir(queued_dir)[0])
         comprueba('· queue directory and envelope are private',
@@ -346,30 +356,36 @@ def main():
 
         b = Cliente('seat', lab, app)
         inbox = b.herramienta(5, 'bus_inbox')
+        inbox_rest = b.herramienta(6, 'bus_inbox')
         afirma('· starting the destination drains the durable road queue',
-               'hello from home' in texto(inbox)
-               and 'agents-city-bus/2' in texto(inbox), texto(inbox))
-        vacio = b.herramienta(6, 'bus_inbox')
-        afirma('· reading the road inbox clears it',
+               'hello from home' in texto(inbox) + texto(inbox_rest)
+               and 'agents-city-bus/2' in texto(inbox)
+               and '"remaining": 5' in texto(inbox),
+               texto(inbox) + texto(inbox_rest))
+        vacio = b.herramienta(7, 'bus_inbox')
+        afirma('· bounded inbox batches eventually clear the queue',
                'nothing new' in texto(vacio).lower(), texto(vacio))
-        roster = b.herramienta(7, 'bus_roster')
+        roster = b.herramienta(8, 'bus_roster')
         afirma('· roster is road-scoped and sees the other local hub online',
                'alice/home' in texto(roster)
                and 'alice/ghost' not in texto(roster)
                and '"online": true' in texto(roster), texto(roster))
         road_notices = [m for m in b.mensajes
                         if m.get('method') == 'notifications/claude/channel']
-        afirma('· a replayed road event reaches the seat through Channel exactly once',
+        afirma('· twenty-five arrivals produce one content-free, coalesced seat wake-up',
                len(road_notices) == 1
-               and 'hello from home' in road_notices[0].get('params', {}).get('content', ''),
+               and 'New untrusted Road information awaits triage'
+               in road_notices[0].get('params', {}).get('content', '')
+               and 'hello from home'
+               not in road_notices[0].get('params', {}).get('content', ''),
                str(road_notices))
         history_path = os.path.join(
             app, '.runtime', 'bus', 'city-lab', 'road-history.jsonl')
         history = open(history_path, encoding='utf-8').read().splitlines()
         receipts = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-receipts')
         afirma('· replay deduplication is durable across inbox reads',
-               len(history) == 1 and len(os.listdir(receipts)) == 1
-               and envelope['id'] in history[0],
+               len(history) == 25 and len(os.listdir(receipts)) == 25
+               and sum(envelope['id'] in row for row in history) == 1,
                f'history={history} receipts={os.listdir(receipts)}')
         before = len(road_notices)
         b.herramienta(9, 'bus_roster')
@@ -377,6 +393,22 @@ def main():
         after = len([m for m in b.mensajes
                      if m.get('method') == 'notifications/claude/channel'])
         afirma('· opening MCP status never duplicates a native prompt', before == after)
+
+        inbox_dir = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-inbox')
+        for i in range(500):
+            with open(os.path.join(inbox_dir, f'capacity-{i:03}.json'), 'w',
+                      encoding='utf-8') as f:
+                f.write('{}\n')
+        overload = a.herramienta(
+            200, 'bus_send', {'to': 'alice/lab', 'text': 'must wait behind the full inbox'})
+        retry_queue = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-queue')
+        afirma('· a full destination applies backpressure without deleting older messages',
+               not overload.get('result', {}).get('isError')
+               and 'queued on the local bus' in texto(overload)
+               and len(os.listdir(inbox_dir)) == 500
+               and os.path.isdir(retry_queue) and len(os.listdir(retry_queue)) == 1,
+               f'{texto(overload)} inbox={len(os.listdir(inbox_dir))} '
+               f'retry={os.listdir(retry_queue) if os.path.isdir(retry_queue) else []}')
     finally:
         for cliente in (standard, a, b, repo):
             if cliente:

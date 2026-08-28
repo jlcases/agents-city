@@ -6,7 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { committeeFiles } from './committee/storage.js';
 import { committeeService } from './committee/service.js';
 import { loadCityContext } from './city-config.js';
-import { drainRoadQueue } from './delivery-queue.js';
+import { acknowledgeRoadQueue, pendingRoadQueue } from './delivery-queue.js';
 import {
   ACTOR_RE,
   ActorCredential,
@@ -163,11 +163,12 @@ server.listen(0, '127.0.0.1', () => {
   };
   publishEndpoint(context, endpoint);
   diagnostics('hub.listening', { outcome: 'ready', message: endpoint.url });
-  for (const envelope of drainRoadQueue(context.runtimeDir)) {
+  for (const queued of pendingRoadQueue(context.runtimeDir)) {
     try {
-      roads.inbound(envelope);
+      roads.inbound(queued.envelope);
+      acknowledgeRoadQueue(queued.queueFile);
     } catch (error) {
-      console.error(`[city-bus] dropped queued road envelope: ${(error as Error).message}`);
+      console.error(`[city-bus] kept queued Road envelope: ${(error as Error).message}`);
     }
   }
   roads.start();
