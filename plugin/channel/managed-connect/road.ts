@@ -8,6 +8,7 @@ import {
   canonicalRelayEnvelope,
   isCityAddress,
   parseRelayClientFrame,
+  UUID_RE,
   type RelayEnvelope,
   type RelayRoadDirectoryEntry,
 } from './protocol.js';
@@ -61,7 +62,7 @@ export const createRoadEnvelope = async (
   identity: DeviceIdentity,
   road: RelayRoadDirectoryEntry,
   text: string,
-  options: { now?: number; lifetimeMs?: number } = {},
+  options: { now?: number; lifetimeMs?: number; messageId?: string; requestId?: string } = {},
 ): Promise<RelayEnvelope> => {
   if (
     !isCityAddress(road.localCity) ||
@@ -73,14 +74,19 @@ export const createRoadEnvelope = async (
   if (!Number.isSafeInteger(road.revision) || road.revision < 1)
     throw new Error('invalid_road_revision');
   const createdAt = options.now ?? Date.now();
+  const messageId = options.messageId ?? crypto.randomUUID();
+  const requestId = options.requestId ?? crypto.randomUUID();
+  if (!UUID_RE.test(messageId) || !UUID_RE.test(requestId)) {
+    throw new Error('invalid_road_message_id');
+  }
   const lifetimeMs = options.lifetimeMs ?? Math.min(5 * 60_000, MAX_MESSAGE_LIFETIME_MS);
   if (!Number.isSafeInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > MAX_MESSAGE_LIFETIME_MS) {
     throw new Error('invalid_message_lifetime');
   }
   const partial = {
     protocol: RELAY_PROTOCOL,
-    id: crypto.randomUUID(),
-    requestId: crypto.randomUUID(),
+    id: messageId,
+    requestId,
     roadId: road.id,
     roadRevision: road.revision,
     from: road.localCity,

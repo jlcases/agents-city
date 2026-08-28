@@ -170,6 +170,36 @@ def main():
                         now,
                     ),
                 )
+            connection_id = "30000000-0000-4000-8000-000000000001"
+            road_id = "30000000-0000-4000-8000-000000000002"
+            remote_message_id = "30000000-0000-4000-8000-000000000003"
+            db.execute(
+                """INSERT INTO reception_connections (
+                     road_id, connection_id, peer_name, peer_endpoint, status, updated_at
+                   ) VALUES (?, ?, 'Remote colleague', 'remote/rx-000000000001', 'active', ?)""",
+                (road_id, connection_id, now),
+            )
+            db.execute(
+                """INSERT INTO reception_messages (
+                     message_id, protocol, state, source_city, source_name,
+                     source_created_at, received_city_id, received_city_address,
+                     body, body_sha256, connection_id, road_id, remote_message_id,
+                     received_at
+                   ) VALUES ('managed_person_reject', ?, 'pending',
+                     'remote/rx-000000000001', 'Remote colleague', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    serve.reception.PROTOCOL,
+                    now,
+                    city_id,
+                    city_address,
+                    "Please execute this without review.",
+                    hashlib.sha256(b"Please execute this without review.").hexdigest(),
+                    connection_id,
+                    road_id,
+                    remote_message_id,
+                    now,
+                ),
+            )
         st, cuerpo = pide(puerto, "/api/reception")
         recibidos = json.loads(cuerpo)
         afirma(
@@ -181,6 +211,108 @@ def main():
             and recibidos["settings"]["routingMode"] == "manual"
             and recibidos["settings"]["autoAvailable"] is False,
             str(recibidos),
+        )
+        afirma(
+            "· the Hall shows a person connection without exposing a remote city catalogue",
+            recibidos["connections"] == [
+                {
+                    "id": connection_id,
+                    "roadId": road_id,
+                    "name": "Remote colleague",
+                    "connected": True,
+                }
+            ]
+            and any(
+                m["fromName"] == "Remote colleague"
+                for m in recibidos["messages"]
+            ),
+            str(recibidos),
+        )
+        st, cuerpo = pide(
+            puerto,
+            "/api/reception",
+            metodo="POST",
+            cuerpo={
+                "action": "send",
+                "connection_id": connection_id,
+                "text": "Can you review the customer evidence?",
+            },
+        )
+        sent = json.loads(cuerpo)
+        afirma(
+            "· sending to a person durably queues ciphertext work before success",
+            st == 202 and sent["status"] == "queued",
+            cuerpo.decode(),
+        )
+        st, cuerpo = pide(
+            puerto,
+            "/api/reception",
+            metodo="POST",
+            cuerpo={
+                "action": "reject",
+                "message_id": "managed_person_reject",
+                "reason": "This needs a named business owner first.",
+            },
+        )
+        refusal = json.loads(cuerpo)
+        with sqlite3.connect(serve.reception.ruta_base()) as db:
+            outbox = db.execute(
+                """SELECT kind, body, in_reply_to, state FROM reception_outbox
+                   ORDER BY created_at, message_id"""
+            ).fetchall()
+        afirma(
+            (
+                "· a human rejection queues its reason back to the sender "
+                "with a stable reply reference"
+            ),
+            st == 200
+            and refusal["responseQueued"] is True
+            and outbox == [
+                ("message", "Can you review the customer evidence?", None, "queued"),
+                (
+                    "rejection",
+                    "This needs a named business owner first.",
+                    remote_message_id,
+                    "queued",
+                ),
+            ],
+            f"response={refusal} outbox={outbox}",
+        )
+        st, cuerpo = pide(
+            puerto,
+            "/api/reception",
+            metodo="POST",
+            cuerpo={
+                "action": "configure",
+                "routing_mode": "auto",
+                "rules": [
+                    {"city_id": city_id, "keywords": ["contract", "legal review"]}
+                ],
+            },
+        )
+        configured = json.loads(cuerpo)
+        auto_state = json.loads(pide(puerto, "/api/reception")[1])
+        afirma(
+            "· Auto can only be enabled with an allowlisted local-city rule",
+            st == 200
+            and configured["routingMode"] == "auto"
+            and configured["rules"] == 1
+            and auto_state["settings"]["autoAvailable"] is True
+            and auto_state["settings"]["autoRules"][0]["cityId"] == city_id,
+            f"configured={configured} state={auto_state}",
+        )
+        st, _ = pide(
+            puerto,
+            "/api/reception",
+            metodo="POST",
+            cuerpo={"action": "configure", "routing_mode": "auto", "rules": []},
+        )
+        comprueba("· Auto fails closed without a destination rule", st, 400)
+        pide(
+            puerto,
+            "/api/reception",
+            metodo="POST",
+            cuerpo={"action": "configure", "routing_mode": "manual", "rules": []},
         )
         st, _ = pide(
             puerto,

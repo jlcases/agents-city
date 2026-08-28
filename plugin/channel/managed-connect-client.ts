@@ -4,6 +4,7 @@ export * from './managed-connect/hpke.js';
 export * from './managed-connect/protocol.js';
 export * from './managed-connect/road.js';
 export * from './managed-connect/relay-session.js';
+export * from './managed-connect/person-message.js';
 export * from './managed-connect/storage.js';
 export * from './managed-connect/transport.js';
 export * from './reception.js';

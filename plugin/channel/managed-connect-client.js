@@ -4386,14 +4386,19 @@ var createRoadEnvelope = async (identity, road, text, options = {}) => {
   if (!Number.isSafeInteger(road.revision) || road.revision < 1)
     throw new Error("invalid_road_revision");
   const createdAt = options.now ?? Date.now();
+  const messageId = options.messageId ?? crypto.randomUUID();
+  const requestId = options.requestId ?? crypto.randomUUID();
+  if (!UUID_RE.test(messageId) || !UUID_RE.test(requestId)) {
+    throw new Error("invalid_road_message_id");
+  }
   const lifetimeMs = options.lifetimeMs ?? Math.min(5 * 6e4, MAX_MESSAGE_LIFETIME_MS);
   if (!Number.isSafeInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > MAX_MESSAGE_LIFETIME_MS) {
     throw new Error("invalid_message_lifetime");
   }
   const partial = {
     protocol: RELAY_PROTOCOL,
-    id: crypto.randomUUID(),
-    requestId: crypto.randomUUID(),
+    id: messageId,
+    requestId,
     roadId: road.id,
     roadRevision: road.revision,
     from: road.localCity,
@@ -4509,12 +4514,12 @@ var ManagedRelaySession = class {
   roads() {
     return [...this.roadsById.values()].map((road) => ({ ...road }));
   }
-  async sendRoadText(roadId, text) {
+  async sendRoadText(roadId, text, options = {}) {
     if (this.closed) throw new Error("relay_connection_closed");
     await this.ready();
     const road = this.roadsById.get(roadId);
     if (!road) throw new Error("road_not_available");
-    const envelope = await createRoadEnvelope(this.identity, road, text);
+    const envelope = await createRoadEnvelope(this.identity, road, text, options);
     const result = new Promise(
       (resolve3, reject) => {
         const timer = setTimeout(() => {
@@ -4717,6 +4722,51 @@ var ManagedRelaySession = class {
     for (const requestId of [...this.pending.keys()]) this.rejectPending(requestId, error);
   }
 };
+
+// managed-connect/person-message.ts
+var PERSON_MESSAGE_PROTOCOL = "agents-city-person-message/1";
+var MAX_PERSON_TEXT_BYTES = 11500;
+function encodePersonMessage(message) {
+  validateText(message.text);
+  if (!["message", "rejection"].includes(message.kind)) {
+    throw new Error("invalid_person_message_kind");
+  }
+  if (message.inReplyTo !== null && !UUID_RE.test(message.inReplyTo)) {
+    throw new Error("invalid_person_reply_reference");
+  }
+  return textDecoder.decode(textEncoder.encode(JSON.stringify({
+    protocol: PERSON_MESSAGE_PROTOCOL,
+    kind: message.kind,
+    text: message.text,
+    ...message.inReplyTo ? { inReplyTo: message.inReplyTo } : {}
+  })));
+}
+function decodePersonMessage(value) {
+  validateText(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return { kind: "message", text: value, inReplyTo: null };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { kind: "message", text: value, inReplyTo: null };
+  }
+  const record = parsed;
+  const allowed = /* @__PURE__ */ new Set(["protocol", "kind", "text", "inReplyTo"]);
+  if (record.protocol !== PERSON_MESSAGE_PROTOCOL || !["message", "rejection"].includes(String(record.kind)) || typeof record.text !== "string" || !record.text.trim() || utf8Length(record.text) > MAX_PERSON_TEXT_BYTES || record.inReplyTo !== void 0 && (typeof record.inReplyTo !== "string" || !UUID_RE.test(record.inReplyTo)) || Object.keys(record).some((key) => !allowed.has(key))) {
+    return { kind: "message", text: value, inReplyTo: null };
+  }
+  return {
+    kind: record.kind,
+    text: record.text,
+    inReplyTo: typeof record.inReplyTo === "string" ? record.inReplyTo : null
+  };
+}
+function validateText(value) {
+  if (typeof value !== "string" || !value.trim()) throw new Error("person_message_required");
+  if (utf8Length(value) > MAX_PERSON_TEXT_BYTES) throw new Error("person_message_too_large");
+}
 
 // managed-connect/storage.ts
 import {
@@ -5201,7 +5251,8 @@ ${close}`, markerId };
 
 // reception.ts
 var RECEPTION_PROTOCOL = "agents-city-reception/1";
-var RECEPTION_SCHEMA_VERSION = 1;
+var RECEPTION_SCHEMA_VERSION = 3;
+var AUTO_ROUTER_PROFILE = "deterministic-rules/1";
 var DEFAULT_PENDING_MESSAGES = 1e4;
 var MAX_PENDING_MESSAGES = 1e5;
 var DEFAULT_PENDING_BYTES = 64 * 1024 * 1024;
@@ -5257,9 +5308,10 @@ function recordReceptionMessages(context, envelopes) {
     const insert = database.prepare(`
       INSERT INTO reception_messages (
         message_id, protocol, state, source_city, source_created_at,
+        source_name, message_kind, in_reply_to,
         received_city_id, received_city_address, body, body_sha256,
         connection_id, road_id, remote_message_id, received_at
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
     for (const row of fresh) {
@@ -5269,6 +5321,9 @@ function recordReceptionMessages(context, envelopes) {
         RECEPTION_PROTOCOL,
         envelope.from.city,
         envelope.createdAt,
+        row.sourceName,
+        row.kind,
+        row.inReplyTo,
         context.city.id,
         context.city.address,
         row.body,
@@ -5279,6 +5334,7 @@ function recordReceptionMessages(context, envelopes) {
         receivedAt
       );
     }
+    applyAutomaticRouting(database, fresh.map((row) => row.envelope.id));
     const updated = receptionCounters(database);
     database.exec("COMMIT");
     committed = true;
@@ -5300,7 +5356,178 @@ function validateReceptionEnvelope(envelope) {
   if (envelope.payload?.transport !== "managed-e2ee") {
     throw new Error("reception_accepts_managed_messages_only");
   }
-  return { envelope, body, bytes: Buffer.byteLength(body, "utf8") };
+  const kind = envelope.payload?.messageKind === "rejection" ? "rejection" : "message";
+  const sourceName = optionalText(envelope.payload?.sourceName, 100) ?? envelope.from.city;
+  const inReplyTo = optionalText(envelope.payload?.inReplyTo, 180);
+  return { envelope, body, kind, sourceName, inReplyTo, bytes: Buffer.byteLength(body, "utf8") };
+}
+function applyAutomaticRouting(database, messageIds) {
+  if (!messageIds.length) return;
+  const settings = database.prepare(`
+    SELECT routing_mode, router_profile FROM reception_settings WHERE singleton = 1
+  `).get();
+  if (settings?.routing_mode !== "auto" || settings.router_profile !== AUTO_ROUTER_PROFILE) return;
+  const rawRules = database.prepare(`
+    SELECT rule_id, target_city_id, target_city_address, keywords_json, priority
+    FROM reception_auto_rules WHERE enabled = 1
+    ORDER BY priority DESC, rule_id
+  `).all();
+  const rules = rawRules.map(parseAutomaticRule).filter((rule) => Boolean(rule));
+  if (!rules.length) return;
+  const route = database.prepare(`
+    INSERT INTO reception_routes (
+      message_id, target_city_id, target_city_address, state, approved_by, approved_at
+    ) VALUES (?, ?, ?, 'queued', 'auto', ?)
+  `);
+  const decide = database.prepare(`
+    UPDATE reception_messages
+    SET state = 'routed', decided_at = ?, decision_reason = ?
+    WHERE message_id = ? AND state = 'pending' AND message_kind = 'message'
+  `);
+  for (const messageId of messageIds) {
+    const message = database.prepare(`
+      SELECT body, message_kind FROM reception_messages
+      WHERE message_id = ? AND state = 'pending' LIMIT 1
+    `).get(messageId);
+    if (message?.message_kind !== "message" || typeof message.body !== "string") continue;
+    const selected = automaticDestination(message.body, rules);
+    if (!selected) continue;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    route.run(messageId, selected.targetCityId, selected.targetCityAddress, now);
+    const result = decide.run(now, `auto:${selected.ruleId}`, messageId);
+    if (Number(result.changes) !== 1) throw new Error("automatic_reception_decision_conflict");
+  }
+}
+function parseAutomaticRule(value) {
+  let keywords;
+  try {
+    keywords = JSON.parse(String(value.keywords_json ?? ""));
+  } catch {
+    return null;
+  }
+  if (typeof value.rule_id !== "string" || typeof value.target_city_id !== "string" || typeof value.target_city_address !== "string" || !Array.isArray(keywords) || keywords.length < 1 || keywords.length > 20 || !keywords.every((keyword) => typeof keyword === "string" && keyword.length <= 80)) return null;
+  return {
+    ruleId: value.rule_id,
+    targetCityId: value.target_city_id,
+    targetCityAddress: value.target_city_address,
+    keywords: keywords.map((keyword) => normalizeForRouting(keyword)).filter(Boolean),
+    priority: Number(value.priority) || 0
+  };
+}
+function automaticDestination(body, rules) {
+  const normalized = normalizeForRouting(body);
+  if (!normalized || riskyAutomaticText(normalized)) return null;
+  const matches = rules.map((rule) => ({
+    rule,
+    score: rule.keywords.reduce((score, keyword) => score + (keyword === "*" || normalized.includes(keyword) ? 1 : 0), 0)
+  })).filter((candidate) => candidate.score > 0);
+  if (!matches.length) return null;
+  matches.sort((left, right) => right.score - left.score || right.rule.priority - left.rule.priority || left.rule.ruleId.localeCompare(right.rule.ruleId));
+  const winner = matches[0];
+  const runnerUp = matches[1];
+  if (runnerUp && runnerUp.score === winner.score && runnerUp.rule.priority === winner.rule.priority) return null;
+  return winner.rule;
+}
+function normalizeForRouting(value) {
+  return value.normalize("NFKC").toLocaleLowerCase("en").replace(/\s+/g, " ").trim();
+}
+function riskyAutomaticText(value) {
+  return [
+    /<\|(?:im_start|im_end|system|developer)\|>/i,
+    /\[(?:system|inst|\/inst)\]/i,
+    /\b(?:ignore|disregard|override)\b.{0,40}\b(?:previous|system|developer|instructions?)\b/i,
+    /\b(?:system|developer)\s+(?:prompt|message)\b/i,
+    /\b(?:reveal|print|send|exfiltrate)\b.{0,50}\b(?:password|secret|api[ -]?key|token|credential)\b/i,
+    /\b(?:run|execute)\b.{0,30}\b(?:shell|command|terminal|tool)\b/i
+  ].some((pattern) => pattern.test(value));
+}
+function syncReceptionConnections(appHome, connections) {
+  const database = receptionDatabase(appHome);
+  let committed = false;
+  try {
+    database.exec("BEGIN IMMEDIATE");
+    database.prepare("UPDATE reception_connections SET status = 'inactive'").run();
+    const upsert = database.prepare(`
+      INSERT INTO reception_connections (
+        road_id, connection_id, peer_name, peer_endpoint, status, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?)
+      ON CONFLICT(road_id) DO UPDATE SET
+        connection_id = excluded.connection_id,
+        peer_name = excluded.peer_name,
+        peer_endpoint = excluded.peer_endpoint,
+        status = 'active',
+        updated_at = excluded.updated_at
+    `);
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    for (const connection of connections) {
+      if (!connection.roadId || !connection.connectionId || !connection.peerName.trim() || connection.peerName.length > 100 || !connection.peerEndpoint) throw new Error("invalid_reception_connection");
+      upsert.run(
+        connection.roadId,
+        connection.connectionId,
+        connection.peerName.trim(),
+        connection.peerEndpoint,
+        now
+      );
+    }
+    database.exec("COMMIT");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+      }
+    }
+  }
+}
+function pendingReceptionOutbox(appHome, limit = 20) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+    throw new Error("invalid_reception_outbox_batch");
+  }
+  return receptionDatabase(appHome).prepare(`
+    SELECT o.message_id, o.road_id, o.connection_id, o.kind, o.body,
+           o.in_reply_to, o.attempt_count
+    FROM reception_outbox o
+    JOIN reception_connections c ON c.road_id = o.road_id
+      AND c.connection_id = o.connection_id
+    WHERE o.state = 'queued' AND o.body IS NOT NULL AND c.status = 'active'
+      AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= ?)
+    ORDER BY o.created_at, o.message_id
+    LIMIT ?
+  `).all(Date.now(), limit).map((row) => {
+    const value = row;
+    return {
+      messageId: String(value.message_id),
+      roadId: String(value.road_id),
+      connectionId: String(value.connection_id),
+      kind: value.kind === "rejection" ? "rejection" : "message",
+      body: String(value.body),
+      inReplyTo: typeof value.in_reply_to === "string" ? value.in_reply_to : null,
+      attemptCount: Number(value.attempt_count)
+    };
+  });
+}
+function markReceptionOutboxSent(appHome, messageId) {
+  receptionDatabase(appHome).prepare(`
+    UPDATE reception_outbox
+    SET state = 'sent', body = NULL, sent_at = ?, next_attempt_at = NULL, error = NULL
+    WHERE message_id = ? AND state = 'queued'
+  `).run((/* @__PURE__ */ new Date()).toISOString(), messageId);
+}
+function markReceptionOutboxFailed(appHome, messageId, attemptCount, error) {
+  const attempts = Math.max(1, attemptCount + 1);
+  const retryAt = Date.now() + Math.min(3e5, 1e3 * 2 ** Math.min(attempts - 1, 8));
+  receptionDatabase(appHome).prepare(`
+    UPDATE reception_outbox
+    SET attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?, error = ?
+    WHERE message_id = ? AND state = 'queued'
+  `).run(
+    attempts,
+    Date.now(),
+    retryAt,
+    String(error instanceof Error ? error.message : error).slice(0, 300),
+    messageId
+  );
 }
 function deliverApprovedReception(context, limit = DELIVERY_BATCH) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > DELIVERY_BATCH) {
@@ -5424,6 +5651,9 @@ function initializeSchema(database) {
       state TEXT NOT NULL CHECK (state IN ('pending', 'routed', 'rejected', 'expired')),
       source_city TEXT NOT NULL CHECK (length(source_city) BETWEEN 3 AND 160),
       source_created_at TEXT NOT NULL,
+      source_name TEXT CHECK (source_name IS NULL OR length(source_name) <= 100),
+      message_kind TEXT NOT NULL DEFAULT 'message' CHECK (message_kind IN ('message', 'rejection')),
+      in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
       received_city_id TEXT NOT NULL CHECK (length(received_city_id) BETWEEN 1 AND 160),
       received_city_address TEXT NOT NULL CHECK (length(received_city_address) BETWEEN 3 AND 160),
       body TEXT,
@@ -5460,6 +5690,40 @@ function initializeSchema(database) {
       pending_count INTEGER NOT NULL DEFAULT 0 CHECK (pending_count >= 0),
       pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK (pending_bytes >= 0)
     );
+    CREATE TABLE IF NOT EXISTS reception_connections (
+      road_id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL UNIQUE,
+      peer_name TEXT NOT NULL CHECK (length(peer_name) BETWEEN 1 AND 100),
+      peer_endpoint TEXT NOT NULL CHECK (length(peer_endpoint) BETWEEN 3 AND 160),
+      status TEXT NOT NULL CHECK (status IN ('active', 'inactive')),
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reception_outbox (
+      message_id TEXT PRIMARY KEY CHECK (length(message_id) = 36),
+      road_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('message', 'rejection')),
+      body TEXT,
+      in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'sent')),
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      error TEXT CHECK (error IS NULL OR length(error) <= 300)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reception_outbox_state_age
+      ON reception_outbox (state, next_attempt_at, created_at);
+    CREATE TABLE IF NOT EXISTS reception_auto_rules (
+      rule_id TEXT PRIMARY KEY CHECK (length(rule_id) = 36),
+      target_city_id TEXT NOT NULL UNIQUE CHECK (length(target_city_id) BETWEEN 1 AND 160),
+      target_city_address TEXT NOT NULL CHECK (length(target_city_address) BETWEEN 3 AND 160),
+      keywords_json TEXT NOT NULL CHECK (length(keywords_json) BETWEEN 5 AND 2000),
+      priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 1000),
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      updated_at TEXT NOT NULL
+    );
     CREATE TRIGGER IF NOT EXISTS reception_message_count_after_insert
     AFTER INSERT ON reception_messages WHEN NEW.state = 'pending'
     BEGIN
@@ -5487,7 +5751,34 @@ function initializeSchema(database) {
     END;
   `);
   const meta = database.prepare("SELECT schema_version FROM reception_meta WHERE singleton = 1").get();
-  if (meta && meta.schema_version !== RECEPTION_SCHEMA_VERSION) {
+  if (meta?.schema_version === 1) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const current = database.prepare("SELECT schema_version FROM reception_meta WHERE singleton = 1").get();
+      if (current?.schema_version === 1) {
+        database.exec(`
+          ALTER TABLE reception_messages ADD COLUMN source_name TEXT
+            CHECK (source_name IS NULL OR length(source_name) <= 100);
+          ALTER TABLE reception_messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'message'
+            CHECK (message_kind IN ('message', 'rejection'));
+          ALTER TABLE reception_messages ADD COLUMN in_reply_to TEXT
+            CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180);
+          UPDATE reception_meta SET schema_version = ${RECEPTION_SCHEMA_VERSION} WHERE singleton = 1;
+        `);
+      } else if (current?.schema_version === 2) {
+        database.prepare("UPDATE reception_meta SET schema_version = ? WHERE singleton = 1").run(RECEPTION_SCHEMA_VERSION);
+      } else if (current?.schema_version !== RECEPTION_SCHEMA_VERSION) {
+        throw new Error(`unsupported_reception_schema:${current?.schema_version ?? "missing"}`);
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+      }
+      throw error;
+    }
+  } else if (meta && meta.schema_version !== RECEPTION_SCHEMA_VERSION) {
     throw new Error(`unsupported_reception_schema:${meta.schema_version}`);
   }
   database.prepare(
@@ -5611,6 +5902,7 @@ function boundedInteger(raw, fallback, minimum, maximum) {
   return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
 }
 export {
+  AUTO_ROUTER_PROFILE,
   BASE64URL_RE,
   CITY_ADDRESS_RE,
   CONNECT_STATE_PROTOCOL,
@@ -5627,6 +5919,7 @@ export {
   MAX_PENDING_PER_CITY,
   MAX_SERVER_FRAME_BYTES,
   ManagedRelaySession,
+  PERSON_MESSAGE_PROTOCOL,
   RECEPTION_PROTOCOL,
   RECEPTION_SCHEMA_VERSION,
   RELAY_AAD_PROTOCOL,
@@ -5650,13 +5943,17 @@ export {
   connectStatePath,
   connectedStateForCity,
   createRoadEnvelope,
+  decodePersonMessage,
   deliverApprovedReception,
+  encodePersonMessage,
   generateDeviceKeys,
   hexToBytes,
   hpkeOpenBase,
   hpkeSealBase,
   isCityAddress,
   listDeviceRoads,
+  markReceptionOutboxFailed,
+  markReceptionOutboxSent,
   normalizeCitySlug,
   normalizeConnectServiceUrl,
   normalizeOwnerPrefix,
@@ -5664,6 +5961,7 @@ export {
   openRoadEnvelope,
   parseRelayClientFrame,
   parseRelayServerFrame,
+  pendingReceptionOutbox,
   pollDeviceAuthorization,
   randomBase64url,
   readConnectState,
@@ -5677,6 +5975,7 @@ export {
   signedDeviceRequest,
   signedRelayHeaders,
   syncDeviceCities,
+  syncReceptionConnections,
   textDecoder,
   textEncoder,
   toArrayBuffer,

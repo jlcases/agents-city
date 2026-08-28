@@ -100,12 +100,12 @@ export class ManagedRelaySession {
     return [...this.roadsById.values()].map((road) => ({ ...road }));
   }
 
-  async sendRoadText(roadId: string, text: string) {
+  async sendRoadText(roadId: string, text: string, options: { messageId?: string } = {}) {
     if (this.closed) throw new Error('relay_connection_closed');
     await this.ready();
     const road = this.roadsById.get(roadId);
     if (!road) throw new Error('road_not_available');
-    const envelope = await createRoadEnvelope(this.identity, road, text);
+    const envelope = await createRoadEnvelope(this.identity, road, text, options);
     const result = new Promise<{ messageId: string; status: 'queued' | 'duplicate' }>(
       (resolve, reject) => {
         const timer = setTimeout(() => {

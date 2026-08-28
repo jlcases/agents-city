@@ -1203,6 +1203,30 @@ class Manejador(http.server.BaseHTTPRequestHandler):
 
     def p_reception(self, q, cuerpo):
         """One human decision, committed before any city can consume the text."""
+        if cuerpo.get("action") == "configure":
+            try:
+                return self.responde(
+                    reception.configura(
+                        seat.quien_soy(),
+                        cuerpo.get("routing_mode"),
+                        cuerpo.get("rules"),
+                        self.ciudad(q),
+                    )
+                )
+            except reception.ReceptionError as e:
+                return self.responde({"error": str(e)}, codigo=400)
+            except (OSError, sqlite3.Error) as e:
+                return self.responde({"error": f"reception unavailable: {e}"}, codigo=503)
+        if cuerpo.get("action") == "send":
+            try:
+                return self.responde(
+                    reception.envia(cuerpo.get("connection_id"), cuerpo.get("text")),
+                    codigo=202,
+                )
+            except reception.ReceptionError as e:
+                return self.responde({"error": str(e)}, codigo=400)
+            except (OSError, sqlite3.Error) as e:
+                return self.responde({"error": f"reception unavailable: {e}"}, codigo=503)
         destinos = cuerpo.get("destinations") or []
         if not isinstance(destinos, list):
             return self.responde({"error": "destinations must be a list"}, codigo=400)

@@ -79,11 +79,6 @@ button,input,select{font:inherit;color:inherit}
    fallback keeps today's behaviour until somebody grabs it. */
 #app{display:grid;grid-template-columns:250px minmax(420px,1fr) var(--live-ancho,minmax(420px,500px));height:100%}
 @media(max-width:1180px){#app{grid-template-columns:210px minmax(360px,1fr) var(--live-ancho,390px)}}
-@media(max-width:900px){#app{grid-template-columns:minmax(0,1fr) var(--live-ancho,320px);grid-template-rows:auto 1fr}
-  nav{grid-column:1/-1;border-right:none;border-bottom:1px solid var(--linea);padding:10px 0}
-  nav .marca,nav .pie{display:none}nav ol{display:flex;overflow-x:auto;gap:4px}}
-@media(max-width:680px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
-  #livePanel{display:none}}
 
 /* ── rail ───────────────────────────────────────────────────────────────── */
 nav{background:var(--suelo2);border-right:1px solid var(--linea);padding:20px 0 16px;
@@ -249,6 +244,27 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
   color:var(--tinta3)}
 .recModo b{font:600 13px var(--hud);color:var(--tinta)}
 .recModo p{grid-column:1/-1;margin:0;color:var(--tinta3);font-size:12px}
+.recAutoConfig{margin:8px 0 18px;padding:14px;background:var(--suelo2);border:1px solid var(--linea);
+  border-radius:6px;display:grid;gap:13px}.recAutoConfig fieldset{display:flex;gap:16px;border:0;
+  padding:0;margin:0}.recAutoConfig legend{font:600 9px var(--hud);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tinta3);margin-bottom:7px}.recAutoConfig fieldset label{
+  font:11px var(--hud)}.recAutoConfig input[type=radio]{accent-color:var(--lampara)}
+.recReglas{display:grid;gap:7px}.recReglas>p,.recAutoAviso{margin:0;color:var(--tinta3);
+  font-size:11px}.recReglas label{display:grid;grid-template-columns:minmax(150px,.4fr) minmax(0,1fr);
+  gap:10px;align-items:center}.recReglas label span b,.recReglas label span small{display:block}
+.recReglas label span b{font:600 11px var(--hud)}.recReglas label span small{font:9px var(--mono);
+  color:var(--tinta3)}.recAutoConfig>button{justify-self:start}
+.recConexiones{margin:18px 0;padding:14px;background:var(--suelo2);border:1px solid var(--linea);
+  border-radius:7px}.recSeccion{display:flex;align-items:baseline;justify-content:space-between;
+  gap:12px;margin-bottom:10px}.recSeccion b{font:600 13px var(--hud)}
+.recSeccion span{font:10px var(--mono);color:var(--tinta3)}
+.recComposeLista{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
+.recCompose{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px;
+  background:var(--suelo3);border:1px solid var(--linea);border-radius:5px}
+.recCompose label,.recCompose textarea{grid-column:1/-1}.recCompose label{display:flex;
+  align-items:baseline;justify-content:space-between;gap:8px}.recCompose label b{font:600 12px var(--hud)}
+.recCompose label span{font:10px var(--mono);color:var(--tinta3)}.recCompose textarea{width:100%;
+  min-height:66px;resize:vertical}.recCompose button{grid-column:2;justify-self:end}
 .recResumen{display:flex;align-items:baseline;gap:9px;padding-bottom:10px;
   border-bottom:1px solid var(--linea)}
 .recResumen b{font:500 25px var(--mono)}
@@ -283,12 +299,15 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
 .recDestino b{font:600 11px var(--hud)}.recDestino small{font:9px var(--mono);color:var(--tinta3)}
 .recAcciones details{padding-top:2px}.recAcciones details>summary{cursor:pointer;color:var(--carta)}
 .recAcciones details form{margin-top:10px}.recAcciones details input{width:100%}
+.recAvisoAccion{display:flex;justify-content:flex-end;padding:12px 14px;border-top:1px solid var(--linea)}
 .recVacia,.recError{padding:24px;border:1px dashed var(--linea2);border-radius:6px;
   color:var(--tinta3);text-align:center}
 .recVacia b{font:600 14px var(--hud);color:var(--tinta)}.recVacia p{margin:5px 0 0}
 .recError{color:var(--carta);text-align:left;font:12px var(--mono)}
 @media(max-width:760px){.recAcciones{grid-template-columns:1fr}.recMensaje>header{align-items:flex-start;
-  flex-direction:column}.recResumen{flex-wrap:wrap}.recResumen small{margin-left:0;width:100%}}
+  flex-direction:column}.recResumen{flex-wrap:wrap}.recResumen small{margin-left:0;width:100%}
+  .recSeccion,.recCompose label{align-items:flex-start;flex-direction:column}
+  .recReglas label{grid-template-columns:1fr}}
 
 /* districts + parcels */
 .tr{display:flex;align-items:center;gap:10px;background:var(--suelo2);
@@ -629,6 +648,39 @@ body.enGuia #app{grid-template-columns:250px minmax(0,1fr)}
   letter-spacing:.03em}.liveEvidence[open] summary,.liveFull[open] summary{color:var(--tono)}
 .liveEvidence ul{margin:7px 0 0;padding-left:16px;color:var(--tinta3);font-size:11.5px;line-height:1.45}
 .liveEvidence li+li{margin-top:4px}.liveFull p{margin-top:7px;color:var(--tinta3);font-size:11.5px}
+
+/* Keep responsive overrides after the base rail and live-panel rules. Placing
+   them before those rules made the desktop declarations win in the cascade,
+   leaving the actual Hall content at zero height on a phone. */
+@media(max-width:900px){
+  #app{grid-template-columns:minmax(0,1fr) var(--live-ancho,320px);
+    grid-template-rows:auto minmax(0,1fr)}
+  body.enGuia #app{grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr)}
+  nav{grid-column:1/-1;grid-row:1;border-right:0;border-bottom:1px solid var(--linea);
+    padding:8px 10px;display:flex;flex-direction:row;align-items:center;gap:8px;
+    overflow-x:auto;overflow-y:hidden}
+  nav .marca,nav .pie,nav #ciudades,nav #railOtras{display:none}
+  .railCiudad{margin:0;min-width:154px;flex:0 0 auto;padding:7px 10px}
+  .railCiudad .railEtiqueta,.railCiudad .railDe{display:none}
+  nav ol{padding:0;display:flex;flex:1 0 auto;flex-direction:row;gap:4px}
+  nav li{padding:8px 9px}
+  main{grid-column:1;grid-row:2}
+  #livePanel{grid-column:2;grid-row:2}
+  .cuerpo{padding:28px 30px 52px}
+}
+@media(max-width:680px){
+  #app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
+  #livePanel{display:none;grid-column:1;grid-row:2}
+  main{grid-column:1;grid-row:2}
+  .cuerpo{padding:24px 18px 48px}
+  .cuerpo>.dentro{gap:20px}
+  .recModo{align-items:stretch;flex-direction:column;gap:10px}
+  .recModo>button{align-self:flex-start}
+  .recAutoConfig fieldset{flex-direction:column;gap:8px}
+  .recCompose{grid-template-columns:1fr}
+  .recCompose button{grid-column:1;justify-self:stretch}
+}
 </style>
 </head>
 <body>

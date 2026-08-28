@@ -684,9 +684,10 @@ other remote invitation.
 
 ### `agents-city connect`
 
-Pairs this computer with a managed Road service and connects local cities. It
-does not create a Road unilaterally: both people still approve the bilateral
-connection in the service.
+Pairs this computer with a managed Road service. It does not create a
+connection unilaterally: both people still approve it in the service, and the
+recipient sees the sender in their private human reception rather than exposing
+any city.
 
 ```bash
 agents-city connect --service https://connect.example.com
@@ -699,10 +700,20 @@ agents-city connect roads
 The command generates Ed25519/X25519 keys on this computer, prints a one-use
 PASCO and opens the browser for approval. Private keys remain under
 `~/.agents-city/.runtime/connect/` with 0600/0700 permissions and are sealed
-from repo-agent windows on macOS and Linux. Each connected city keeps one
-outbound WSS session; no public port is opened on its computer. Use `--service
-URL` or `AGENTS_CITY_CONNECT_URL` for a pilot endpoint. The hosted server is not
-part of this Apache repository; the auditable client and wire protocol are.
+from repo-agent windows on macOS and Linux. `--city` chooses a local hub that can
+keep the computer's reception bridge alive; it is not a recipient selector and
+is never disclosed to the other person. Exactly one hub per computer holds the
+lease and one outbound WSS reception session; no public port is opened on the
+computer. Use `--service URL` or `AGENTS_CITY_CONNECT_URL` for a pilot endpoint.
+The hosted server is not part of this Apache repository; the auditable client
+and wire protocol are.
+
+`agents-city connect roads` prints a connected person's name for a person Road,
+not the opaque `rx-*` transport endpoints. In the Hall, every incoming message
+waits for manual review by default. The owner may route it to one or more local
+cities, reject it with a reason, or explicitly enable the deterministic Auto
+router. Auto routes only one unique low-risk rule match; ambiguous, unmatched,
+prompt-like, secret-seeking, or command-like text remains in the human queue.
 
 See [docs/managed-connect.md](docs/managed-connect.md) for the exact key,
 envelope, encryption, ACK, revocation and threat-model contract.
@@ -1576,20 +1587,24 @@ AGENTS_CITY_DATA="$HOME/.agents-city/$CITY_OWNER/product" \
 Inside a normal session, you do not need to set `AGENTS_CITY_DATA`; it is already
 injected into each window. The example makes it explicit for an outside terminal.
 
-### Case 10: connect cities belonging to different machines or people
+### Case 10: connect two people on different machines
 
-With a managed Road operator, each person pairs the computer and chooses the
-local city that may participate:
+With a managed Road operator, each person pairs a computer. `--city` chooses the
+local hub that will start the owner-level reception bridge; it does not reveal
+that city or give the other person direct access to it:
 
 ```bash
 agents-city connect --city product --service https://connect.example.com
 agents-city connect --city research --service https://connect.example.com
 ```
 
-One person creates the Road invitation in that service and the other accepts
-it. The clients learn the active bilateral Road over their authenticated relay
-sessions; neither side exchanges a shared bus token or exposes a local port.
-The public client contract is documented in
+One person requests the connection in that service and the other accepts it.
+The clients learn the active bilateral person Road over their authenticated
+relay sessions; neither side exchanges a shared bus token, exposes a local
+port, or receives the other person's city catalogue. Incoming text first stops
+in the human reception. The recipient decides which local city or cities may
+read it, or lets the optional fail-closed rule router decide when one match is
+unambiguous. The public client contract is documented in
 [docs/managed-connect.md](docs/managed-connect.md).
 
 To self-host the existing token-based remote transport instead, exchange the

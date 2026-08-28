@@ -18,6 +18,7 @@ import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
 import { localRoadOnline, sendLocalRoad } from './local-roads.js';
 import { remoteRoadBridge } from './remote-roads.js';
+import { managedReceptionBridge } from '../managed-connect/reception-bridge.js';
 
 export function roadController(context: CityContext, router: EnvelopeRouter) {
   const wakeIntervalMs = duration(
@@ -36,6 +37,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
   let wakeTimer: ReturnType<typeof setInterval> | null = null;
   let receptionTimer: ReturnType<typeof setInterval> | null = null;
   let remote: ReturnType<typeof remoteRoadBridge>;
+  const reception = managedReceptionBridge(context);
   const roads = () => {
     const merged = [...context.roads, ...(remote?.roads() ?? [])];
     return merged.filter(
@@ -159,6 +161,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
 
   const start = (): void => {
     remote.start();
+    reception.start();
     deliverReception();
     notifyBacklog();
     receptionTimer = setInterval(deliverReception, receptionCheckMs);
@@ -179,6 +182,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     wakeTimer = null;
     receptionTimer = null;
     remote.close();
+    reception.close();
   };
 
   return { command, inbound, start, close };

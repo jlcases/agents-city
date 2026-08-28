@@ -19,7 +19,8 @@ import { BUS_PROTOCOL, MAX_BODY, type BusEnvelope } from './protocol.js';
 import { wrapUntrusted } from './untrusted.js';
 
 export const RECEPTION_PROTOCOL = 'agents-city-reception/1' as const;
-export const RECEPTION_SCHEMA_VERSION = 1;
+export const RECEPTION_SCHEMA_VERSION = 3;
+export const AUTO_ROUTER_PROFILE = 'deterministic-rules/1' as const;
 const DEFAULT_PENDING_MESSAGES = 10_000;
 const MAX_PENDING_MESSAGES = 100_000;
 const DEFAULT_PENDING_BYTES = 64 * 1024 * 1024;
@@ -27,6 +28,27 @@ const MAX_PENDING_BYTES = 512 * 1024 * 1024;
 const DELIVERY_BATCH = 20;
 
 type ReceptionDatabase = DatabaseSync;
+
+type ReceptionContext = Pick<CityContext, 'appHome'> & {
+  city: Pick<CityContext['city'], 'id' | 'address'>;
+};
+
+export type ReceptionConnectionInput = {
+  roadId: string;
+  connectionId: string;
+  peerName: string;
+  peerEndpoint: string;
+};
+
+export type ReceptionOutboxRecord = {
+  messageId: string;
+  roadId: string;
+  connectionId: string;
+  kind: 'message' | 'rejection';
+  body: string;
+  inReplyTo: string | null;
+  attemptCount: number;
+};
 
 type PendingRoute = {
   message_id: string;
@@ -64,7 +86,7 @@ export function receptionDatabasePath(appHome: string): string {
  * has committed, so the Connect session may safely ACK the relay afterwards.
  */
 export function recordReceptionMessage(
-  context: CityContext,
+  context: ReceptionContext,
   envelope: BusEnvelope,
 ): ReceptionRecordResult {
   return recordReceptionMessages(context, [envelope]);
@@ -72,7 +94,7 @@ export function recordReceptionMessage(
 
 /** Commit one relay frame in one transaction (up to protocol-v2's 32 items). */
 export function recordReceptionMessages(
-  context: CityContext,
+  context: ReceptionContext,
   envelopes: BusEnvelope[],
 ): ReceptionRecordResult {
   if (!envelopes.length || envelopes.length > 32) {
@@ -122,9 +144,10 @@ export function recordReceptionMessages(
     const insert = database.prepare(`
       INSERT INTO reception_messages (
         message_id, protocol, state, source_city, source_created_at,
+        source_name, message_kind, in_reply_to,
         received_city_id, received_city_address, body, body_sha256,
         connection_id, road_id, remote_message_id, received_at
-      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const receivedAt = new Date().toISOString();
     for (const row of fresh) {
@@ -134,6 +157,9 @@ export function recordReceptionMessages(
         RECEPTION_PROTOCOL,
         envelope.from.city,
         envelope.createdAt,
+        row.sourceName,
+        row.kind,
+        row.inReplyTo,
         context.city.id,
         context.city.address,
         row.body,
@@ -144,6 +170,10 @@ export function recordReceptionMessages(
         receivedAt,
       );
     }
+    applyAutomaticRouting(
+      database,
+      fresh.map((row) => row.envelope.id),
+    );
     const updated = receptionCounters(database);
     database.exec('COMMIT');
     committed = true;
@@ -165,7 +195,266 @@ function validateReceptionEnvelope(envelope: BusEnvelope) {
   if (envelope.payload?.transport !== 'managed-e2ee') {
     throw new Error('reception_accepts_managed_messages_only');
   }
-  return { envelope, body, bytes: Buffer.byteLength(body, 'utf8') };
+  const kind = envelope.payload?.messageKind === 'rejection' ? 'rejection' : 'message';
+  const sourceName = optionalText(envelope.payload?.sourceName, 100) ?? envelope.from.city;
+  const inReplyTo = optionalText(envelope.payload?.inReplyTo, 180);
+  return { envelope, body, kind, sourceName, inReplyTo, bytes: Buffer.byteLength(body, 'utf8') };
+}
+
+type AutomaticRule = {
+  ruleId: string;
+  targetCityId: string;
+  targetCityAddress: string;
+  keywords: string[];
+  priority: number;
+};
+
+/**
+ * A capability-free classifier: deterministic owner rules in, one allowlisted
+ * destination out. It never interprets the text as instructions and cannot
+ * answer, fetch, execute, discover cities or access a model/tool credential.
+ */
+function applyAutomaticRouting(database: ReceptionDatabase, messageIds: string[]): void {
+  if (!messageIds.length) return;
+  const settings = database
+    .prepare(
+      `
+    SELECT routing_mode, router_profile FROM reception_settings WHERE singleton = 1
+  `,
+    )
+    .get() as { routing_mode?: string; router_profile?: string | null } | undefined;
+  if (settings?.routing_mode !== 'auto' || settings.router_profile !== AUTO_ROUTER_PROFILE) return;
+  const rawRules = database
+    .prepare(
+      `
+    SELECT rule_id, target_city_id, target_city_address, keywords_json, priority
+    FROM reception_auto_rules WHERE enabled = 1
+    ORDER BY priority DESC, rule_id
+  `,
+    )
+    .all() as unknown as Array<Record<string, unknown>>;
+  const rules = rawRules
+    .map(parseAutomaticRule)
+    .filter((rule): rule is AutomaticRule => Boolean(rule));
+  if (!rules.length) return;
+  const route = database.prepare(`
+    INSERT INTO reception_routes (
+      message_id, target_city_id, target_city_address, state, approved_by, approved_at
+    ) VALUES (?, ?, ?, 'queued', 'auto', ?)
+  `);
+  const decide = database.prepare(`
+    UPDATE reception_messages
+    SET state = 'routed', decided_at = ?, decision_reason = ?
+    WHERE message_id = ? AND state = 'pending' AND message_kind = 'message'
+  `);
+  for (const messageId of messageIds) {
+    const message = database
+      .prepare(
+        `
+      SELECT body, message_kind FROM reception_messages
+      WHERE message_id = ? AND state = 'pending' LIMIT 1
+    `,
+      )
+      .get(messageId) as { body?: string | null; message_kind?: string } | undefined;
+    if (message?.message_kind !== 'message' || typeof message.body !== 'string') continue;
+    const selected = automaticDestination(message.body, rules);
+    if (!selected) continue;
+    const now = new Date().toISOString();
+    route.run(messageId, selected.targetCityId, selected.targetCityAddress, now);
+    const result = decide.run(now, `auto:${selected.ruleId}`, messageId);
+    if (Number(result.changes) !== 1) throw new Error('automatic_reception_decision_conflict');
+  }
+}
+
+function parseAutomaticRule(value: Record<string, unknown>): AutomaticRule | null {
+  let keywords: unknown;
+  try {
+    keywords = JSON.parse(String(value.keywords_json ?? ''));
+  } catch {
+    return null;
+  }
+  if (
+    typeof value.rule_id !== 'string' ||
+    typeof value.target_city_id !== 'string' ||
+    typeof value.target_city_address !== 'string' ||
+    !Array.isArray(keywords) ||
+    keywords.length < 1 ||
+    keywords.length > 20 ||
+    !keywords.every((keyword) => typeof keyword === 'string' && keyword.length <= 80)
+  )
+    return null;
+  return {
+    ruleId: value.rule_id,
+    targetCityId: value.target_city_id,
+    targetCityAddress: value.target_city_address,
+    keywords: keywords.map((keyword) => normalizeForRouting(keyword as string)).filter(Boolean),
+    priority: Number(value.priority) || 0,
+  };
+}
+
+function automaticDestination(body: string, rules: AutomaticRule[]): AutomaticRule | null {
+  const normalized = normalizeForRouting(body);
+  if (!normalized || riskyAutomaticText(normalized)) return null;
+  const matches = rules
+    .map((rule) => ({
+      rule,
+      score: rule.keywords.reduce(
+        (score, keyword) => score + (keyword === '*' || normalized.includes(keyword) ? 1 : 0),
+        0,
+      ),
+    }))
+    .filter((candidate) => candidate.score > 0);
+  if (!matches.length) return null;
+  matches.sort(
+    (left, right) =>
+      right.score - left.score ||
+      right.rule.priority - left.rule.priority ||
+      left.rule.ruleId.localeCompare(right.rule.ruleId),
+  );
+  const winner = matches[0]!;
+  const runnerUp = matches[1];
+  if (
+    runnerUp &&
+    runnerUp.score === winner.score &&
+    runnerUp.rule.priority === winner.rule.priority
+  )
+    return null;
+  return winner.rule;
+}
+
+function normalizeForRouting(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase('en').replace(/\s+/g, ' ').trim();
+}
+
+function riskyAutomaticText(value: string): boolean {
+  return [
+    /<\|(?:im_start|im_end|system|developer)\|>/i,
+    /\[(?:system|inst|\/inst)\]/i,
+    /\b(?:ignore|disregard|override)\b.{0,40}\b(?:previous|system|developer|instructions?)\b/i,
+    /\b(?:system|developer)\s+(?:prompt|message)\b/i,
+    /\b(?:reveal|print|send|exfiltrate)\b.{0,50}\b(?:password|secret|api[ -]?key|token|credential)\b/i,
+    /\b(?:run|execute)\b.{0,30}\b(?:shell|command|terminal|tool)\b/i,
+  ].some((pattern) => pattern.test(value));
+}
+
+/** Replace the trusted local connection directory with the latest signed API view. */
+export function syncReceptionConnections(
+  appHome: string,
+  connections: ReceptionConnectionInput[],
+): void {
+  const database = receptionDatabase(appHome);
+  let committed = false;
+  try {
+    database.exec('BEGIN IMMEDIATE');
+    database.prepare("UPDATE reception_connections SET status = 'inactive'").run();
+    const upsert = database.prepare(`
+      INSERT INTO reception_connections (
+        road_id, connection_id, peer_name, peer_endpoint, status, updated_at
+      ) VALUES (?, ?, ?, ?, 'active', ?)
+      ON CONFLICT(road_id) DO UPDATE SET
+        connection_id = excluded.connection_id,
+        peer_name = excluded.peer_name,
+        peer_endpoint = excluded.peer_endpoint,
+        status = 'active',
+        updated_at = excluded.updated_at
+    `);
+    const now = new Date().toISOString();
+    for (const connection of connections) {
+      if (
+        !connection.roadId ||
+        !connection.connectionId ||
+        !connection.peerName.trim() ||
+        connection.peerName.length > 100 ||
+        !connection.peerEndpoint
+      )
+        throw new Error('invalid_reception_connection');
+      upsert.run(
+        connection.roadId,
+        connection.connectionId,
+        connection.peerName.trim(),
+        connection.peerEndpoint,
+        now,
+      );
+    }
+    database.exec('COMMIT');
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        database.exec('ROLLBACK');
+      } catch {}
+    }
+  }
+}
+
+export function pendingReceptionOutbox(appHome: string, limit = 20): ReceptionOutboxRecord[] {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+    throw new Error('invalid_reception_outbox_batch');
+  }
+  return receptionDatabase(appHome)
+    .prepare(
+      `
+    SELECT o.message_id, o.road_id, o.connection_id, o.kind, o.body,
+           o.in_reply_to, o.attempt_count
+    FROM reception_outbox o
+    JOIN reception_connections c ON c.road_id = o.road_id
+      AND c.connection_id = o.connection_id
+    WHERE o.state = 'queued' AND o.body IS NOT NULL AND c.status = 'active'
+      AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= ?)
+    ORDER BY o.created_at, o.message_id
+    LIMIT ?
+  `,
+    )
+    .all(Date.now(), limit)
+    .map((row) => {
+      const value = row as Record<string, unknown>;
+      return {
+        messageId: String(value.message_id),
+        roadId: String(value.road_id),
+        connectionId: String(value.connection_id),
+        kind: value.kind === 'rejection' ? 'rejection' : 'message',
+        body: String(value.body),
+        inReplyTo: typeof value.in_reply_to === 'string' ? value.in_reply_to : null,
+        attemptCount: Number(value.attempt_count),
+      };
+    });
+}
+
+export function markReceptionOutboxSent(appHome: string, messageId: string): void {
+  receptionDatabase(appHome)
+    .prepare(
+      `
+    UPDATE reception_outbox
+    SET state = 'sent', body = NULL, sent_at = ?, next_attempt_at = NULL, error = NULL
+    WHERE message_id = ? AND state = 'queued'
+  `,
+    )
+    .run(new Date().toISOString(), messageId);
+}
+
+export function markReceptionOutboxFailed(
+  appHome: string,
+  messageId: string,
+  attemptCount: number,
+  error: unknown,
+): void {
+  const attempts = Math.max(1, attemptCount + 1);
+  const retryAt = Date.now() + Math.min(300_000, 1_000 * 2 ** Math.min(attempts - 1, 8));
+  receptionDatabase(appHome)
+    .prepare(
+      `
+    UPDATE reception_outbox
+    SET attempt_count = ?, last_attempt_at = ?, next_attempt_at = ?, error = ?
+    WHERE message_id = ? AND state = 'queued'
+  `,
+    )
+    .run(
+      attempts,
+      Date.now(),
+      retryAt,
+      String(error instanceof Error ? error.message : error).slice(0, 300),
+      messageId,
+    );
 }
 
 /**
@@ -308,6 +597,9 @@ function initializeSchema(database: ReceptionDatabase): void {
       state TEXT NOT NULL CHECK (state IN ('pending', 'routed', 'rejected', 'expired')),
       source_city TEXT NOT NULL CHECK (length(source_city) BETWEEN 3 AND 160),
       source_created_at TEXT NOT NULL,
+      source_name TEXT CHECK (source_name IS NULL OR length(source_name) <= 100),
+      message_kind TEXT NOT NULL DEFAULT 'message' CHECK (message_kind IN ('message', 'rejection')),
+      in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
       received_city_id TEXT NOT NULL CHECK (length(received_city_id) BETWEEN 1 AND 160),
       received_city_address TEXT NOT NULL CHECK (length(received_city_address) BETWEEN 3 AND 160),
       body TEXT,
@@ -344,6 +636,40 @@ function initializeSchema(database: ReceptionDatabase): void {
       pending_count INTEGER NOT NULL DEFAULT 0 CHECK (pending_count >= 0),
       pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK (pending_bytes >= 0)
     );
+    CREATE TABLE IF NOT EXISTS reception_connections (
+      road_id TEXT PRIMARY KEY,
+      connection_id TEXT NOT NULL UNIQUE,
+      peer_name TEXT NOT NULL CHECK (length(peer_name) BETWEEN 1 AND 100),
+      peer_endpoint TEXT NOT NULL CHECK (length(peer_endpoint) BETWEEN 3 AND 160),
+      status TEXT NOT NULL CHECK (status IN ('active', 'inactive')),
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS reception_outbox (
+      message_id TEXT PRIMARY KEY CHECK (length(message_id) = 36),
+      road_id TEXT NOT NULL,
+      connection_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('message', 'rejection')),
+      body TEXT,
+      in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
+      state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'sent')),
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_attempt_at INTEGER,
+      next_attempt_at INTEGER,
+      error TEXT CHECK (error IS NULL OR length(error) <= 300)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reception_outbox_state_age
+      ON reception_outbox (state, next_attempt_at, created_at);
+    CREATE TABLE IF NOT EXISTS reception_auto_rules (
+      rule_id TEXT PRIMARY KEY CHECK (length(rule_id) = 36),
+      target_city_id TEXT NOT NULL UNIQUE CHECK (length(target_city_id) BETWEEN 1 AND 160),
+      target_city_address TEXT NOT NULL CHECK (length(target_city_address) BETWEEN 3 AND 160),
+      keywords_json TEXT NOT NULL CHECK (length(keywords_json) BETWEEN 5 AND 2000),
+      priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 1000),
+      enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+      updated_at TEXT NOT NULL
+    );
     CREATE TRIGGER IF NOT EXISTS reception_message_count_after_insert
     AFTER INSERT ON reception_messages WHEN NEW.state = 'pending'
     BEGIN
@@ -373,7 +699,37 @@ function initializeSchema(database: ReceptionDatabase): void {
   const meta = database
     .prepare('SELECT schema_version FROM reception_meta WHERE singleton = 1')
     .get() as { schema_version: number } | undefined;
-  if (meta && meta.schema_version !== RECEPTION_SCHEMA_VERSION) {
+  if (meta?.schema_version === 1) {
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const current = database
+        .prepare('SELECT schema_version FROM reception_meta WHERE singleton = 1')
+        .get() as { schema_version: number } | undefined;
+      if (current?.schema_version === 1) {
+        database.exec(`
+          ALTER TABLE reception_messages ADD COLUMN source_name TEXT
+            CHECK (source_name IS NULL OR length(source_name) <= 100);
+          ALTER TABLE reception_messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'message'
+            CHECK (message_kind IN ('message', 'rejection'));
+          ALTER TABLE reception_messages ADD COLUMN in_reply_to TEXT
+            CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180);
+          UPDATE reception_meta SET schema_version = ${RECEPTION_SCHEMA_VERSION} WHERE singleton = 1;
+        `);
+      } else if (current?.schema_version === 2) {
+        database
+          .prepare('UPDATE reception_meta SET schema_version = ? WHERE singleton = 1')
+          .run(RECEPTION_SCHEMA_VERSION);
+      } else if (current?.schema_version !== RECEPTION_SCHEMA_VERSION) {
+        throw new Error(`unsupported_reception_schema:${current?.schema_version ?? 'missing'}`);
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      try {
+        database.exec('ROLLBACK');
+      } catch {}
+      throw error;
+    }
+  } else if (meta && meta.schema_version !== RECEPTION_SCHEMA_VERSION) {
     throw new Error(`unsupported_reception_schema:${meta.schema_version}`);
   }
   database

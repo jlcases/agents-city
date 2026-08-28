@@ -9,6 +9,11 @@ the private service implementation.
 Managed Connect is additive. Local Roads and the self-hosted
 `CITY_BUS_URL`/`CITY_BUS_TOKEN` transport continue to work unchanged.
 
+The product-level connection is between two people. After both people approve
+it, the service grants one Road between device-level reception endpoints. Those
+endpoints are absent from the city catalogue, do not consume a city allowance,
+and cannot wake an agent. City-to-city Roads remain a separate explicit feature.
+
 ## Pair one computer
 
 ```bash
@@ -38,14 +43,18 @@ The local private state is:
 ```text
 ~/.agents-city/.runtime/connect/
 └── device.json                 # 0600; directory 0700
+~/.agents-city/.runtime/reception/
+└── reception.sqlite3           # 0600; human inbox, rules, and durable outbox
 ```
 
 Writes use an exclusive temporary file, `fsync` and atomic rename. Reads refuse
 symlinks, non-regular files, over-broad permissions, unexpected key curves and
 invalid service/relay URLs. The directory is part of the macOS seatbelt and
 Linux bubblewrap sealed set, so repo-agent windows cannot read it. The connect
-command restarts only the selected local hub outside those repo cages; that hub
-owns the outbound session.
+command restarts only the selected local hub outside those repo cages. Exactly
+one live hub on the computer acquires the reception lease and owns the
+device-level outbound session; another hub takes over after a clean or stale
+owner release.
 
 ## What crosses a managed Road
 
@@ -57,7 +66,7 @@ For every message the sender:
 
 1. creates a fresh HPKE Base-mode encapsulation using
    X25519/HKDF-SHA-256/AES-128-GCM;
-2. binds Road id/revision, both city addresses, timestamps, device version and
+2. binds Road id/revision, both transport endpoints, timestamps, device version and
    recipient key id into AEAD additional authenticated data;
 3. signs the complete relay envelope with Ed25519;
 4. sends ciphertext over one outbound WSS connection.
@@ -69,8 +78,13 @@ not to a city inbox. The relay receives its ACK only after that SQLite commit.
 No city wake-up is emitted and `agents-city bus inbox` cannot read the pending
 text.
 
-The local Hall displays the body as HTML-escaped inert text. The owner may reject
-it with a reason or atomically route it to one or more of their local cities.
+The local Hall displays the body as HTML-escaped inert text and names the peer
+person from the signed device directory. The owner may reject it with a reason
+or atomically route it to one or more of their local cities. A rejection first
+enters the durable local outbox and returns over the same encrypted connection;
+the sender sees the reason in their own reception. A stable UUID makes relay
+retries idempotent, and the outbox body is purged only after `queued` or
+`duplicate` proves durable relay admission.
 Each chosen city consumes only its approved route, wraps the text in the
 unforgeable untrusted boundary, and then creates one content-free coalesced seat
 wake-up. A deterministic message id makes a crash between city persistence and
@@ -132,23 +146,26 @@ revocation, 0600/0700 custody and symlink refusal:
 ## What the relay can and cannot know
 
 The relay necessarily sees routing metadata: Road id, source and destination
-city addresses, timestamps, ciphertext size and delivery state. It does not
-receive either device private key or Road plaintext. Queued envelopes remain
-ciphertext.
+transport endpoints, timestamps, ciphertext size and delivery state. A person
+connection uses opaque `rx-*` device endpoints rather than city names. It does
+not receive either device private key or Road plaintext. Queued envelopes
+remain ciphertext.
 
 ## Manual and automatic routing
 
-Manual review is the enforced default and the only enabled mode in this
-release. The reception schema reserves `auto`, but the Hall reports it as
-unavailable until there is a separately isolated router implementation.
+Manual review is the enforced default. Auto is an explicit local setting backed
+by `deterministic-rules/1`: the owner assigns bounded words or phrases to
+allowlisted local city ids. The router normalizes text as data, selects exactly
+one unique best match, and can only insert a route to the city id/address stored
+in that owner-approved rule. It has no model, prompt, tools, network, memory,
+mounts, city discovery, device-key access, or reply capability.
 
-An automatic router is allowed to see only the inert message, opaque connection
-identity, and an allowlist of owner-supplied destination labels. It must receive
-no device keys, environment, city files, mounts, tools or network authority. Its
-only accepted output is a strict list of known city ids plus confidence and a
-reason; malformed, ambiguous or low-confidence output falls back to the human
-queue. A normal city agent does not satisfy this boundary merely because its
-prompt says "router", so Agents City does not silently promote one.
+Prompt-template markers, instruction-override language, secret-exfiltration
+requests, command-execution language, no match, and equal-score ambiguity all
+remain in the human queue. Rejection receipts also remain human-only. The city
+still receives an untrusted-data wrapper after an automatic decision. Auto is a
+convenience with a smaller human gate, not the same security posture as Manual.
+A normal city agent is never promoted into the router role.
 
 This design does not claim to defend against the operating-system owner, a
 malicious process already running as that user, or a compromised seat that the
@@ -169,8 +186,10 @@ multi-tenant machine.
 | 0600/0700 local key custody | `plugin/channel/managed-connect/storage.ts` |
 | Node WSS adapter | `plugin/channel/managed-connect/transport.ts` |
 | local bus integration | `plugin/channel/managed-connect/bridge.ts` |
+| person payload and rejection receipt | `plugin/channel/managed-connect/person-message.ts` |
+| one leased reception session and outbox drain | `plugin/channel/managed-connect/reception-bridge.ts` |
 | owner quarantine and approved-city delivery | `plugin/channel/reception.ts` |
-| Hall review, rejection and multi-city decision | `plugin/scripts/reception.py` |
+| Hall review, rejection, Auto configuration and multi-city decision | `plugin/scripts/reception.py` |
 
 `plugin/channel/managed-connect-core.js` is the portable bundled core;
 `managed-connect-client.js` adds Node storage and transport; and

@@ -681,14 +681,19 @@ var createRoadEnvelope = async (identity, road, text, options = {}) => {
   if (!Number.isSafeInteger(road.revision) || road.revision < 1)
     throw new Error("invalid_road_revision");
   const createdAt = options.now ?? Date.now();
+  const messageId = options.messageId ?? crypto.randomUUID();
+  const requestId = options.requestId ?? crypto.randomUUID();
+  if (!UUID_RE.test(messageId) || !UUID_RE.test(requestId)) {
+    throw new Error("invalid_road_message_id");
+  }
   const lifetimeMs = options.lifetimeMs ?? Math.min(5 * 6e4, MAX_MESSAGE_LIFETIME_MS);
   if (!Number.isSafeInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > MAX_MESSAGE_LIFETIME_MS) {
     throw new Error("invalid_message_lifetime");
   }
   const partial = {
     protocol: RELAY_PROTOCOL,
-    id: crypto.randomUUID(),
-    requestId: crypto.randomUUID(),
+    id: messageId,
+    requestId,
     roadId: road.id,
     roadRevision: road.revision,
     from: road.localCity,
@@ -804,12 +809,12 @@ var ManagedRelaySession = class {
   roads() {
     return [...this.roadsById.values()].map((road) => ({ ...road }));
   }
-  async sendRoadText(roadId, text) {
+  async sendRoadText(roadId, text, options = {}) {
     if (this.closed) throw new Error("relay_connection_closed");
     await this.ready();
     const road = this.roadsById.get(roadId);
     if (!road) throw new Error("road_not_available");
-    const envelope = await createRoadEnvelope(this.identity, road, text);
+    const envelope = await createRoadEnvelope(this.identity, road, text, options);
     const result = new Promise(
       (resolve, reject) => {
         const timer = setTimeout(() => {

@@ -35,6 +35,21 @@ anota({
   'Every message needs a person before it reaches a city.':
     'Cada mensaje necesita a una persona antes de llegar a una ciudad.',
   'Auto router not configured': 'Router automático sin configurar',
+  'Configure Auto': 'Configurar Auto',
+  'Automatic routing': 'Enrutado automático',
+  'Only one clear, low-risk rule match can leave the human queue automatically.':
+    'Solo una coincidencia clara y de bajo riesgo puede salir automáticamente de la cola humana.',
+  'Routing policy': 'Política de enrutado',
+  'Keep human review': 'Mantener la revisión humana',
+  'Use the local rule router': 'Usar el router local de reglas',
+  'Write comma-separated words or phrases for each destination. Empty cities are never selected.':
+    'Escribe palabras o frases separadas por comas para cada destino. Las ciudades vacías nunca se eligen.',
+  'e.g. contract, privacy, legal review': 'p. ej. contrato, privacidad, revisión legal',
+  'Suspicious, unmatched, or ambiguous text always waits for you. Auto never executes, answers, or opens links.':
+    'El texto sospechoso, sin coincidencia o ambiguo siempre te espera. Auto nunca ejecuta, responde ni abre enlaces.',
+  'Save routing policy': 'Guardar política de enrutado',
+  'Could not save the routing policy': 'No se pudo guardar la política de enrutado',
+  'Routing policy saved.': 'Política de enrutado guardada.',
   'Reading your reception…': 'Leyendo tu recepción…',
   'Could not read your reception': 'No se ha podido leer tu recepción',
   'Reception clear': 'Recepción despejada',
@@ -54,6 +69,20 @@ anota({
     'Mensaje enviado. Solo las ciudades elegidas pueden leerlo ahora.',
   'Could not reject the message': 'No se pudo rechazar el mensaje',
   'Message rejected with your reason.': 'Mensaje rechazado con tu motivo.',
+  'Your connections': 'Tus conexiones',
+  'Messages leave from this computer with end-to-end encryption.':
+    'Los mensajes salen de este ordenador con cifrado de extremo a extremo.',
+  'message queued': '{n} mensaje en cola',
+  'messages queued': '{n} mensajes en cola',
+  'Write to this person': 'Escribe a esta persona',
+  'Your message will stop in their private reception.':
+    'Tu mensaje se detendrá en su recepción privada.',
+  'Send securely': 'Enviar de forma segura',
+  'Reply to a rejected message': 'Respuesta a un mensaje rechazado',
+  Dismiss: 'Descartar',
+  'Could not queue the message': 'No se pudo poner el mensaje en cola',
+  'Message queued on this computer.': 'Mensaje puesto en cola en este ordenador.',
+  'Could not dismiss the response': 'No se pudo descartar la respuesta',
 
   // ── the guide ─────────────────────────────────────────────────────────────
   Welcome: 'Bienvenida',

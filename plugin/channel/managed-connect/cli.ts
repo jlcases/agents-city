@@ -43,9 +43,11 @@ function usage(): string {
 
 The first pairing must include --service URL (or AGENTS_CITY_CONNECT_URL). It
 creates this computer's signing and encryption keys locally,
-prints a one-use PASCO, opens the service for approval, and connects the selected
-city. No private key is uploaded. Add --no-open when you want to open the URL by
-hand. Later calls reuse the service recorded in the local device state.`;
+prints a one-use PASCO, opens the service for approval, and starts the owner
+reception bridge from the selected local city hub. A person connection never
+reveals or selects that city. No private key is uploaded. Add --no-open when you
+want to open the URL by hand. Later calls reuse the service recorded in the local
+device state.`;
 }
 
 function optionsOf(args: string[]): CliOptions {
@@ -265,7 +267,7 @@ async function connect(options: CliOptions): Promise<void> {
   else {
     console.log(`  Connected ${chosen.map((city) => city.name).join(', ')}.`);
     for (const city of state.cities) console.log(`  ${city.name}: ${city.remoteAddress}`);
-    console.log('  The local bus now keeps an outbound encrypted connection open.\n');
+    console.log("  This computer's reception now keeps one outbound encrypted connection open.\n");
   }
 }
 
@@ -307,18 +309,47 @@ async function roads(options: CliOptions): Promise<void> {
   const state = readConnectState();
   if (!state || state.status !== 'connected') throw new Error('this computer is not connected');
   const directory = await listDeviceRoads(state.serviceUrl, state.identity);
-  const value = directory.roads.map((road) => ({
-    id: road.id,
-    from: road.localCity,
-    to: road.peerCity,
-    purpose: road.purpose,
-    revision: road.revision,
-  }));
+  type ListedRoad =
+    | {
+        id: string;
+        kind: 'connection';
+        connectionId: string | null;
+        person: string;
+        revision: number;
+      }
+    | {
+        id: string;
+        kind: 'city';
+        from: string;
+        to: string;
+        purpose: string | null;
+        revision: number;
+      };
+  const value = directory.roads.map((road): ListedRoad =>
+    road.kind === 'connection'
+      ? {
+          id: road.id,
+          kind: 'connection',
+          connectionId: road.connectionId,
+          person: road.peerName,
+          revision: road.revision,
+        }
+      : {
+          id: road.id,
+          kind: 'city',
+          from: road.localCity,
+          to: road.peerCity,
+          purpose: road.purpose,
+          revision: road.revision,
+        },
+  );
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else if (!value.length) console.log('  No active managed Roads.');
   else
-    for (const road of value)
-      console.log(`  ${road.from} → ${road.to}${road.purpose ? `  ${road.purpose}` : ''}`);
+    for (const road of value) {
+      if (road.kind === 'connection') console.log(`  Person  ${road.person}`);
+      else console.log(`  ${road.from} → ${road.to}${road.purpose ? `  ${road.purpose}` : ''}`);
+    }
 }
 
 export async function managedConnectCli(args = process.argv.slice(2)): Promise<void> {

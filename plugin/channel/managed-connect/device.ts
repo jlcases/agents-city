@@ -261,6 +261,8 @@ export const syncDeviceCities = async (
 
 export type DeviceRoad = {
   id: string;
+  kind: 'city' | 'connection';
+  connectionId: string | null;
   revision: number;
   localCity: string;
   peerCity: string;

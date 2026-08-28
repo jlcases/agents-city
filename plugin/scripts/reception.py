@@ -13,17 +13,26 @@ boundary without a server, account database, or public port on this computer.
 """
 
 import datetime
+import json
 import os
 import re
 import sqlite3
+import unicodedata
+import uuid
 
 import cities
 
 
 PROTOCOL = "agents-city-reception/1"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+AUTO_ROUTER_PROFILE = "deterministic-rules/1"
 MESSAGE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,180}$")
+CONNECTION_ID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 MAX_DESTINATIONS = 32
+MAX_OUTBOX_BYTES = 11_500
 
 
 SCHEMA = f"""
@@ -48,6 +57,11 @@ CREATE TABLE IF NOT EXISTS reception_messages (
   state TEXT NOT NULL CHECK (state IN ('pending', 'routed', 'rejected', 'expired')),
   source_city TEXT NOT NULL CHECK (length(source_city) BETWEEN 3 AND 160),
   source_created_at TEXT NOT NULL,
+  source_name TEXT CHECK (source_name IS NULL OR length(source_name) <= 100),
+  message_kind TEXT NOT NULL DEFAULT 'message' CHECK (
+    message_kind IN ('message', 'rejection')
+  ),
+  in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
   received_city_id TEXT NOT NULL CHECK (length(received_city_id) BETWEEN 1 AND 160),
   received_city_address TEXT NOT NULL CHECK (length(received_city_address) BETWEEN 3 AND 160),
   body TEXT,
@@ -83,6 +97,40 @@ CREATE TABLE IF NOT EXISTS reception_counters (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   pending_count INTEGER NOT NULL DEFAULT 0 CHECK (pending_count >= 0),
   pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK (pending_bytes >= 0)
+);
+CREATE TABLE IF NOT EXISTS reception_connections (
+  road_id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL UNIQUE,
+  peer_name TEXT NOT NULL CHECK (length(peer_name) BETWEEN 1 AND 100),
+  peer_endpoint TEXT NOT NULL CHECK (length(peer_endpoint) BETWEEN 3 AND 160),
+  status TEXT NOT NULL CHECK (status IN ('active', 'inactive')),
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reception_outbox (
+  message_id TEXT PRIMARY KEY CHECK (length(message_id) = 36),
+  road_id TEXT NOT NULL,
+  connection_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('message', 'rejection')),
+  body TEXT,
+  in_reply_to TEXT CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180),
+  state TEXT NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'sent')),
+  created_at TEXT NOT NULL,
+  sent_at TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  last_attempt_at INTEGER,
+  next_attempt_at INTEGER,
+  error TEXT CHECK (error IS NULL OR length(error) <= 300)
+);
+CREATE INDEX IF NOT EXISTS idx_reception_outbox_state_age
+  ON reception_outbox (state, next_attempt_at, created_at);
+CREATE TABLE IF NOT EXISTS reception_auto_rules (
+  rule_id TEXT PRIMARY KEY CHECK (length(rule_id) = 36),
+  target_city_id TEXT NOT NULL UNIQUE CHECK (length(target_city_id) BETWEEN 1 AND 160),
+  target_city_address TEXT NOT NULL CHECK (length(target_city_address) BETWEEN 3 AND 160),
+  keywords_json TEXT NOT NULL CHECK (length(keywords_json) BETWEEN 5 AND 2000),
+  priority INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 1000),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  updated_at TEXT NOT NULL
 );
 CREATE TRIGGER IF NOT EXISTS reception_message_count_after_insert
 AFTER INSERT ON reception_messages WHEN NEW.state = 'pending'
@@ -154,7 +202,42 @@ def _conecta():
         meta = db.execute(
             "SELECT schema_version FROM reception_meta WHERE singleton = 1"
         ).fetchone()
-        if meta and meta["schema_version"] != SCHEMA_VERSION:
+        if meta and meta["schema_version"] == 1:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                actual = db.execute(
+                    "SELECT schema_version FROM reception_meta WHERE singleton = 1"
+                ).fetchone()
+                if actual and actual["schema_version"] == 1:
+                    db.execute(
+                        """ALTER TABLE reception_messages ADD COLUMN source_name TEXT
+                           CHECK (source_name IS NULL OR length(source_name) <= 100)"""
+                    )
+                    db.execute(
+                        """ALTER TABLE reception_messages ADD COLUMN message_kind TEXT
+                           NOT NULL DEFAULT 'message'
+                           CHECK (message_kind IN ('message', 'rejection'))"""
+                    )
+                    db.execute(
+                        """ALTER TABLE reception_messages ADD COLUMN in_reply_to TEXT
+                           CHECK (in_reply_to IS NULL OR length(in_reply_to) <= 180)"""
+                    )
+                    db.execute(
+                        "UPDATE reception_meta SET schema_version = ? WHERE singleton = 1",
+                        (SCHEMA_VERSION,),
+                    )
+                elif actual and actual["schema_version"] == 2:
+                    db.execute(
+                        "UPDATE reception_meta SET schema_version = ? WHERE singleton = 1",
+                        (SCHEMA_VERSION,),
+                    )
+                elif not actual or actual["schema_version"] != SCHEMA_VERSION:
+                    raise ReceptionError("unsupported reception schema")
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        elif meta and meta["schema_version"] != SCHEMA_VERSION:
             raise ReceptionError(
                 f"unsupported reception schema: {meta['schema_version']}"
             )
@@ -225,13 +308,27 @@ def estado(usuario, limite=200, actual=""):
             "SELECT pending_count, pending_bytes FROM reception_counters WHERE singleton = 1"
         ).fetchone()
         mensajes = db.execute(
-            """SELECT message_id, source_city, source_created_at,
+            """SELECT message_id, source_city, source_name, source_created_at,
+                      message_kind, in_reply_to,
                       received_city_id, received_city_address, body,
                       connection_id, road_id, received_at
                FROM reception_messages
                WHERE state = 'pending'
                ORDER BY received_at, message_id LIMIT ?""",
             (limite,),
+        ).fetchall()
+        conexiones = db.execute(
+            """SELECT connection_id, road_id, peer_name, peer_endpoint
+               FROM reception_connections WHERE status = 'active'
+               ORDER BY peer_name COLLATE NOCASE, connection_id"""
+        ).fetchall()
+        salientes = db.execute(
+            "SELECT COUNT(*) AS queued FROM reception_outbox WHERE state = 'queued'"
+        ).fetchone()
+        reglas = db.execute(
+            """SELECT target_city_id, target_city_address, keywords_json, priority
+               FROM reception_auto_rules WHERE enabled = 1
+               ORDER BY priority DESC, rule_id"""
         ).fetchall()
         ciudades = _ciudades(usuario, actual)
         return {
@@ -240,9 +337,15 @@ def estado(usuario, limite=200, actual=""):
                 "routingMode": ajustes["routing_mode"],
                 "reviewPolicy": ajustes["review_policy"],
                 "routerProfile": ajustes["router_profile"],
-                # Auto-routing needs a separately isolated, schema-only router.
-                # No general city agent is silently promoted into that trust role.
-                "autoAvailable": False,
+                "autoAvailable": bool(reglas),
+                "autoRules": [
+                    {
+                        "cityId": fila["target_city_id"],
+                        "address": fila["target_city_address"],
+                        "keywords": json.loads(fila["keywords_json"]),
+                    }
+                    for fila in reglas
+                ],
             },
             "summary": {
                 "pending": int(contadores["pending_count"]),
@@ -253,6 +356,9 @@ def estado(usuario, limite=200, actual=""):
                 {
                     "id": fila["message_id"],
                     "from": fila["source_city"],
+                    "fromName": fila["source_name"] or fila["source_city"],
+                    "kind": fila["message_kind"],
+                    "inReplyTo": fila["in_reply_to"],
                     "createdAt": fila["source_created_at"],
                     "receivedAt": fila["received_at"],
                     "receivedVia": fila["received_city_address"],
@@ -267,6 +373,18 @@ def estado(usuario, limite=200, actual=""):
                 {"id": c["id"], "name": c["name"], "address": c["address"]}
                 for c in ciudades
             ],
+            "connections": [
+                {
+                    "id": fila["connection_id"],
+                    "roadId": fila["road_id"],
+                    "name": fila["peer_name"],
+                    # An endpoint is technical transport metadata. The Hall does
+                    # not show it or present it as a city to the sender.
+                    "connected": True,
+                }
+                for fila in conexiones
+            ],
+            "outbox": {"queued": int(salientes["queued"])},
         }
     finally:
         db.close()
@@ -283,13 +401,16 @@ def resumen():
         contadores = db.execute(
             "SELECT pending_count, pending_bytes FROM reception_counters WHERE singleton = 1"
         ).fetchone()
+        reglas = db.execute(
+            "SELECT COUNT(*) AS count FROM reception_auto_rules WHERE enabled = 1"
+        ).fetchone()
         return {
             "pending": int(contadores["pending_count"]),
             "pendingBytes": int(contadores["pending_bytes"]),
             "routingMode": ajustes["routing_mode"],
             "reviewPolicy": ajustes["review_policy"],
             "routerProfile": ajustes["router_profile"],
-            "autoAvailable": False,
+            "autoAvailable": int(reglas["count"]) > 0,
         }
     finally:
         db.close()
@@ -317,6 +438,146 @@ def _prepara_decision(usuario, message_id, accion, destinos, motivo, actual):
     return message_id, accion, motivo, ciudades, elegidas
 
 
+def _valida_salida(connection_id, texto):
+    connection_id = str(connection_id or "")
+    texto = str(texto or "")
+    if not CONNECTION_ID.fullmatch(connection_id):
+        raise ReceptionError("invalid connection")
+    if not texto.strip():
+        raise ReceptionError("write a message before sending")
+    if len(texto.encode("utf-8")) > MAX_OUTBOX_BYTES:
+        raise ReceptionError("message is too large")
+    return connection_id, texto
+
+
+def _normaliza_keyword(value):
+    return " ".join(
+        unicodedata.normalize("NFKC", str(value or "")).lower().split()
+    )
+
+
+def _prepara_reglas_auto(ciudades, rules):
+    preparadas = []
+    vistas = set()
+    for raw in rules:
+        if not isinstance(raw, dict):
+            raise ReceptionError("invalid automatic rule")
+        ident = str(raw.get("city_id") or "")
+        if ident not in ciudades or ident in vistas:
+            raise ReceptionError("an automatic destination is not one of your local cities")
+        keywords = raw.get("keywords")
+        if isinstance(keywords, str):
+            keywords = re.split(r"[,\n]", keywords)
+        if not isinstance(keywords, list):
+            raise ReceptionError("automatic keywords must be a list")
+        normalizadas = list(dict.fromkeys(
+            keyword for keyword in (_normaliza_keyword(x) for x in keywords) if keyword
+        ))
+        if not normalizadas:
+            continue
+        if len(normalizadas) > 20 or any(len(x) > 80 for x in normalizadas):
+            raise ReceptionError("use at most 20 short keywords per city")
+        vistas.add(ident)
+        preparadas.append((
+            str(uuid.uuid4()),
+            ident,
+            ciudades[ident]["address"],
+            json.dumps(normalizadas, ensure_ascii=False, separators=(",", ":")),
+            0,
+        ))
+    return preparadas
+
+
+def configura(usuario, routing_mode, rules, actual=""):
+    """Replace the closed Auto allowlist and switch modes atomically."""
+    routing_mode = str(routing_mode or "")
+    if routing_mode not in ("manual", "auto"):
+        raise ReceptionError("routing mode must be manual or auto")
+    if not isinstance(rules, list) or len(rules) > MAX_DESTINATIONS:
+        raise ReceptionError("automatic rules must be a list of at most 32 cities")
+    ciudades = {c["id"]: c for c in _ciudades(usuario, actual)}
+    preparadas = _prepara_reglas_auto(ciudades, rules)
+    if routing_mode == "auto" and not preparadas:
+        raise ReceptionError("add at least one city rule before enabling Auto")
+    ahora = _ahora()
+    db = _conecta()
+    comprometida = False
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM reception_auto_rules")
+        db.executemany(
+            """INSERT INTO reception_auto_rules (
+                 rule_id, target_city_id, target_city_address, keywords_json,
+                 priority, enabled, updated_at
+               ) VALUES (?, ?, ?, ?, ?, 1, ?)""",
+            [(*regla, ahora) for regla in preparadas],
+        )
+        db.execute(
+            """UPDATE reception_settings
+               SET routing_mode = ?, router_profile = ?, updated_at = ?
+               WHERE singleton = 1""",
+            (
+                routing_mode,
+                AUTO_ROUTER_PROFILE if preparadas else None,
+                ahora,
+            ),
+        )
+        db.execute("COMMIT")
+        comprometida = True
+        return {
+            "ok": True,
+            "routingMode": routing_mode,
+            "autoAvailable": bool(preparadas),
+            "rules": len(preparadas),
+        }
+    finally:
+        if not comprometida:
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        db.close()
+
+
+def envia(connection_id, texto):
+    """Durably queue one person-to-person message before reporting success."""
+    connection_id, texto = _valida_salida(connection_id, texto)
+    ahora = _ahora()
+    message_id = str(uuid.uuid4())
+    db = _conecta()
+    comprometida = False
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        conexion = db.execute(
+            """SELECT road_id FROM reception_connections
+               WHERE connection_id = ? AND status = 'active' LIMIT 1""",
+            (connection_id,),
+        ).fetchone()
+        if not conexion:
+            raise ReceptionError("connection is not available on this computer")
+        db.execute(
+            """INSERT INTO reception_outbox (
+                 message_id, road_id, connection_id, kind, body, created_at
+               ) VALUES (?, ?, ?, 'message', ?, ?)""",
+            (message_id, conexion["road_id"], connection_id, texto, ahora),
+        )
+        db.execute("COMMIT")
+        comprometida = True
+        return {
+            "ok": True,
+            "id": message_id,
+            "status": "queued",
+            "connectionId": connection_id,
+        }
+    finally:
+        if not comprometida:
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        db.close()
+
+
 def decide(usuario, message_id, accion, destinos=None, motivo="", actual=""):
     """Atomically reject one message or queue it for one or more owned cities."""
     message_id, accion, motivo, ciudades, elegidas = _prepara_decision(
@@ -328,13 +589,37 @@ def decide(usuario, message_id, accion, destinos=None, motivo="", actual=""):
     try:
         db.execute("BEGIN IMMEDIATE")
         mensaje = db.execute(
-            "SELECT state FROM reception_messages WHERE message_id = ?", (message_id,)
+            """SELECT state, message_kind, connection_id, road_id, remote_message_id
+               FROM reception_messages WHERE message_id = ?""",
+            (message_id,),
         ).fetchone()
         if not mensaje:
             raise ReceptionError("reception message not found")
         if mensaje["state"] != "pending":
             raise ReceptionError("that reception message has already been decided")
         if accion == "reject":
+            respuesta_id = None
+            if (
+                mensaje["message_kind"] == "message"
+                and mensaje["connection_id"]
+                and mensaje["road_id"]
+                and CONNECTION_ID.fullmatch(str(mensaje["remote_message_id"] or ""))
+            ):
+                respuesta_id = str(uuid.uuid4())
+                db.execute(
+                    """INSERT INTO reception_outbox (
+                         message_id, road_id, connection_id, kind, body,
+                         in_reply_to, created_at
+                       ) VALUES (?, ?, ?, 'rejection', ?, ?, ?)""",
+                    (
+                        respuesta_id,
+                        mensaje["road_id"],
+                        mensaje["connection_id"],
+                        motivo,
+                        mensaje["remote_message_id"],
+                        ahora,
+                    ),
+                )
             db.execute(
                 """UPDATE reception_messages
                    SET state = 'rejected', body = NULL, decided_at = ?, decision_reason = ?
@@ -367,6 +652,7 @@ def decide(usuario, message_id, accion, destinos=None, motivo="", actual=""):
             "status": "rejected" if accion == "reject" else "routed",
             "destinations": elegidas if accion == "route" else [],
             "reason": motivo if accion == "reject" else None,
+            "responseQueued": bool(respuesta_id) if accion == "reject" else False,
         }
     except sqlite3.IntegrityError as error:
         raise ReceptionError("reception decision conflict") from error
