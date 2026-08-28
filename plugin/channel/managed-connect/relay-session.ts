@@ -135,13 +135,14 @@ export class ManagedRelaySession {
     if (!parsed.ok) throw new Error(parsed.code);
     const frame = parsed.frame;
     if (frame.type === 'welcome') {
-      if (this.welcomed) throw new Error('duplicate_relay_welcome');
       if (
         frame.protocol !== RELAY_PROTOCOL ||
         frame.city !== this.city ||
-        frame.deviceId !== this.identity.deviceId
+        frame.deviceId !== this.identity.deviceId ||
+        (this.expectedRoads !== null && frame.roadCount !== this.expectedRoads)
       )
         throw new Error('relay_identity_mismatch');
+      if (this.welcomed) return;
       this.welcomed = true;
       this.expectedRoads = frame.roadCount;
       return;
@@ -192,8 +193,26 @@ export class ManagedRelaySession {
     if (snapshot.pages !== frame.pages || snapshot.chunks.has(frame.page)) {
       throw new Error('invalid_road_directory_sequence');
     }
+    if (frame.page !== snapshot.chunks.size + 1) {
+      throw new Error('invalid_road_directory_sequence');
+    }
     snapshot.chunks.set(frame.page, frame.roads);
-    if (snapshot.chunks.size !== snapshot.pages) return;
+    if (snapshot.chunks.size !== snapshot.pages) {
+      try {
+        this.transport.send(
+          JSON.stringify({
+            type: 'directory_next',
+            snapshotId: frame.snapshotId,
+            page: frame.page + 1,
+          }),
+        );
+      } catch {
+        const error = new Error('relay_directory_request_failed');
+        this.transport.close(1013, 'relay directory unavailable');
+        this.closeState(error);
+      }
+      return;
+    }
     const roads: RelayRoadDirectoryEntry[] = [];
     for (let page = 1; page <= snapshot.pages; page += 1) {
       const chunk = snapshot.chunks.get(page);

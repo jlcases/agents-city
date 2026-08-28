@@ -7,6 +7,7 @@ export const ROAD_TEXT_PROTOCOL = 'agents-city-road-text/1' as const;
 export const MAX_FRAME_BYTES = 32_768;
 export const MAX_SERVER_FRAME_BYTES = 262_144;
 export const MAX_BATCH_MESSAGES = 32;
+export const MAX_DIRECTORY_PAGE_ROADS = 100;
 export const MAX_CIPHERTEXT_BYTES = 16_384;
 export const MAX_CLOCK_SKEW_MS = 90_000;
 export const MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1_000;
@@ -62,6 +63,7 @@ export type RelayClientFrame =
   | { type: 'send'; envelope: RelayEnvelope }
   | { type: 'ack'; messageId: string }
   | { type: 'ack_batch'; messageIds: string[] }
+  | { type: 'directory_next'; snapshotId: string; page: number }
   | { type: 'ping'; at?: number };
 
 export type RelayRoadDirectoryEntry = {
@@ -240,6 +242,26 @@ export const parseRelayClientFrame = (
     }
     return { ok: true, frame: { type: 'ack_batch', messageIds: value.messageIds as string[] } };
   }
+  if (value.type === 'directory_next') {
+    if (
+      !hasOnlyKeys(value, ['type', 'snapshotId', 'page']) ||
+      typeof value.snapshotId !== 'string' ||
+      !UUID_RE.test(value.snapshotId) ||
+      !Number.isSafeInteger(value.page) ||
+      Number(value.page) < 2 ||
+      Number(value.page) > 5_000
+    ) {
+      return { ok: false, code: 'invalid_directory_next' };
+    }
+    return {
+      ok: true,
+      frame: {
+        type: 'directory_next',
+        snapshotId: value.snapshotId,
+        page: Number(value.page),
+      },
+    };
+  }
   if (value.type !== 'send' || !value.envelope || typeof value.envelope !== 'object') {
     return { ok: false, code: 'invalid_frame' };
   }
@@ -405,7 +427,7 @@ export const parseRelayServerFrame = (
       Number(value.page) > Number(value.pages) ||
       Number(value.pages) > 5_000 ||
       !Array.isArray(value.roads) ||
-      value.roads.length > 20 ||
+      value.roads.length > MAX_DIRECTORY_PAGE_ROADS ||
       !value.roads.every(isRoadDirectoryEntry) ||
       new Set(value.roads.map((road) => (road as RelayRoadDirectoryEntry).id)).size !==
         value.roads.length

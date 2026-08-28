@@ -24,6 +24,7 @@ import {
   hpkeOpenBase,
   hpkeSealBase,
   openRoadEnvelope,
+  parseRelayClientFrame,
   parseRelayServerFrame,
   readConnectState,
   textDecoder,
@@ -210,6 +211,38 @@ async function relayBoundary() {
   rightWire.deliver(directoryFrame('bob/engineering', rightRoad));
   await Promise.all([leftSession.ready(), rightSession.ready()]);
 
+  const pagedWire = new MemoryTransport();
+  const pagedSession = new ManagedRelaySession(left, 'alice/product', pagedWire, {
+    onText: () => { throw new Error('unexpected paged-session text'); },
+  });
+  const snapshotId = randomUUID();
+  const secondRoad = { ...leftRoad, id: randomUUID() };
+  pagedWire.deliver({
+    type: 'welcome', city: 'alice/product', deviceId: left.deviceId,
+    protocol: 'agents-city-relay/2', roadCount: 2,
+  });
+  pagedWire.deliver({
+    type: 'welcome', city: 'alice/product', deviceId: left.deviceId,
+    protocol: 'agents-city-relay/2', roadCount: 2,
+  });
+  pagedWire.deliver({
+    type: 'road_directory', snapshotId, page: 1, pages: 2, roads: [leftRoad],
+  });
+  await eventually(() => pagedWire.sent.length === 1);
+  check('a paged directory applies backpressure before requesting the next page',
+    JSON.stringify(JSON.parse(pagedWire.sent[0])) === JSON.stringify({
+      type: 'directory_next', snapshotId, page: 2,
+    }));
+  pagedWire.deliver({
+    type: 'road_directory', snapshotId, page: 2, pages: 2, roads: [secondRoad],
+  });
+  await pagedSession.ready();
+  check('the client becomes ready only after the complete directory snapshot',
+    pagedSession.roads().length === 2);
+  check('an identical bootstrap welcome is idempotent', pagedWire.closed.length === 0);
+  check('directory paging rejects attempts to request page one',
+    parseRelayClientFrame(JSON.stringify({ type: 'directory_next', snapshotId, page: 1 })).ok === false);
+
   const text = 'Review screenshot https://example.test/pr/42 before merge';
   const directEnvelope = await createRoadEnvelope(left, leftRoad, text);
   check('signed Road ciphertext contains no plaintext', !JSON.stringify(directEnvelope).includes(text));
@@ -274,6 +307,7 @@ async function relayBoundary() {
   check('a malformed relay frame closes with policy violation', rightWire.closed.some((entry) => entry.code === 1008));
   leftSession.close();
   rightSession.close();
+  pagedSession.close();
 }
 
 await rfcVector();

@@ -74,6 +74,12 @@ second inbox/history entry. A crash may retry an unacknowledged delivery, which
 is the intentional at-least-once side of avoiding message loss. A revocation
 directory update removes the Road immediately.
 
+Large Road directories use client-driven flow control. The relay sends at most
+100 entries, waits for `directory_next`, and only then emits the next page.
+Pending ciphertext is not delivered until the client has installed the complete
+snapshot. Repeated identical bootstrap frames are idempotent; a changed city,
+device, protocol, count, snapshot or page sequence is rejected.
+
 A sender result of `queued` means only that the relay durably admitted the
 ciphertext to the destination route. It does not mean that the destination
 computer, its agent or its human has received, read, processed or answered it.
@@ -89,6 +95,16 @@ local inbox is full, the client withholds its relay ACK and reconnects with a
 retryable capacity error. No existing inbox, actor-outbox or local retry entry is
 silently evicted. Transport load and model-workload recovery are therefore two
 separate tests and two separate SLOs.
+
+The deterministic workload tests make that distinction measurable. A burst of
+100 messages drains with depths `80 -> 60 -> 40 -> 20 -> 0` in five reads after
+one content-free wake-up, with no loss. Twenty independent assignments sent to
+a deliberately slow Claude double reached a durable backlog peak of 17, began
+at least 357 ms apart, kept model concurrency at one, and all produced final
+answers in 7.197 seconds. These are local regression measurements, not a model
+latency promise. With turn time `T` and a safe grouped batch `B`, one city's
+sustainable answer capacity is approximately `B / T`; transport can remain
+healthy while answer latency grows.
 
 The HPKE implementation is locked to the RFC 9180 A.1.1 test vector. The
 regression suite also proves ciphertext-only frames, post-acceptance ACK,

@@ -5659,6 +5659,7 @@ var ROAD_TEXT_PROTOCOL = "agents-city-road-text/1";
 var MAX_FRAME_BYTES = 32768;
 var MAX_SERVER_FRAME_BYTES = 262144;
 var MAX_BATCH_MESSAGES = 32;
+var MAX_DIRECTORY_PAGE_ROADS = 100;
 var MAX_CIPHERTEXT_BYTES = 16384;
 var MAX_CLOCK_SKEW_MS = 9e4;
 var MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1e3;
@@ -5754,6 +5755,19 @@ var parseRelayClientFrame = (raw, now = Date.now()) => {
     }
     return { ok: true, frame: { type: "ack_batch", messageIds: value.messageIds } };
   }
+  if (value.type === "directory_next") {
+    if (!hasOnlyKeys(value, ["type", "snapshotId", "page"]) || typeof value.snapshotId !== "string" || !UUID_RE.test(value.snapshotId) || !Number.isSafeInteger(value.page) || Number(value.page) < 2 || Number(value.page) > 5e3) {
+      return { ok: false, code: "invalid_directory_next" };
+    }
+    return {
+      ok: true,
+      frame: {
+        type: "directory_next",
+        snapshotId: value.snapshotId,
+        page: Number(value.page)
+      }
+    };
+  }
   if (value.type !== "send" || !value.envelope || typeof value.envelope !== "object") {
     return { ok: false, code: "invalid_frame" };
   }
@@ -5830,7 +5844,7 @@ var parseRelayServerFrame = (raw, now = Date.now()) => {
     return { ok: true, frame: value };
   }
   if (value.type === "road_directory") {
-    if (!hasOnlyKeys(value, ["type", "snapshotId", "page", "pages", "roads"]) || typeof value.snapshotId !== "string" || !UUID_RE.test(value.snapshotId) || !Number.isSafeInteger(value.page) || !Number.isSafeInteger(value.pages) || Number(value.page) < 1 || Number(value.pages) < 1 || Number(value.page) > Number(value.pages) || Number(value.pages) > 5e3 || !Array.isArray(value.roads) || value.roads.length > 20 || !value.roads.every(isRoadDirectoryEntry) || new Set(value.roads.map((road) => road.id)).size !== value.roads.length)
+    if (!hasOnlyKeys(value, ["type", "snapshotId", "page", "pages", "roads"]) || typeof value.snapshotId !== "string" || !UUID_RE.test(value.snapshotId) || !Number.isSafeInteger(value.page) || !Number.isSafeInteger(value.pages) || Number(value.page) < 1 || Number(value.pages) < 1 || Number(value.page) > Number(value.pages) || Number(value.pages) > 5e3 || !Array.isArray(value.roads) || value.roads.length > MAX_DIRECTORY_PAGE_ROADS || !value.roads.every(isRoadDirectoryEntry) || new Set(value.roads.map((road) => road.id)).size !== value.roads.length)
       return { ok: false, code: "invalid_road_directory" };
     return { ok: true, frame: value };
   }
@@ -6507,9 +6521,9 @@ var ManagedRelaySession = class {
     if (!parsed.ok) throw new Error(parsed.code);
     const frame = parsed.frame;
     if (frame.type === "welcome") {
-      if (this.welcomed) throw new Error("duplicate_relay_welcome");
-      if (frame.protocol !== RELAY_PROTOCOL || frame.city !== this.city || frame.deviceId !== this.identity.deviceId)
+      if (frame.protocol !== RELAY_PROTOCOL || frame.city !== this.city || frame.deviceId !== this.identity.deviceId || this.expectedRoads !== null && frame.roadCount !== this.expectedRoads)
         throw new Error("relay_identity_mismatch");
+      if (this.welcomed) return;
       this.welcomed = true;
       this.expectedRoads = frame.roadCount;
       return;
@@ -6554,8 +6568,26 @@ var ManagedRelaySession = class {
     if (snapshot.pages !== frame.pages || snapshot.chunks.has(frame.page)) {
       throw new Error("invalid_road_directory_sequence");
     }
+    if (frame.page !== snapshot.chunks.size + 1) {
+      throw new Error("invalid_road_directory_sequence");
+    }
     snapshot.chunks.set(frame.page, frame.roads);
-    if (snapshot.chunks.size !== snapshot.pages) return;
+    if (snapshot.chunks.size !== snapshot.pages) {
+      try {
+        this.transport.send(
+          JSON.stringify({
+            type: "directory_next",
+            snapshotId: frame.snapshotId,
+            page: frame.page + 1
+          })
+        );
+      } catch {
+        const error = new Error("relay_directory_request_failed");
+        this.transport.close(1013, "relay directory unavailable");
+        this.closeState(error);
+      }
+      return;
+    }
     const roads2 = [];
     for (let page = 1; page <= snapshot.pages; page += 1) {
       const chunk = snapshot.chunks.get(page);

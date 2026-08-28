@@ -1832,6 +1832,13 @@ message, and every native runtime runs at most one turn at a time. Full queues
 apply backpressure instead of silently deleting an older item. Message lifetime
 is 72 hours. `bus inbox` consumes `road-inbox`, not append-only history.
 
+Relay throughput is not answer throughput. For one city, safe semantic capacity
+is approximately grouped requests per turn divided by turn duration. The local
+regression drains 100 Road messages in five exact batches of 20 after one
+content-free wake-up; a separate 20-request slow-runtime test proves model
+concurrency stays at one and the durable backlog drains without loss. A sender's
+`queued` result never means read or answered.
+
 ### Configurable variables
 
 | Variable | Default | Use |

@@ -1857,6 +1857,14 @@ ejecuta como máximo un turno a la vez. Una cola llena aplica backpressure en ve
 de borrar silenciosamente un elemento anterior. La vida de cada mensaje es de
 72 horas. `bus inbox` consume `road-inbox`, no el historial append-only.
 
+El rendimiento del relay no es el rendimiento de respuestas. Para una ciudad,
+la capacidad semántica segura es aproximadamente las peticiones agrupadas por
+turno divididas por la duración del turno. La regresión local vacía 100 mensajes
+de Road en cinco lotes exactos de 20 tras una sola activación sin contenido; una
+prueba separada con 20 peticiones y runtime lento demuestra que la concurrencia
+del modelo permanece en uno y que el backlog durable se vacía sin pérdidas. El
+resultado `queued` del remitente nunca significa leído ni respondido.
+
 ### Variables configurables
 
 | Variable | Por defecto | Uso |

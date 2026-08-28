@@ -355,13 +355,18 @@ def main():
                and 'too large' in texto(grande), texto(grande))
 
         b = Cliente('seat', lab, app)
+        road_drain_started = time.monotonic()
         inbox_batches = [b.herramienta(5 + i, 'bus_inbox') for i in range(5)]
+        road_drain_seconds = time.monotonic() - road_drain_started
+        parsed_batches = [json.loads(texto(batch)) for batch in inbox_batches]
+        remaining_depths = [batch.get('remaining') for batch in parsed_batches]
         inbox_text = ''.join(texto(batch) for batch in inbox_batches)
         afirma('· starting the destination drains the durable road queue',
                'hello from home' in inbox_text
                and 'agents-city-bus/2' in inbox_text
-               and '"remaining": 80' in texto(inbox_batches[0])
-               and '"remaining": 0' in texto(inbox_batches[-1]),
+               and remaining_depths == [80, 60, 40, 20, 0]
+               and all(len(batch.get('messages', [])) == 20
+                       for batch in parsed_batches),
                inbox_text)
         vacio = b.herramienta(10, 'bus_inbox')
         afirma('· bounded inbox batches eventually clear the queue',
@@ -380,6 +385,14 @@ def main():
                and 'hello from home'
                not in road_notices[0].get('params', {}).get('content', ''),
                str(road_notices))
+        print('  ROAD_BACKLOG_RESULT ' + json.dumps({
+            'messages': 100,
+            'batch_size': 20,
+            'remaining_depths': remaining_depths,
+            'content_free_wakeups_before_drain': len(road_notices),
+            'queue_drain_seconds_without_model': round(road_drain_seconds, 3),
+            'lost': 0,
+        }))
         history_path = os.path.join(
             app, '.runtime', 'bus', 'city-lab', 'road-history.jsonl')
         history = open(history_path, encoding='utf-8').read().splitlines()
