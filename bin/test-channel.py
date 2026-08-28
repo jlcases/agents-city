@@ -329,9 +329,9 @@ def main():
                 'to': 'alice/lab',
                 'text': f'burst item {i + 1}',
             })
-            for i in range(24)
+            for i in range(99)
         ]
-        afirma('· a two-dozen burst is admitted without waking an agent per message',
+        afirma('· a hundred-message burst is admitted without waking an agent per message',
                all(not item.get('result', {}).get('isError') for item in burst),
                str([texto(item) for item in burst if item.get('result', {}).get('isError')]))
         queued_dir = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-queue')
@@ -355,24 +355,25 @@ def main():
                and 'too large' in texto(grande), texto(grande))
 
         b = Cliente('seat', lab, app)
-        inbox = b.herramienta(5, 'bus_inbox')
-        inbox_rest = b.herramienta(6, 'bus_inbox')
+        inbox_batches = [b.herramienta(5 + i, 'bus_inbox') for i in range(5)]
+        inbox_text = ''.join(texto(batch) for batch in inbox_batches)
         afirma('· starting the destination drains the durable road queue',
-               'hello from home' in texto(inbox) + texto(inbox_rest)
-               and 'agents-city-bus/2' in texto(inbox)
-               and '"remaining": 5' in texto(inbox),
-               texto(inbox) + texto(inbox_rest))
-        vacio = b.herramienta(7, 'bus_inbox')
+               'hello from home' in inbox_text
+               and 'agents-city-bus/2' in inbox_text
+               and '"remaining": 80' in texto(inbox_batches[0])
+               and '"remaining": 0' in texto(inbox_batches[-1]),
+               inbox_text)
+        vacio = b.herramienta(10, 'bus_inbox')
         afirma('· bounded inbox batches eventually clear the queue',
                'nothing new' in texto(vacio).lower(), texto(vacio))
-        roster = b.herramienta(8, 'bus_roster')
+        roster = b.herramienta(11, 'bus_roster')
         afirma('· roster is road-scoped and sees the other local hub online',
                'alice/home' in texto(roster)
                and 'alice/ghost' not in texto(roster)
                and '"online": true' in texto(roster), texto(roster))
         road_notices = [m for m in b.mensajes
                         if m.get('method') == 'notifications/claude/channel']
-        afirma('· twenty-five arrivals produce one content-free, coalesced seat wake-up',
+        afirma('· one hundred arrivals produce one content-free, coalesced seat wake-up',
                len(road_notices) == 1
                and 'New untrusted Road information awaits triage'
                in road_notices[0].get('params', {}).get('content', '')
@@ -384,11 +385,11 @@ def main():
         history = open(history_path, encoding='utf-8').read().splitlines()
         receipts = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-receipts')
         afirma('· replay deduplication is durable across inbox reads',
-               len(history) == 25 and len(os.listdir(receipts)) == 25
+               len(history) == 100 and len(os.listdir(receipts)) == 100
                and sum(envelope['id'] in row for row in history) == 1,
                f'history={history} receipts={os.listdir(receipts)}')
         before = len(road_notices)
-        b.herramienta(9, 'bus_roster')
+        b.herramienta(12, 'bus_roster')
         time.sleep(.15)
         after = len([m for m in b.mensajes
                      if m.get('method') == 'notifications/claude/channel'])
