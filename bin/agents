@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# List agents and manage their workspace mounts (symlinks to repos, worktrees
+# or document folders). Agent-first: a repo is just one thing an agent mounts.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/workspace.py" "$@"

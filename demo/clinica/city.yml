@@ -1,0 +1,8 @@
+# Clínica Alba is fictional and exists only for `agents-city demo --domain medicina`.
+id: city_demo_clinica_v1
+name: Clínica Alba
+slug: clinica-alba
+owner: vera
+layout: personal-v2
+domain: medicina
+grow_command: demo — generated history

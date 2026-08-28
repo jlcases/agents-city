@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# List, create and select this user's local cities.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/cities.py" "$@"

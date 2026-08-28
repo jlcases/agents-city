@@ -1,0 +1,15 @@
+# Five agents, five houses. The scripted committee invites only three, so
+# abstention and bounded participation remain believable — same as Aurora.
+repos:
+  contratos:
+    - ruta: "" ; unidad: civil ; nombre: "Contratos"
+  litigios:
+    - ruta: "" ; unidad: civil ; nombre: "Litigios"
+  archivo:
+    - ruta: "" ; unidad: gestion ; nombre: "Archivo"
+  fiscal:
+    - ruta: "" ; unidad: fiscalidad ; nombre: "Fiscal"
+  recepcion:
+    - ruta: "" ; unidad: gestion ; nombre: "Recepción"
+
+lab: []

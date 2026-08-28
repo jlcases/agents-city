@@ -1,0 +1,32 @@
+name = "city-bus"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+# Pinned on purpose: if you have more than one Cloudflare account, wrangler picks
+# one for you and the deploy lands somewhere you did not mean.
+account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
+
+# Metadata only in the logs: who, to whom, how many bytes. Set it to "1" to log
+# the text of the messages as well — which means the text of every message
+# between agents ends up in your Cloudflare logs, so decide that deliberately.
+[vars]
+LOG_CONTENT = "0"
+# The city view. Without this line the hub tells nobody anything and the bus works
+# exactly the same: the view is optional by design.
+CITY_URL = "https://city.example.com"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+
+# Create it with:  npx wrangler@4 kv namespace create TOKENS
+# and paste the id it prints here.
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
+[observability]
+enabled = true

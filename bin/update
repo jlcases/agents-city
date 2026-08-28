@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Install the newest published version, or ask whether there is one.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/actualiza.py" "$@"

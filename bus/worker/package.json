@@ -1,0 +1,17 @@
+{
+  "name": "city-bus-worker",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail --format pretty",
+    "typecheck": "tsc --noEmit",
+    "test:local": "../scripts/test-local.sh"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260826.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.0.0"
+  }
+}

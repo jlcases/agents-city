@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Bring YOUR city up, from your data repo. Same idea as bin/demo.
+#
+#   ./bin/city                       uses the selected city
+#   ./bin/city ~/.agents-city/me/x   uses that one
+set -euo pipefail
+cd "$(dirname "$0")/.."
+RAIZ="$PWD"
+
+# A free port, starting at 8787.
+#
+# Not a nicety: the first run of this on somebody else's machine died because
+# something else already held 8787, and the error wrangler prints for that is a
+# wall of C++ stack trace. A demo that refuses to start on its first attempt is a
+# demo nobody runs twice.
+puerto_libre() {
+  local p=${1:-8787}
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! lsof -ti:"$p" >/dev/null 2>&1; then echo "$p"; return; fi
+    p=$((p + 1))
+  done
+  echo "$p"
+}
+PUERTO="$(puerto_libre 8787)"
+
+if [ $# -gt 0 ]; then
+  DATOS="$1"
+elif [ -n "${AGENTS_CITY_DATA:-}" ]; then
+  DATOS="$AGENTS_CITY_DATA"
+else
+  DATOS="$(python3 "$RAIZ/plugin/scripts/cities.py" current)"
+fi
+
+if [ ! -d "$DATOS" ]; then
+  echo "  No data repo at $DATOS"
+  echo "  Run ./bin/setup.py first — it writes one — or pass the path: ./bin/city ~/my-data"
+  exit 1
+fi
+
+if command -v bunx >/dev/null 2>&1; then CORRE=(bunx)
+elif command -v bun >/dev/null 2>&1; then CORRE=(bun x)
+elif command -v npx >/dev/null 2>&1; then CORRE=(npx --yes)
+else echo "  I need npx (comes with Node) or bun."; exit 1; fi
+
+printf '\n  \033[1mBuilding the map\033[0m\n'
+# Skip the build when a built front end shipped with the package (an npm install
+# has dist/ ready-made) or when the package dir is not ours to write.
+if [ ! -f city/web/dist/index.html ] || { [ -w city/web ] && [ city/web/src/main.ts -nt city/web/dist/city.js ]; }; then
+  if [ -w city/web ]; then
+    (cd city/web && npm install --silent && npm run build >/dev/null)
+  else
+    echo "  The front end is not built and this install is not writable."
+    echo "  Reinstall without sudo (nvm makes this the default), or run from a clone."
+    exit 1
+  fi
+fi
+
+printf '\n  \033[1mLoading %s\033[0m\n' "$DATOS"
+cd "$RAIZ/city/worker"
+# Demo and your city keep their state apart, and that is not tidiness.
+# Sharing one .wrangler/state means the Durable Object holding "who is connected"
+# survives from one to the other: run the demo once, open your own city, and three
+# of Aurora Games' agents are sitting on your bus with timestamps from hours ago.
+# D1 gets reseeded so the houses were right; the live state is what leaked.
+# Local D1/DO state lives in the home directory, never inside the package:
+# an npm -g install is shared and possibly read-only, and state is yours.
+# One local database per city, keyed by cities.py's slug: two cities — even two
+# folders that share a basename — must never overwrite each other's map.
+CIUDAD_ID="$(python3 "$RAIZ/plugin/scripts/cities.py" slug "$DATOS" 2>/dev/null)"
+ESTADO="${AGENTS_CITY_HOME:-$HOME/.agents-city}/state/${CIUDAD_ID:-mine}"
+VARS=(--var "CITY_ID:$(python3 "$RAIZ/plugin/scripts/cities.py" id "$DATOS" 2>/dev/null)")
+# The secret travels as a flag, not as a file written into the package: a global
+# npm install may be read-only, and a local one should not be dirtied either.
+[ -f .dev.vars ] || VARS+=(--var "CITY_SECRET:local-test")
+mkdir -p "$ESTADO"
+"${CORRE[@]}" wrangler@4 d1 execute city --local --persist-to "$ESTADO" --file schema.sql >/dev/null
+cd "$RAIZ"
+CITY_PERSIST="$ESTADO" ./city/scripts/seed.py --data "$DATOS" --local
+
+printf '\n  \033[1mYour city is at\033[0m http://127.0.0.1:%s\n' "$PUERTO"
+echo "  Houses have no floors yet: growth comes from your repos or from ./bin/report.py"
+echo "  ctrl-c to stop"
+[ "$PUERTO" = 8787 ] || echo "  (8787 was busy, so this one is on $PUERTO)"
+cd "$RAIZ/city/worker"
+exec "${CORRE[@]}" wrangler@4 dev --local --persist-to "$ESTADO" \
+  "${VARS[@]}" --port "$PUERTO"

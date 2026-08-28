@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""The town hall: manage your city from the browser.
+
+    ./bin/hall                open it
+    ./bin/hall --city lab     open one known city
+    ./bin/hall --no-browser   print the address instead
+
+One page on localhost: the selected city's identity, owner seat (role, folders,
+goal), repo support agents, recognised skills, roads, districts and houses. It
+writes the same plain files every other door writes, through the same modules.
+
+The server is bin/serve.py. It binds to 127.0.0.1 on a port the OS picks, and
+every request carries a token minted for this run, because this process writes to
+your disk.
+"""
+import argparse
+import os
+import sys
+
+AQUI = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, AQUI)
+sys.path.insert(0, os.path.join(os.path.dirname(AQUI), 'plugin', 'scripts'))
+import serve  # noqa: E402
+import cities  # noqa: E402
+
+def asegura_build():
+    """hall.js, built if missing or older than its source. Same npm the map already
+    requires — the hall's headline feature is framing the map, so this is not a new
+    dependency, just the same one earlier."""
+    import subprocess
+    web = os.path.join(os.path.dirname(AQUI), 'city', 'web')
+    js = os.path.join(web, 'dist-hall', 'hall.js')
+    ts = os.path.join(web, 'src', 'hall.ts')
+    if os.path.isfile(js):
+        # Freshness only matters in a clone, where hall.ts gets edited. An npm
+        # install ships hall.js prebuilt — and npm normalises file times, so an
+        # mtime comparison there rebuilds for no reason, or fails where the
+        # install is not writable.
+        es_clon = os.path.isdir(os.path.join(os.path.dirname(AQUI), '.git'))
+        if not es_clon or os.path.getmtime(js) >= os.path.getmtime(ts):
+            return True
+    print('  Building the hall (first time needs npm install)…')
+    r = subprocess.run('npm install --silent && npm run build',
+                       shell=True, cwd=web, capture_output=True, text=True)
+    if not os.path.isfile(js):
+        print('  The build failed. Run by hand and read its output:\n'
+              '    cd city/web && npm install && npm run build\n'
+              f'  {(r.stderr or r.stdout).strip().splitlines()[-1:] or [""] }'[0:400],
+              file=sys.stderr)
+        return False
+    return True
+
+
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser(description='Open one personal city in the local Hall')
+    ap.add_argument('--city', default='', help='known city name, id or path')
+    ap.add_argument('--no-browser', action='store_true', help='print the URL only')
+    a = ap.parse_args()
+    if not asegura_build():
+        sys.exit(1)
+    usuario = cities.usuario_actual()
+    datos = cities.resuelve(a.city, usuario) if a.city else cities.actual(usuario)
+    if not datos:
+        print(f'  No city called {a.city!r}.', file=sys.stderr)
+        sys.exit(1)
+    owner = cities.lee_clave(datos, 'owner')
+    if owner and owner != usuario:
+        print(f"  This city belongs to {owner!r}, not {usuario!r}.", file=sys.stderr)
+        sys.exit(1)
+    cities.selecciona(usuario, datos)
+    sys.exit(0 if serve.sirve(datos,
+                              abrir=not a.no_browser,
+                              pagina='hall') else 0)

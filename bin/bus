@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Send or inspect messages on explicit roads. The hub enforces seat-only ACLs.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/plugin/scripts/city-env.sh"
+exec node "$ROOT/plugin/channel/client.js" bus "$@"

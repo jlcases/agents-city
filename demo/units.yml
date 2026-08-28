@@ -1,0 +1,33 @@
+# Business units — the districts of your city.
+#
+# This is yours to define at install time. The map reads it, so the districts,
+# their names, their colours and their order come from here and not from the
+# code. The demo ships a game studio; replace it with your own units and the map
+# redraws itself.
+#
+# id      what you write in `unidad` inside parcels.yml
+# name    what shows on the banner
+# color   hex, without the #
+# order   left to right; the shared district usually goes last
+units:
+  - id: mobile   ; name: Mobile Games      ; color: 3fb8a0 ; order: 1
+  - id: console  ; name: Console Games     ; color: 8f7ae6 ; order: 2
+  - id: arcade   ; name: Arcade Cabinets   ; color: e08a3c ; order: 3
+  - id: school   ; name: School Editions   ; color: 4a9ede ; order: 4
+  - id: platform ; name: Platform          ; color: 6f8fbf ; order: 5
+    note: "store, launcher, live ops — every unit ships through it"
+  - id: data     ; name: Player Data       ; color: e2604f ; order: 6
+    note: "telemetry, experiments, the numbers everyone argues with"
+
+# Two districts every city has, whatever the business.
+#
+# The lab does not ship yet, and it is needed. It gets its own district instead
+# of falling into the shared bucket on purpose: a lab repo among the orphans
+# reads as waste, and it is the opposite. Its houses are drawn with permanent
+# scaffolding, and its growth is not compared against the shipping units — a lab
+# house with few floors is not behind, it is early.
+special:
+  - id: lab      ; name: Lab               ; color: 8fb8c9 ; order: 90
+    note: "doesn't ship yet, and it's needed"
+  - id: none     ; name: No unit           ; color: c8b48a ; order: 99
+    note: "serves several units, or none"

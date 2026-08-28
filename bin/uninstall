@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Remove agents-city and everything it wrote on this machine.
+# Preview by default; --yes goes through with it.
+set -euo pipefail
+exec python3 "$(dirname "$0")/../plugin/scripts/desinstala.py" "$@"

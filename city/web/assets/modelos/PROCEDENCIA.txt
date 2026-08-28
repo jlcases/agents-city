@@ -1,0 +1,3 @@
+Edificios: Kenney "City Kit (Commercial)" 2.1 — https://kenney.nl/assets/city-kit-commercial
+Licencia CC0 (dominio público, sin atribución obligatoria). License.txt va al lado.
+Sólo se han traído 8 de los 41 modelos: pesan ~1 MB y sobran para la prueba.

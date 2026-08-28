@@ -1,0 +1,15 @@
+# Five agents, five houses. The scripted committee invites only three, so
+# abstention and bounded participation remain believable — same as Aurora.
+repos:
+  urgencias:
+    - ruta: "" ; unidad: atencion ; nombre: "Urgencias"
+  laboratorio:
+    - ruta: "" ; unidad: diagnostico ; nombre: "Laboratorio"
+  farmacia:
+    - ruta: "" ; unidad: atencion ; nombre: "Farmacia"
+  archivo-historias:
+    - ruta: "" ; unidad: gestion ; nombre: "Archivo de historias"
+  admision:
+    - ruta: "" ; unidad: gestion ; nombre: "Admisión"
+
+lab: []

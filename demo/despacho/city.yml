@@ -1,0 +1,8 @@
+# Costa & Ley is fictional and exists only for `agents-city demo --domain legal`.
+id: city_demo_despacho_v1
+name: Costa & Ley
+slug: costa-ley
+owner: marta
+layout: personal-v2
+domain: legal
+grow_command: demo — generated history

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Vendor-neutral chair/member protocol over the city's local WebSocket bus.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$ROOT/plugin/scripts/city-env.sh"
+exec node "$ROOT/plugin/channel/client.js" committee "$@"

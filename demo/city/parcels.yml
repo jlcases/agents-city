@@ -1,0 +1,15 @@
+# Five repo agents, five visible houses. The scripted committee deliberately
+# invites only three, so abstention and bounded participation remain believable.
+repos:
+  nova:
+    - ruta: "" ; unidad: games ; nombre: "Nova games"
+  store-service:
+    - ruta: "" ; unidad: platform ; nombre: "Player store"
+  telemetry-collector:
+    - ruta: "" ; unidad: data ; nombre: "Telemetry"
+  engine-core:
+    - ruta: "" ; unidad: platform ; nombre: "Engine core"
+  launcher:
+    - ruta: "" ; unidad: games ; nombre: "Game launcher"
+
+lab: []

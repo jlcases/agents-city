@@ -1,0 +1,92 @@
+# Parcels — which slice of which repo serves which business unit.
+#
+# Aurora Games is made up for this demo: a game studio with four business units,
+# a lab, and a pile of shared code. Any company shaped like this works the same.
+#
+# A house on the map is not a repo: it is a **parcel**. One repo can hold several,
+# and that is not a drawing detail — it is the central fact of most codebases: a
+# monorepo holds products from every unit, and the shared engine serves them all.
+#
+# Two things read this file, which is why it lives in data and not in code:
+#   1. The city map, to know which district each house belongs to.
+#   2. The notice router, to decide who to tell based on the FILES a PR touches
+#      — an exact signal, not a list of topics that goes stale.
+#
+# units: mobile | console | arcade | school | platform | data | lab | none
+# path: glob relative to the repo. Empty = the whole repo. First match wins, so
+#       specific goes before general.
+
+repos:
+  nova:
+    - ruta: "apps/puzzle-*/**"      ; unidad: mobile  ; nombre: "Puzzle Quest"
+    - ruta: "apps/farm-*/**"        ; unidad: mobile  ; nombre: "Farm Tycoon"
+    - ruta: "apps/rift-*/**"        ; unidad: console ; nombre: "Rift Runner"
+    - ruta: "apps/cabinet-*/**"     ; unidad: arcade  ; nombre: "Cabinet firmware"
+    - ruta: "apps/school-*/**"      ; unidad: school  ; nombre: "School editions"
+    - ruta: "packages/**"           ; unidad: none    ; nombre: "nova · packages"
+    - ruta: ""                      ; unidad: none    ; nombre: "nova · monorepo"
+
+  # Standalone repos. A repo with nothing declared here lands in "no unit", which
+  # is honest but not useful: on the map it turns into a district of orphans that
+  # tells you nothing. Saying which unit each repo serves is the work, and it is
+  # the work that makes the map worth looking at.
+  puzzle-quest:
+    - ruta: ""                      ; unidad: mobile  ; nombre: "Puzzle Quest"
+  farm-tycoon:
+    - ruta: ""                      ; unidad: mobile  ; nombre: "Farm Tycoon"
+  ads-mediation:
+    - ruta: ""                      ; unidad: mobile  ; nombre: "Ad mediation"
+  rift-runner:
+    - ruta: ""                      ; unidad: console ; nombre: "Rift Runner"
+  netcode:
+    - ruta: ""                      ; unidad: console ; nombre: "Netcode"
+  controller-sdk:
+    - ruta: ""                      ; unidad: console ; nombre: "Controller SDK"
+  launcher:
+    - ruta: ""                      ; unidad: platform; nombre: "Launcher"
+  store-service:
+    - ruta: ""                      ; unidad: platform; nombre: "Store"
+  infrastructure:
+    - ruta: ""                      ; unidad: platform; nombre: "Infrastructure"
+  ci-templates:
+    - ruta: ""                      ; unidad: platform; nombre: "CI templates"
+  crash-reporter:
+    - ruta: ""                      ; unidad: platform; nombre: "Crash reporter"
+  consent-kit:
+    - ruta: ""                      ; unidad: platform; nombre: "Consent kit"
+  asset-pipeline:
+    - ruta: ""                      ; unidad: arcade  ; nombre: "Asset pipeline"
+  telemetry-collector:
+    - ruta: ""                      ; unidad: data    ; nombre: "Telemetry collector"
+  etl-jobs:
+    - ruta: ""                      ; unidad: data    ; nombre: "ETL jobs"
+  dbt-models:
+    - ruta: ""                      ; unidad: data    ; nombre: "dbt models"
+  ab-testing:
+    - ruta: ""                      ; unidad: data    ; nombre: "Experiments"
+  player-dashboards:
+    - ruta: ""                      ; unidad: school  ; nombre: "Classroom dashboards"
+
+  engine-core:
+    - ruta: "renderer/**"           ; unidad: none    ; nombre: "engine · renderer"
+    - ruta: "audio/**"              ; unidad: none    ; nombre: "engine · audio"
+    - ruta: "physics/**"            ; unidad: none    ; nombre: "engine · physics"
+    - ruta: ""                      ; unidad: none    ; nombre: "engine · core"
+
+# The lab.
+#
+# Research and development: it does not ship to players yet, and it is needed.
+# It gets its own district instead of falling into the "no unit" bucket on
+# purpose — a lab repo among the orphans reads as waste, and it is the opposite:
+# it is the part of the studio working for two years from now instead of for this
+# quarter.
+#
+# Drawn with permanent scaffolding, because that is what it is: a site that is
+# open on purpose. And its growth is not compared against the shipping units: a
+# lab house with few floors is not behind, it is early.
+lab:
+  - lab-procgen
+  - lab-npc-brains
+  - lab-shaders
+  - lab-notebooks
+  - sandbox-ui

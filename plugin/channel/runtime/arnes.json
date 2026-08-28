@@ -1,0 +1,189 @@
+{
+  "protocolo": "agents-city-arnes/1",
+  "_": [
+    "What this product does to somebody else's CLI, declared once.",
+    "",
+    "The pitch is that we orchestrate the CLIs people already have, with the",
+    "plugins, skills, MCP servers and settings they already configured. That is",
+    "only true if it can be audited, and it can only be audited if the runtime",
+    "and the report read the SAME file. So they do: `codex.ts` takes its policy",
+    "values from `trato` below, and `agents-city doctor --config` prints this",
+    "same table filled in with what is actually on the machine. Change a value",
+    "here and both move together; there is nowhere for a claim to drift from a",
+    "behaviour.",
+    "",
+    "  trato    what we add or override, and why. This is the deal: without it",
+    "           the bus is not the only route and the cage does not hold. It is",
+    "           deliberately short, and every line of it is printable.",
+    "  hereda   what we deliberately do NOT send, so their own CLI reads their",
+    "           own configuration for it.",
+    "  respeta  what loads untouched."
+  ],
+  "motores": {
+    "claude": {
+      "binario": "claude",
+      "config": [
+        "~/.claude/settings.json",
+        "~/.claude/settings.local.json"
+      ],
+      "trato": [
+        {
+          "clave": "crossSessionInbound",
+          "valor": "refuse",
+          "via": "--settings (an added layer, not a replacement)",
+          "porque": "the city bus is the only route between agents; Claude's own cross-session path would be a second one nobody can see",
+          "rinde": "settings"
+        },
+        {
+          "clave": "disallowedTools",
+          "valor": "SendMessage,ListAgents",
+          "via": "--disallowed-tools",
+          "porque": "same reason, from the other side: an agent must not reach a peer directly",
+          "rinde": "flag"
+        },
+        {
+          "clave": "skipDangerousModePermissionPrompt",
+          "valor": "true",
+          "via": "--settings",
+          "porque": "suppresses Claude's local yolo notice only; it does not grant anything",
+          "rinde": "settings"
+        }
+      ],
+      "hereda": [
+        {
+          "suyo": "model",
+          "cuando": "no `model.<window>` on the card"
+        },
+        {
+          "suyo": "effortLevel",
+          "cuando": "no `effort.<window>` on the card"
+        },
+        {
+          "suyo": "permissions",
+          "cuando": "always, unless this city runs yolo"
+        }
+      ],
+      "respeta": [
+        "plugins",
+        "skills",
+        "MCP servers",
+        "statusline",
+        "theme",
+        "hooks",
+        "output styles"
+      ]
+    },
+    "codex": {
+      "binario": "codex",
+      "config": [
+        "~/.codex/config.toml"
+      ],
+      "trato": [
+        {
+          "clave": "developerInstructions",
+          "valor": "You are one member of an Agents City committee. Never contact repo peers directly; submit evidence through the agents-city committee CLI named in each assignment.",
+          "via": "thread configuration",
+          "porque": "the committee is chaired: a member that answers its peers directly is not being moderated by anybody"
+        },
+        {
+          "clave": "sandbox",
+          "valor": "workspace-write",
+          "via": "thread configuration and every turn",
+          "porque": "the cage: writes stay inside the workspace. `alterno` instead when an outer cage is already holding, or when CITY_CAGE=0 turns it off deliberately",
+          "alterno": "danger-full-access"
+        },
+        {
+          "clave": "approvalPolicy",
+          "valor": "on-request",
+          "via": "thread configuration and every turn",
+          "porque": "the default when their config says nothing. `never` rejects anything needing approval, which silently disables app and MCP tools",
+          "suyo": "approval_policy"
+        }
+      ],
+      "hereda": [
+        {
+          "suyo": "model",
+          "cuando": "no `model.<window>` on the card"
+        },
+        {
+          "suyo": "model_reasoning_effort",
+          "cuando": "no `effort.<window>` on the card"
+        },
+        {
+          "suyo": "approval_policy",
+          "cuando": "they set one"
+        },
+        {
+          "suyo": "personality",
+          "cuando": "always"
+        },
+        {
+          "suyo": "features",
+          "cuando": "always"
+        }
+      ],
+      "respeta": [
+        "MCP servers",
+        "profiles",
+        "personality",
+        "features",
+        "notify"
+      ],
+      "avisa": [
+        {
+          "cuando": "approval_policy = never",
+          "dice": "your Codex will refuse anything needing approval, app and MCP tools included"
+        }
+      ]
+    },
+    "opencode": {
+      "binario": "opencode",
+      "config": [
+        "~/.config/opencode/opencode.json"
+      ],
+      "trato": [],
+      "hereda": [
+        {
+          "suyo": "model",
+          "cuando": "no `model.<window>` on the card"
+        }
+      ],
+      "respeta": [
+        "agents",
+        "providers",
+        "MCP servers",
+        "keybinds"
+      ]
+    },
+    "kimi": {
+      "binario": "kimi",
+      "config": [
+        "~/.kimi/config.json"
+      ],
+      "trato": [
+        {
+          "clave": "system_prompt",
+          "valor": "You are one member of an Agents City committee. Never contact repo peers directly; submit evidence through the agents-city committee CLI named in each assignment.",
+          "via": "agent_config, when the session is created",
+          "porque": "the committee is chaired: a member that answers its peers directly is not being moderated by anybody"
+        },
+        {
+          "clave": "permission_mode",
+          "valor": "manual",
+          "via": "agent_config, on the session and on every turn",
+          "porque": "what a turn gets when nothing asks for more: it stops for approval. `auto` when the command says --auto, `yolo` when this city runs yolo or the command says --yolo"
+        }
+      ],
+      "hereda": [
+        {
+          "suyo": "model",
+          "cuando": "no `model.<window>` on the card"
+        }
+      ],
+      "respeta": [
+        "providers",
+        "MCP servers"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# The commit-time gate: the fast half of what CI runs, before the commit exists.
+#
+# Armed automatically the first time ./bin/test runs in a clone (it sets
+# core.hooksPath to this folder — a per-clone git setting, because git refuses
+# to ship hooks in the repo itself, on purpose). `git commit --no-verify` skips
+# it once; CI runs the full set regardless, tsc and the channel bundle included.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+# Git exports GIT_INDEX_FILE/GIT_DIR to its hooks, and the seat suite builds real
+# temporary git repos — which those variables would silently point back at THIS
+# repo. First firing of this hook caught exactly that: a worktree that never
+# indexed. Scrub the inherited git context before running anything.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
+echo "pre-commit: ruff"
+ruff check bin plugin/scripts city/scripts demo benchmarks
+
+echo "pre-commit: shellcheck"
+shellcheck -S warning plugin/scripts/*.sh plugin/hooks/*.sh bus/scripts/*.sh \
+  bin/bus bin/cities bin/committee bin/city bin/demo bin/reset bin/road bin/doctor bin/shortcut bin/skills bin/test bin/update
+
+echo "pre-commit: prettier"
+npx --yes prettier --check 'city/web/src/*.ts' 'city/worker/src/*.ts' \
+  'plugin/channel/**/*.ts' 'bus/worker/src/*.ts' 'bus/scripts/*.ts'
+
+echo "pre-commit: the suites"
+./bin/test

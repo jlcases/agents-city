@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Benchmarks are explicit: stress/committee are offline, live uses model accounts.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+case "${1:-}" in
+  live) shift; exec python3 "$ROOT/benchmarks/latency/live.py" "$@" ;;
+  committee) shift; exec python3 "$ROOT/benchmarks/committee/run.py" "$@" ;;
+  stress) shift; exec python3 "$ROOT/benchmarks/stress/run.py" "$@" ;;
+  -h|--help|'')
+    echo "usage: agents-city benchmark <stress | live | committee> [options]"
+    echo
+    echo "  stress     offline 40-agent Claude/Codex fan-out and reconnect stress"
+    echo "  live       real bus -> native model -> committee-position latency (uses accounts/credits)"
+    echo "  committee  offline structural governance benchmark"
+    ;;
+  *) echo "unknown benchmark: $1" >&2; exit 2 ;;
+esac

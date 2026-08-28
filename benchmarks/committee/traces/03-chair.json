@@ -1,0 +1,15 @@
+{
+  "strategy": "chair-mediated",
+  "events": [
+    {"type": "assignment", "from": "seat", "to": "api"},
+    {"type": "assignment", "from": "seat", "to": "web"},
+    {"type": "position", "actor": "api", "saw_peer": false, "evidence": ["api:test"]},
+    {"type": "position", "actor": "web", "saw_peer": false, "evidence": ["web:e2e"]},
+    {"type": "synthesis", "actor": "seat"},
+    {"type": "floor_request", "actor": "api", "evidence": ["api:replay"]},
+    {"type": "floor_reply", "actor": "api", "granted": true, "evidence": ["api:replay"]},
+    {"type": "decision", "actor": "seat", "pending_floor": 0, "decisive_contributors": ["api", "web"]},
+    {"type": "verification", "actor": "ops", "executor": "seat", "result": "pass", "evidence": ["ops:clean-check"]},
+    {"type": "close", "verification": "pass", "executor": "seat", "verifier": "ops"}
+  ]
+}

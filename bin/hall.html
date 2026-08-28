@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agents City — town hall</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* The map's palette and its three typefaces. The hall manages the city the map
+   draws; they must not look like two products. Single visual world on purpose. */
+/* Two skins, one set of names. DAY is the default — the palette of
+   agentscity.net, so the local tool and the public site are visibly one
+   product. Night is the map's own light, chosen with the switch and
+   remembered. Nothing below this block names a colour directly. */
+:root{
+  /* Day is the default: the palette of agentscity.net, so the tool on your
+     machine and the public site are one product from the first second. Night
+     is one click away and remembered — it is the map's own light, not the
+     app's. */
+  --suelo:#f3f0e8; --suelo2:#fbfaf6; --suelo3:#ffffff;
+  --linea:#e2ddd0; --linea2:#cdc6b6;
+  --tinta:#1d2229; --tinta2:#515861; --tinta3:#7b8187;
+  --lampara:#7048e8; --carta:#dd5d3e; --verde:#5f8f2b;
+  --panel:#fbfaf6; --burbuja:#ffffff; --burbuja-mia:#f4efff;
+  --borde-acento:#c9b8ff; --sobre-lampara:#ffffff; --lampara-viva:#5331bd;
+  --chip-luz:52% 86%; --chip-tinta:#1d2229;
+  --tono-palabra:#6b46f0; --tono-evidencia:#2b7ab8; --tono-verificacion:#1c8d78;
+  --hud:"Chakra Petch",system-ui,sans-serif; --texto:"Newsreader",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --sombra:0 18px 40px -30px #1d222945;
+  --velo:#1d222959; --sombra-alta:0 24px 60px -20px #1d222966;
+
+  /* Night, declared once: the city's own light, an isometric map at 3am. The
+     two rules below only MAP these; a palette written twice drifts twice. */
+  --noche-suelo:#131a24; --noche-suelo2:#1b2431; --noche-suelo3:#222d3c;
+  --noche-linea:#26313f; --noche-linea2:#38495f;
+  --noche-tinta:#e8e2d4; --noche-tinta2:#9aa7b8; --noche-tinta3:#6b7889;
+  --noche-lampara:#f5c451; --noche-carta:#e2604f; --noche-verde:#4ec98a;
+  --noche-panel:#101720; --noche-burbuja:#171f2a; --noche-burbuja-mia:#27291f;
+  --noche-borde-acento:#65552d; --noche-sobre-lampara:#1a1408;
+  --noche-lampara-viva:#ffd469;
+  --noche-velo:#05080d99; --noche-sombra-alta:0 24px 60px -18px #000000aa;
+  --noche-chip-luz:36% 30%; --noche-chip-tinta:#f3eee4;
+  --noche-tono-palabra:#aa93ff; --noche-tono-evidencia:#61ace9;
+  --noche-tono-verificacion:#50ccb1;
+  --noche-sombra:none;
+}
+/* Night, mapped from the tokens declared once above. */
+:root[data-tema="oscuro"]{
+  --suelo:var(--noche-suelo); --suelo2:var(--noche-suelo2); --suelo3:var(--noche-suelo3);
+  --linea:var(--noche-linea); --linea2:var(--noche-linea2);
+  --tinta:var(--noche-tinta); --tinta2:var(--noche-tinta2); --tinta3:var(--noche-tinta3);
+  --lampara:var(--noche-lampara); --carta:var(--noche-carta); --verde:var(--noche-verde);
+  --panel:var(--noche-panel); --burbuja:var(--noche-burbuja);
+  --burbuja-mia:var(--noche-burbuja-mia);
+  --borde-acento:var(--noche-borde-acento); --sobre-lampara:var(--noche-sobre-lampara);
+  --lampara-viva:var(--noche-lampara-viva);
+  --chip-luz:var(--noche-chip-luz); --chip-tinta:var(--noche-chip-tinta);
+  --tono-palabra:var(--noche-tono-palabra); --tono-evidencia:var(--noche-tono-evidencia);
+  --tono-verificacion:var(--noche-tono-verificacion);
+  --sombra:var(--noche-sombra);
+  --velo:var(--noche-velo); --sombra-alta:var(--noche-sombra-alta);
+}
+/* No `prefers-color-scheme` rule on purpose: daylight is THE default, not a
+   default that a machine set to dark quietly overrides. Night is a choice made
+   here, with the switch, and remembered — which is why an owner whose whole
+   desktop is dark still opens a paper-coloured hall. */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--suelo);color:var(--tinta);font-family:var(--texto);
+  overflow:hidden;font-size:15px;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--hud);margin:0}
+button,input,select{font:inherit;color:inherit}
+
+/* The live rail's width is a variable so the divider can be dragged: the
+   fallback keeps today's behaviour until somebody grabs it. */
+#app{display:grid;grid-template-columns:250px minmax(420px,1fr) var(--live-ancho,minmax(420px,500px));height:100%}
+@media(max-width:1180px){#app{grid-template-columns:210px minmax(360px,1fr) var(--live-ancho,390px)}}
+@media(max-width:900px){#app{grid-template-columns:minmax(0,1fr) var(--live-ancho,320px);grid-template-rows:auto 1fr}
+  nav{grid-column:1/-1;border-right:none;border-bottom:1px solid var(--linea);padding:10px 0}
+  nav .marca,nav .pie{display:none}nav ol{display:flex;overflow-x:auto;gap:4px}}
+@media(max-width:680px){#app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  #livePanel{display:none}}
+
+/* ── rail ───────────────────────────────────────────────────────────────── */
+nav{background:var(--suelo2);border-right:1px solid var(--linea);padding:20px 0 16px;
+  display:flex;flex-direction:column;gap:20px;overflow-y:auto}
+.marca{padding:0 18px}
+.badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--hud);font-size:10px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--lampara);
+  border:1px solid var(--borde-acento);background:var(--burbuja-mia);padding:4px 9px;border-radius:2px}
+.badge::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--lampara)}
+.marca h2{font-size:19px;margin:9px 0 0}
+.marca p{margin:4px 0 0;font-size:12px;color:var(--tinta3);line-height:1.45}
+.railCiudad{margin:0 18px;padding:10px 12px;border-radius:7px;background:var(--suelo3);
+  border:1px solid var(--linea);display:flex;flex-direction:column;gap:2px}
+.railCiudad .railEtiqueta{font:600 9px var(--hud);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--tinta3)}
+.railCiudad b{font:600 15px var(--hud);color:var(--tinta)}
+.railCiudad .railDe{font:10.5px var(--mono);color:var(--tinta3)}
+.railOtras{margin-top:6px;padding-top:6px;border-top:1px solid var(--linea)}
+nav ol{list-style:none;margin:0;padding:0 10px;display:flex;flex-direction:column;gap:2px}
+nav li{display:flex;gap:10px;align-items:baseline;padding:9px 10px;border-radius:3px;
+  font-family:var(--hud);font-size:13.5px;color:var(--tinta2);cursor:pointer;white-space:nowrap}
+nav li:hover{background:var(--suelo3)}
+nav li.aqui{color:var(--tinta);background:var(--suelo3);box-shadow:inset 2px 0 0 var(--lampara)}
+nav li .n{font-family:var(--mono);font-size:10px;color:var(--tinta3);margin-left:auto}
+nav .pie{margin-top:auto;padding:14px 18px 0;border-top:1px solid var(--linea);
+  display:flex;flex-direction:column;gap:8px}
+nav .pie a{font-family:var(--hud);font-size:12px;color:var(--tinta3);text-decoration:none}
+.peligro{border:1px solid var(--carta);border-radius:8px;padding:16px 18px;
+  background:color-mix(in srgb,var(--carta) 7%,var(--suelo2));display:flex;
+  flex-direction:column;gap:10px;align-items:flex-start}
+.peligro h3{font:600 13px var(--hud);color:var(--carta)}
+.bt.malo{border-color:var(--carta);color:var(--carta)}
+.bt.malo:hover{background:var(--carta);color:var(--suelo2)}
+.avisoVersion{margin:0;font:11px/1.45 var(--mono);color:var(--lampara);
+  border:1px solid var(--borde-acento);background:var(--burbuja-mia);
+  padding:7px 9px;border-radius:4px}
+.avisoVersion[hidden]{display:none}
+.ajustes{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.temaBoton{border:1px solid var(--linea2);background:var(--suelo3);
+  color:var(--tinta2);font:11px var(--mono);padding:5px 11px;border-radius:999px;
+  cursor:pointer;box-shadow:var(--sombra)}
+.temaBoton:hover{color:var(--lampara);border-color:var(--lampara)}
+nav .pie a:hover{color:var(--lampara)}
+#ciudades select{width:100%;background:var(--suelo);border:1px solid var(--linea2);
+  border-radius:3px;padding:6px 8px;font-family:var(--hud);font-size:12px;color:var(--tinta)}
+nav .pie .dato{font-family:var(--mono);font-size:10.5px;color:var(--tinta3);
+  word-break:break-all;line-height:1.5}
+
+/* ── panel ──────────────────────────────────────────────────────────────── */
+main{display:flex;flex-direction:column;min-height:0;min-width:0}
+.cuerpo{flex:1;overflow-y:auto;padding:32px 40px 60px;min-height:0}
+.cuerpo>.dentro{max-width:860px;display:flex;flex-direction:column;gap:26px}
+h1{font-size:26px;line-height:1.12}
+.prosa{font-size:14.5px;line-height:1.6;color:var(--tinta2);max-width:64ch;margin:0}
+.prosa b{color:var(--tinta);font-weight:500}
+.sub{font-family:var(--hud);font-size:10px;font-weight:600;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--tinta3)}
+
+/* stats + lights */
+.cifras{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
+  background:var(--linea);border:1px solid var(--linea)}
+.cifra{background:var(--suelo2);padding:13px 14px}
+.cifra b{display:block;font-family:var(--mono);font-size:24px;font-weight:500;
+  font-variant-numeric:tabular-nums}
+.cifra span{font-family:var(--hud);font-size:9px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--tinta3)}
+.luces{display:flex;flex-wrap:wrap;gap:8px}
+.luz{display:inline-flex;align-items:center;gap:7px;font-family:var(--hud);font-size:11.5px;
+  color:var(--tinta2);border:1px solid var(--linea);background:var(--suelo2);
+  padding:6px 11px;border-radius:3px}
+.luz::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--carta);flex:0 0 auto}
+.luz.on::before{background:var(--verde)}
+.luz.neutra::before{background:var(--tinta3)}
+
+/* to-do hints */
+.tareas{display:flex;flex-direction:column;border:1px solid var(--linea);border-radius:4px;
+  overflow:hidden}
+.tarea{display:flex;align-items:center;gap:12px;background:var(--suelo2);
+  border-bottom:1px solid var(--linea);padding:12px 15px;font-size:13.5px;color:var(--tinta2)}
+.tarea:last-child{border-bottom:none}
+.tarea b{color:var(--tinta);font-weight:500}
+.tarea .ir{margin-left:auto;flex:0 0 auto}
+.tarea.hecha{color:var(--tinta3)}
+.tarea.hecha::before{content:"✓";color:var(--verde);font-family:var(--mono)}
+.tarea:not(.hecha)::before{content:"·";color:var(--lampara);font-family:var(--mono);font-size:18px}
+
+/* buttons, inputs */
+.bt{font-family:var(--hud);font-size:12.5px;font-weight:600;letter-spacing:.03em;
+  padding:8px 16px;border-radius:3px;cursor:pointer;border:1px solid var(--linea2);
+  background:var(--suelo3);color:var(--tinta2)}
+.bt:hover:not(:disabled){color:var(--tinta);border-color:var(--tinta3)}
+.bt:focus-visible{outline:1px solid var(--lampara);outline-offset:2px}
+.bt.ppal{background:var(--lampara);border-color:var(--lampara);color:var(--sobre-lampara)}
+.bt.ppal:hover:not(:disabled){background:var(--lampara-viva);border-color:var(--lampara-viva)}
+.bt:disabled{opacity:.4;cursor:not-allowed}
+.bt.mini{padding:4px 10px;font-size:11px}
+input[type=text],select{background:var(--suelo);border:1px solid var(--linea2);
+  border-radius:3px;padding:7px 10px;font-family:var(--hud);font-size:13px;min-width:0}
+input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
+.mono{font-family:var(--mono)!important;font-size:12px!important}
+
+/* the copyable command */
+.orden{display:flex;align-items:center;gap:10px;background:var(--suelo2);
+  border:1px solid var(--linea);border-radius:4px;padding:11px 14px}
+.orden code{flex:1;font-family:var(--mono);font-size:12.5px;color:var(--tinta);
+  background:none;border:none;padding:0;overflow-x:auto;white-space:nowrap}
+.orden .et2{font-family:var(--hud);font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--tinta3);flex:0 0 auto}
+
+/* role cards */
+.rolejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(196px,1fr));gap:9px}
+.rol{text-align:left;background:var(--suelo2);border:1px solid var(--linea);border-radius:4px;
+  padding:12px 13px;cursor:pointer;display:flex;flex-direction:column;gap:5px}
+.rol:hover{border-color:var(--tinta3)}
+.rol.on{border-color:var(--lampara);background:var(--suelo3)}
+.rol h3{font-size:13.5px}
+.rol .de{font-family:var(--mono);font-size:10px;color:var(--tinta3)}
+.rol p{margin:0;font-size:11.5px;line-height:1.45;color:var(--tinta2)}
+
+/* folder list */
+.lista{border:1px solid var(--linea);border-radius:4px;overflow:hidden;background:var(--suelo2)}
+.lista .barra{display:flex;align-items:center;gap:10px;padding:9px 12px;
+  border-bottom:1px solid var(--linea);background:var(--suelo3)}
+.lista .barra input{flex:1}
+.lista .barra .mini2{font-family:var(--hud);font-size:11px;color:var(--tinta3);
+  background:none;border:none;cursor:pointer;padding:4px 6px}
+.lista .barra .mini2:hover{color:var(--lampara)}
+.filas{max-height:46vh;overflow-y:auto}
+.fila{display:flex;align-items:baseline;gap:10px;padding:8px 13px;cursor:pointer;
+  border-bottom:1px solid rgba(38,49,63,.5);font-size:13px}
+.fila:last-child{border-bottom:none}
+.fila:hover{background:var(--suelo3)}
+.fila .caja{font-family:var(--mono);font-size:12px;color:var(--tinta3)}
+.fila.on .caja{color:var(--lampara)}
+.fila .et{font-family:var(--hud);font-size:13px;color:var(--tinta2)}
+.fila.on .et{color:var(--tinta)}
+.fila .de{font-family:var(--mono);font-size:10.5px;color:var(--tinta3);margin-left:auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:12px}
+.agenteRoles{border:1px solid var(--linea);border-radius:4px;overflow:hidden;background:var(--suelo2)}
+.agenteRol{display:grid;grid-template-columns:minmax(180px,1fr) minmax(220px,1fr);gap:14px;
+  align-items:center;padding:10px 13px;border-bottom:1px solid rgba(38,49,63,.5)}
+.agenteRol:last-child{border-bottom:none}
+.agenteRol code{display:block;font-family:var(--mono);font-size:12px;color:var(--tinta)}
+.agenteRol span{display:block;margin-top:3px;font-family:var(--hud);font-size:10px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--tinta3)}
+.agenteRol select{width:100%}
+@media(max-width:640px){.agenteRol{grid-template-columns:1fr}}
+
+/* forms */
+.campos{display:flex;flex-direction:column;gap:13px}
+.campo label{display:block;font-family:var(--hud);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tinta3);margin-bottom:5px}
+.campo input{width:100%}
+.campo .pista{margin:4px 0 0;font-size:11.5px;color:var(--tinta3);font-style:italic}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+@media(max-width:640px){.dos{grid-template-columns:1fr}}
+
+/* districts + parcels */
+.tr{display:flex;align-items:center;gap:10px;background:var(--suelo2);
+  border-bottom:1px solid var(--linea);padding:9px 13px}
+.tabla{border:1px solid var(--linea);border-radius:4px;overflow:hidden}
+.tabla .tr:last-child{border-bottom:none}
+.tr .id{font-family:var(--mono);font-size:11px;color:var(--tinta3);flex:0 0 120px;
+  overflow:hidden;text-overflow:ellipsis}
+.pips{display:flex;gap:4px}
+.pip{width:16px;height:16px;border-radius:2px;border:1px solid transparent;cursor:pointer;padding:0}
+.pip.on{border-color:var(--tinta);box-shadow:0 0 0 1px var(--suelo) inset}
+.tr .x{background:none;border:none;color:var(--tinta3);cursor:pointer;font-size:15px;padding:2px 5px}
+.tr .x:hover{color:var(--carta)}
+.repoBloque{border:1px solid var(--linea);border-radius:4px;overflow:hidden;margin-bottom:11px}
+.repoCab{display:flex;align-items:center;gap:10px;background:var(--suelo3);
+  padding:9px 13px;font-family:var(--mono);font-size:12.5px}
+.repoCab .lab{margin-left:auto;display:flex;align-items:center;gap:6px;
+  font-family:var(--hud);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--tinta3);cursor:pointer}
+.parcela{display:grid;grid-template-columns:1fr 1fr 150px 26px;gap:9px;align-items:center;
+  background:var(--suelo2);border-top:1px solid var(--linea);padding:8px 13px}
+@media(max-width:720px){.parcela{grid-template-columns:1fr 1fr}}
+
+/* seat and support agents */
+.gente{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+/* ── the agents' character sheets ──────────────────────────────────────────
+   A card per agent, every number real. Kind tints mirror the avatar rings. */
+.fichasRPG{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.fichaRPG{background:var(--suelo2);border:1px solid var(--linea);border-radius:8px;
+  padding:14px 15px;display:flex;flex-direction:column;gap:9px}
+.fichaRPG.rpgSeat{border-color:var(--borde-acento)}
+.rpgCab{display:flex;align-items:center;gap:10px}
+.rpgCara{width:40px;height:40px;border-radius:9px;flex:none}
+.rpgCab h3{margin:0;font-size:15px}
+.rpgTags{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px;align-items:center}
+.kindChip{font:600 9px var(--hud);letter-spacing:.08em;text-transform:uppercase;
+  padding:2px 7px;border-radius:8px;color:#0f172a;font-weight:600}
+.kindChip.code{background:#3b82f6}.kindChip.knowledge{background:#8b5cf6;color:#f4efe5}
+.kindChip.coordinator{background:#f59e0b}
+.rpgRol,.rpgHogar{font:10.5px var(--mono);color:var(--tinta3)}
+.rpgRun{color:var(--tinta2)}
+.rpgFila{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:8px;align-items:center}
+.rpgFila label,.rpgSkills label{font:600 9px var(--hud);letter-spacing:.09em;
+  text-transform:uppercase;color:var(--tinta3)}
+.barra{height:7px;background:var(--suelo);border:1px solid var(--linea2);
+  border-radius:4px;overflow:hidden;display:block}
+.barra .llena{display:block;height:100%;background:var(--lampara);border-radius:3px}
+.barra.defecto .llena{background:repeating-linear-gradient(45deg,var(--linea2) 0 4px,transparent 4px 8px)}
+.rpgSel{font:11px var(--hud);background:var(--suelo);color:var(--tinta2);
+  border:1px solid var(--linea2);border-radius:4px;padding:3px 5px;max-width:110px}
+.rpgSel:disabled{opacity:.45}
+.rpgDato{font:10.5px var(--mono);color:var(--tinta3);min-width:0}
+.rpgSkills{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.rpgSkills code{font-size:10px}
+.rpgQuitar{border:0;background:none;color:var(--tinta3);cursor:pointer;
+  font-size:11px;padding:0 0 0 4px;vertical-align:baseline}
+.rpgQuitar:hover{color:var(--carta)}
+/* The engine's traffic light: derived, never guessed. */
+.cliDot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  margin-right:5px;vertical-align:baseline;background:var(--tinta3)}
+.cliDot.on{background:var(--verde);box-shadow:0 0 0 2px rgba(78,201,138,.15)}
+.cliDot.idle{background:var(--lampara)}
+.cliDot.off{background:var(--carta)}
+.rpgTest{margin-left:6px}
+.rpgBotones{display:flex;gap:6px;margin-left:auto}
+.rpgMini{border:1px solid var(--linea2);background:var(--suelo);color:var(--tinta3);
+  font:10px var(--mono);padding:3px 7px;border-radius:4px;cursor:pointer}
+.rpgMini:hover{color:var(--lampara);border-color:var(--borde-acento)}
+.rpgSubir input{display:none}
+/* Adding an agent is the city growing, so it reads as an action, not a chip. */
+.rpgAlta{margin-top:14px;border:1px solid var(--borde-acento);background:var(--suelo2);
+  color:var(--lampara);font:12px var(--mono);padding:7px 14px;border-radius:5px;
+  cursor:pointer}
+.rpgAlta:hover{background:var(--suelo);border-color:var(--lampara)}
+
+/* ── the guided first run ────────────────────────────────────────────────── */
+.bv{display:flex;flex-direction:column;gap:26px;max-width:min(760px,100%)}
+.bv .prosa{max-width:100%}
+.bv code.mono{word-break:break-all}
+/* The live rail has nothing to show before a city exists, and it costs half
+   the screen exactly when the guide needs it. */
+body.enGuia #livePanel,body.enGuia #liveResize{display:none}
+body.enGuia #app{grid-template-columns:250px minmax(0,1fr)}
+.bvPasos{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.bvPunto{display:flex;align-items:center;gap:6px;font:10px var(--hud);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--tinta3)}
+.bvPunto i{width:8px;height:8px;border-radius:50%;background:var(--linea2);display:block}
+.bvPunto+.bvPunto{margin-left:10px}
+.bvPunto.aqui{color:var(--lampara)}.bvPunto.aqui i{background:var(--lampara)}
+.bvPunto.hecho i{background:var(--verde)}
+.bvHola{display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:start}
+@media(max-width:820px){.bvHola{grid-template-columns:1fr}}
+.bvArte{display:flex;flex-direction:column;gap:2px;padding-top:6px}
+.bvCasa{width:92px;height:83px;margin-bottom:-26px;filter:drop-shadow(var(--sombra))}
+.bvPaso{display:flex;flex-direction:column;gap:14px}
+.bvPaso h1{font-size:26px;line-height:1.15}
+.bvEtiqueta{font:600 10px var(--hud);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tinta3)}
+.bvRejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.bvRejilla.bvTres{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.bvOpcion{text-align:left;display:flex;flex-direction:column;gap:4px;padding:12px 13px;
+  border:1px solid var(--linea2);border-radius:7px;background:var(--suelo2);cursor:pointer}
+.bvOpcion b{font-family:var(--hud);font-size:13px;color:var(--tinta)}
+.bvOpcion span{font-size:12px;line-height:1.45;color:var(--tinta3)}
+.bvOpcion:hover{border-color:var(--lampara)}
+.bvOpcion.elegida{border-color:var(--lampara);background:var(--burbuja-mia);
+  box-shadow:inset 3px 0 0 var(--lampara)}
+.bvChip{border:1px solid var(--linea2);background:var(--suelo2);color:var(--tinta2);
+  font:11px var(--mono);padding:5px 10px;border-radius:999px;cursor:pointer}
+.bvChip:hover{border-color:var(--lampara)}
+.bvChip.elegida{border-color:var(--lampara);background:var(--burbuja-mia);color:var(--tinta)}
+.dlgFondo{position:fixed;inset:0;z-index:60;display:flex;align-items:center;
+  justify-content:center;padding:24px;background:var(--velo);backdrop-filter:blur(2px)}
+.dlg{background:var(--suelo2);border:1px solid var(--linea2);border-radius:8px;
+  box-shadow:var(--sombra-alta);padding:22px 24px;width:100%;max-width:460px;
+  max-height:86vh;overflow:auto}
+.dlg h2{font:600 17px var(--hud);color:var(--tinta);margin:0 0 10px}
+.dlgProsa{font:13px/1.55 var(--hud);color:var(--tinta2);margin:0 0 10px}
+.dlg .campo{margin-bottom:12px}
+.dlg .campo label{display:block;font:600 10px var(--hud);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--tinta3);margin-bottom:5px}
+.dlg .campo input,.dlg .campo select{width:100%;background:var(--suelo);
+  border:1px solid var(--linea2);border-radius:4px;padding:8px 10px;
+  font-family:var(--hud);font-size:13px;color:var(--tinta)}
+.dlg .campo input:focus,.dlg .campo select:focus{outline:none;border-color:var(--lampara)}
+.dlgBotones{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.dlgBotones .bt[disabled]{opacity:.45;cursor:not-allowed}
+.bt.bvMini{padding:7px 12px;font-size:11px;white-space:nowrap}
+.exp{border:1px solid var(--linea2);border-radius:5px;background:var(--suelo);
+  padding:8px;margin-bottom:10px}
+.expAtajos{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.expAtajo{border:1px solid var(--linea);background:var(--suelo3);color:var(--tinta2);
+  font:11px var(--hud);padding:3px 9px;border-radius:999px;cursor:pointer}
+.expAtajo:hover,.expAtajo.aqui{border-color:var(--lampara);color:var(--lampara)}
+.expBarra{display:flex;gap:7px;align-items:center;margin-bottom:7px}
+.expSubir{border:1px solid var(--linea2);background:var(--suelo3);color:var(--tinta2);
+  font:12px var(--mono);width:26px;height:26px;border-radius:4px;cursor:pointer;flex:none}
+.expSubir:hover:not([disabled]){border-color:var(--lampara);color:var(--lampara)}
+.expSubir[disabled]{opacity:.35;cursor:default}
+.expMigas{display:flex;flex-wrap:wrap;align-items:center;gap:1px;overflow:hidden;
+  font:11px var(--mono);color:var(--tinta3)}
+.expMigas i{opacity:.4;font-style:normal}
+.expMiga{border:0;background:none;color:var(--tinta2);font:11px var(--mono);
+  padding:1px 3px;cursor:pointer;border-radius:3px}
+.expMiga:hover{color:var(--lampara);background:var(--suelo3)}
+.expLista{max-height:min(46vh,420px);overflow:auto;border-top:1px solid var(--linea);
+  border-bottom:1px solid var(--linea)}
+.expCuenta{margin:0 0 6px;font:10px var(--mono);color:var(--tinta3)}
+.expFila{display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--linea)}
+.expFila:last-child{border-bottom:0}
+.expFila.puesta{background:var(--burbuja-mia)}
+.expNombre{flex:1;display:flex;align-items:center;gap:7px;border:0;background:none;
+  text-align:left;font:12px var(--hud);color:var(--tinta);padding:6px 8px;cursor:pointer;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.expNombre[disabled]{cursor:default;color:var(--tinta2)}
+.expNombre:hover:not([disabled]){color:var(--lampara)}
+.expIcono{font-style:normal;color:var(--tinta3);font-size:10px;width:8px;flex:none}
+.expFila.fich .expNombre{font-family:var(--mono);font-size:11px}
+.expMarca{font:600 9px var(--mono);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--lampara);opacity:.8;font-style:normal;flex:none}
+.expMas{border:0;background:none;color:var(--tinta3);font:13px var(--mono);
+  width:30px;height:28px;cursor:pointer;flex:none}
+.expMas:hover{color:var(--lampara)}
+.expFila.puesta .expMas{color:var(--lampara)}
+.expTomaAqui{margin-top:8px;width:100%}
+.expElegidas{margin:8px 0 4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.expElegidas .bvEtiqueta{width:100%;margin:0 0 2px}
+.expQuita{font-style:normal;margin-left:7px;opacity:.6}
+.pista.malo{color:var(--carta)}
+.demoRejilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:12px;margin:18px 0 14px}
+.demoCarta{display:flex;flex-direction:column;gap:5px;text-align:left;cursor:pointer;
+  background:var(--suelo2);border:1px solid var(--linea2);border-radius:7px;
+  padding:15px 16px;box-shadow:var(--sombra)}
+.demoCarta:hover{border-color:var(--lampara)}
+.demoDominio{font:600 10px var(--hud);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--lampara)}
+.demoCarta b{font:600 15px/1.35 var(--hud);color:var(--tinta)}
+.demoCiudad{font:12px var(--texto);color:var(--tinta2)}
+.demoReparto{font:10px var(--mono);color:var(--tinta3);overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis}
+.demoPlay{margin-top:6px;font:600 11px var(--mono);color:var(--tinta2)}
+.demoCarta:hover .demoPlay{color:var(--lampara)}
+.demoCab{display:flex;gap:14px;align-items:flex-start;margin-bottom:12px}
+.demoCab h2{font:600 17px var(--hud);color:var(--tinta);margin:2px 0 0}
+.demoMandos{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:9px}
+.demoVel{display:inline-flex;border:1px solid var(--linea2);border-radius:999px;
+  overflow:hidden;background:var(--suelo2)}
+.demoVelBoton{border:0;background:none;color:var(--tinta3);font:11px var(--mono);
+  padding:5px 10px;cursor:pointer}
+.demoVelBoton:hover{color:var(--tinta)}
+.demoVelBoton.aqui{background:var(--burbuja-mia);color:var(--lampara)}
+.demoCuenta{font:11px var(--mono);color:var(--tinta3);margin-left:auto}
+.demoBarra{height:3px;background:var(--linea);border-radius:2px;overflow:hidden;
+  margin-bottom:12px}
+.demoBarra i{display:block;height:100%;background:var(--lampara);
+  transition:width .35s ease}
+.dlg .expLista{max-height:min(38vh,320px)}
+.demoPlayer .liveLista{max-height:calc(100vh - 300px);border:1px solid var(--linea);
+  border-radius:7px;background:var(--panel);padding:16px}
+.bvMotor{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:6px}
+.bvMotor .campo{margin:0}
+@media (max-width:640px){.bvMotor{grid-template-columns:1fr}}
+.bvFichas{display:flex;flex-direction:column;gap:6px}
+.bvFicha{display:flex;gap:10px;align-items:baseline;padding:9px 12px;border-radius:6px;
+  border:1px solid var(--linea);background:var(--suelo2)}
+.bvFicha b{font-family:var(--hud);font-size:13px}
+.bvFicha span{font:11px var(--mono);color:var(--tinta3)}
+.bvBotones{display:flex;gap:9px;flex-wrap:wrap;margin-top:4px}
+.bvSiguientes{display:flex;gap:9px;flex-wrap:wrap}
+/* The instruction editor: one file, one reader, saved where the agent lives. */
+#editorIns{position:fixed;inset:0;background:rgba(6,10,15,.72);z-index:60;
+  display:flex;align-items:center;justify-content:center}
+#editorIns[hidden]{display:none}
+.edCaja{width:min(760px,92vw);height:min(560px,84vh);background:var(--suelo2);
+  border:1px solid var(--linea2);border-radius:8px;display:flex;flex-direction:column}
+.edCab{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  border-bottom:1px solid var(--linea)}
+.edCab b{font-family:var(--mono);font-size:13px}
+#edLector{font:10px var(--mono);color:var(--tinta3)}
+#edCerrar{margin-left:auto;border:0;background:none;color:var(--tinta3);
+  font-size:18px;cursor:pointer}
+#edTexto{flex:1;resize:none;background:var(--suelo);color:var(--tinta);
+  border:0;padding:14px;font:12.5px/1.55 var(--mono);outline:none}
+.edPie{display:flex;align-items:center;gap:10px;padding:10px 14px;
+  border-top:1px solid var(--linea)}
+#edRuta{font:10px var(--mono);color:var(--tinta3);margin-right:auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.persona{background:var(--suelo2);border:1px solid var(--linea);border-radius:4px;
+  padding:13px 15px;display:flex;flex-direction:column;gap:7px}
+.persona h3{font-size:14px}
+.persona .ag{font-family:var(--mono);font-size:11px;color:var(--lampara)}
+.persona .rp{font-size:11.5px;color:var(--tinta3);line-height:1.5}
+.persona .ob{font-size:12px;color:var(--tinta2);border-top:1px solid var(--linea);
+  padding-top:8px;line-height:1.45}
+.persona .ob.falta{color:var(--tinta3);font-style:italic}
+
+/* toast */
+#toast{position:fixed;bottom:22px;right:22px;background:var(--suelo3);color:var(--tinta);
+  border:1px solid var(--linea2);border-left:2px solid var(--verde);border-radius:4px;
+  padding:11px 16px;font-family:var(--hud);font-size:13px;opacity:0;pointer-events:none;
+  transition:opacity .25s;z-index:9;max-width:340px}
+#toast.mal{border-left-color:var(--carta)}
+#toast.ver{opacity:1}
+.cargando{font-family:var(--mono);font-size:12px;color:var(--tinta3)}
+.cargando::after{content:"";display:inline-block;width:6px;height:6px;margin-left:7px;
+  border-radius:50%;background:var(--lampara);animation:latido 1s ease-in-out infinite}
+@keyframes latido{0%,100%{opacity:.25}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.cargando::after{animation:none}#toast{transition:none}}
+
+/* ── live city feed ────────────────────────────────────────────────────── */
+#livePanel{background:var(--panel);border-left:1px solid var(--linea);min-width:0;min-height:0;
+  display:flex;flex-direction:column;overflow:hidden;position:relative}
+/* The divider you can grab: the rail's left edge. Wide enough for a mouse,
+   invisible until hovered so it does not read as chrome. */
+#liveResize{position:absolute;left:0;top:0;bottom:0;width:9px;cursor:col-resize;z-index:6}
+#liveResize::after{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:transparent;
+  transition:background .12s}
+#liveResize:hover::after,#app.liveResizing #liveResize::after{background:var(--lampara)}
+/* While dragging, the map iframe must not swallow the pointer. */
+#app.liveResizing{cursor:col-resize;user-select:none}
+#app.liveResizing iframe{pointer-events:none}
+#livePanel header{padding:17px 17px 13px;border-bottom:1px solid var(--linea);background:var(--suelo2)}
+.liveTop{display:flex;align-items:center;gap:8px}
+.liveTop h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.liveDot{width:7px;height:7px;border-radius:50%;background:var(--carta);box-shadow:0 0 0 3px rgba(226,96,79,.12)}
+.liveDot.on{background:var(--verde);box-shadow:0 0 0 3px rgba(78,201,138,.12)}
+#liveState{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--tinta3)}
+#livePanel header p{margin:7px 0 10px;color:var(--tinta3);font-size:11.5px;line-height:1.45}
+.liveControls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px}
+/* The demo's remote control: only rendered for the packaged Aurora demo. A
+   framed row, not two grey buttons — the person who missed the show has to be
+   able to FIND the way back without being told where it is. */
+#demoControles{display:flex;align-items:center;gap:7px;margin-top:10px;
+  padding:7px 9px;border:1px solid var(--borde-acento);border-radius:5px;
+  background:rgba(245,196,81,.06)}
+#demoControles span{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--lampara);margin-right:auto}
+#demoControles button{border:1px solid var(--linea2);background:var(--suelo);
+  color:var(--tinta2);font-family:var(--hud);font-size:12px;padding:6px 11px;
+  border-radius:4px;cursor:pointer}
+#demoControles #demoReplay{background:var(--lampara);color:var(--sobre-lampara);
+  border-color:var(--lampara);font-weight:600}
+#demoControles button:hover{filter:brightness(1.12)}
+#liveFilter{width:100%;font-family:var(--hud);font-size:11px;padding:6px 8px;background:var(--suelo)}
+#liveWorkToggle{border:1px solid var(--linea2);background:var(--suelo);color:var(--tinta3);
+  border-radius:3px;padding:0 9px;font:600 9.5px var(--hud);text-transform:uppercase;
+  letter-spacing:.06em;cursor:pointer;white-space:nowrap}
+#liveWorkToggle:hover,#liveWorkToggle.on{color:var(--lampara);border-color:var(--borde-acento)}
+#liveContext{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:10px;
+  border-top:1px solid var(--linea)}
+.livePeople{display:flex;padding-left:5px}.livePerson{width:25px;height:25px;margin-left:-5px;
+  border-radius:50%;display:grid;place-items:center;border:2px solid var(--suelo2);
+  background:hsl(var(--actor-hue) var(--chip-luz));color:var(--chip-tinta);font:600 8.5px var(--hud)}
+.livePerson svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round}
+.liveContextText{min-width:0;color:var(--tinta3);font:10px/1.35 var(--hud)}
+.liveContextText b{color:var(--tinta2);font-weight:600}
+/* The demo player replays into a list of its own, and must look identical:
+   it is the same renderer, so it gets the same rules rather than a copy. */
+#liveEvents,.liveLista{list-style:none;margin:0;padding:16px 16px 26px;overflow-y:auto;flex:1;
+  display:flex;flex-direction:column;gap:13px;scrollbar-color:var(--linea2) transparent}
+.liveEmpty{margin:auto;padding:30px 18px;text-align:center;color:var(--tinta3);font-size:13px;line-height:1.55}
+.liveTurn{--tono:var(--tinta3);display:grid;grid-template-columns:31px minmax(0,1fr);
+  align-items:start;gap:8px;max-width:94%}
+.liveTurn.chair{grid-template-columns:minmax(0,1fr) 31px;align-self:flex-end}
+.liveTurn.chair .liveAvatar{grid-column:2}.liveTurn.chair .liveBubble{grid-column:1;grid-row:1;
+  border-radius:9px 3px 9px 9px;background:var(--burbuja-mia);border-color:var(--borde-acento)}
+.liveTurn.member{align-self:flex-start}.liveTurn.system{align-self:center;max-width:100%}
+.liveTurn.system .liveAvatar{display:none}.liveTurn.system .liveBubble{grid-column:1/-1;background:var(--burbuja)}
+.liveTurn.question{--tono:var(--lampara)}.liveTurn.floor{--tono:var(--tono-palabra)}
+.liveTurn.evidence{--tono:var(--tono-evidencia)}.liveTurn.decision{--tono:var(--verde)}
+.liveTurn.verification{--tono:var(--tono-verificacion)}.liveTurn.error{--tono:var(--carta)}
+.liveAvatar{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;
+  background:hsl(var(--actor-hue) var(--chip-luz));color:var(--chip-tinta);border:1px solid hsl(var(--actor-hue) 38% 55%);
+  font:600 9.5px var(--hud);box-shadow:0 0 0 2px var(--panel)}
+.liveAvatar svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+/* Identicon faces: the SVG brings its own ground and kind-tinted ring, so the
+   chip stops painting its hue circle and lets the face be the face. */
+.liveAvatar.conCara,.livePerson.conCara{background:transparent;border-color:transparent;
+  border-radius:8px;overflow:hidden}
+.liveAvatar img.liveCara{width:31px;height:31px;display:block;border-radius:7px}
+.livePerson img.liveCara{width:23px;height:23px;display:block;border-radius:6px}
+.liveBubble{min-width:0;background:var(--suelo2);border:1px solid var(--linea);
+  border-radius:3px 9px 9px 9px;padding:10px 11px 11px;box-shadow:0 4px 14px rgba(0,0,0,.09)}
+.liveMeta{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--tinta3)}
+.liveActor{color:var(--tono);font-weight:600}.liveRole{padding:1px 5px;border:1px solid var(--linea2);
+  border-radius:8px;font:8.5px var(--hud);text-transform:uppercase;letter-spacing:.04em}
+.liveWhen{margin-left:auto}.liveHeading{display:flex;align-items:center;gap:6px;margin:6px 0 4px}
+.liveHeading>svg{width:14px;height:14px;fill:none;stroke:var(--tono);stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.liveHeading h3{font:600 11.5px/1.3 var(--hud);color:var(--tinta)}
+.liveBubble>p,.liveFull p{white-space:pre-wrap;margin:0;color:var(--tinta2);font-size:12.5px;
+  line-height:1.5;overflow-wrap:anywhere}
+.liveEvidence,.liveFull{margin-top:8px;padding-top:7px;border-top:1px solid var(--linea)}
+.liveEvidence summary,.liveFull summary{cursor:pointer;color:var(--tinta3);font:9.5px var(--hud);
+  letter-spacing:.03em}.liveEvidence[open] summary,.liveFull[open] summary{color:var(--tono)}
+.liveEvidence ul{margin:7px 0 0;padding-left:16px;color:var(--tinta3);font-size:11.5px;line-height:1.45}
+.liveEvidence li+li{margin-top:4px}.liveFull p{margin-top:7px;color:var(--tinta3);font-size:11.5px}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav>
+    <div class="marca">
+      <span class="badge" data-i18n>town hall</span>
+      <h2>Agents City</h2>
+      <p data-i18n>Manage one autonomous city: its seat, repo agents, roads and map. Everything here is a plain file you can also inspect by hand.</p>
+      <div class="ajustes">
+        <button type="button" id="temaBoton" class="temaBoton"
+          title="Daylight is the default; night is the map's own light">☾ Night</button>
+        <button type="button" id="idiomaBoton" class="temaBoton"
+          title="Español / English">EN</button>
+      </div>
+    </div>
+    <div id="railCiudad" class="railCiudad"></div>
+    <ol id="rail"></ol>
+    <ol id="railOtras" class="railOtras"></ol>
+    <div id="ciudades" style="padding:0 18px"></div>
+    <div class="pie">
+      <p id="avisoVersion" class="avisoVersion" hidden></p>
+      <a href="#" id="alWizard" data-i18n>Create another city →</a>
+      <span class="dato" id="dondeDatos"></span>
+    </div>
+  </nav>
+  <main>
+    <div class="cuerpo"><div class="dentro" id="lienzo"><p class="cargando">reading your city</p></div></div>
+  </main>
+  <aside id="livePanel" aria-label="Live city activity">
+    <div id="liveResize" role="separator" aria-orientation="vertical"
+      aria-label="Resize the live panel" title="Drag to resize · double-click to reset"></div>
+    <header>
+      <div class="liveTop"><span class="liveDot" id="liveDot"></span>
+        <h2>City live</h2><span id="liveState">waiting</span></div>
+      <p>A moderated conversation over the WebSocket bus. The seat routes each turn;
+        private model reasoning is never shown or stored.</p>
+      <div class="liveControls">
+        <select id="liveFilter" aria-label="Filter live activity by conversation">
+          <option value="">all conversations</option>
+        </select>
+        <button id="liveWorkToggle" type="button" aria-pressed="false">show work</button>
+      </div>
+      <div id="liveContext" hidden></div>
+    </header>
+    <ol id="liveEvents" aria-live="polite">
+      <li class="liveEmpty">Start the city session. Its visible conversation will appear here as it happens.</li>
+    </ol>
+  </aside>
+</div>
+<div id="toast"></div>
+<div id="editorIns" hidden>
+  <div class="edCaja">
+    <div class="edCab"><b id="edTitulo"></b><span id="edLector"></span>
+      <button id="edCerrar" type="button" aria-label="Close">×</button></div>
+    <textarea id="edTexto" spellcheck="false"></textarea>
+    <div class="edPie"><span id="edRuta"></span>
+      <button id="edGuardar" type="button" class="bt ppal">Save</button></div>
+  </div>
+</div>
+
+<script>window.PASE = '__PASE__';</script>
+<!-- The page's code is TypeScript, built by the same esbuild and checked by the
+     same tsc --strict as the map's front end: city/web/src/hall.ts. It builds to
+     dist-hall/, which the deployed Worker never serves — the hall is local. -->
+<script type="module" src="/hall.js?PASE=__PASE__"></script>
+</body>
+</html>

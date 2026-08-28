@@ -1,0 +1,9 @@
+# A small clinic: three districts anyone can read at a glance.
+units:
+  - id: atencion    ; name: Atención al Paciente ; color: 3fb8a0 ; order: 1
+  - id: diagnostico ; name: Diagnóstico          ; color: 4a9ede ; order: 2
+  - id: gestion     ; name: Gestión              ; color: 8f7ae6 ; order: 3
+
+special:
+  - id: lab         ; name: Lab                  ; color: 8fb8c9 ; order: 90
+  - id: none        ; name: Shared               ; color: c8b48a ; order: 99

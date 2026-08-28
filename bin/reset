@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Reset exactly one managed city, with a recovery copy.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/reset.py" "$@"

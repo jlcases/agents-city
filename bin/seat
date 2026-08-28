@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Sit down to work: one command, no account, no setup.
+#
+#   ./bin/seat --help    what it asks and what it writes
+#
+# The logic is in plugin/scripts/seat.py and not here, because that folder is what
+# gets installed on everybody's machine — so `/city:join`, which runs inside Claude
+# from an installed plugin with no clone around it, reaches exactly the same code.
+# One job, one implementation, two doors.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/seat.py" "$@"

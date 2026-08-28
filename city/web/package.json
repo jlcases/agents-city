@@ -1,0 +1,18 @@
+{
+  "name": "city-web",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --minify --format=esm --outfile=dist/city.js && cp index.html dist/index.html && mkdir -p dist/modelos dist/sprites && cp -R assets/modelos/. dist/modelos/ && cp -R assets/sprites/. dist/sprites/ && python3 sella.py && esbuild src/hall.ts --bundle --minify --format=esm --outfile=dist-hall/hall.js",
+    "watch": "esbuild src/main.ts --bundle --format=esm --outfile=dist/city.js --watch",
+    "typecheck": "tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --skipLibCheck src/main.ts src/oven.ts src/hall.ts"
+  },
+  "dependencies": {
+    "@types/three": "^0.185.4",
+    "pixi.js": "^8.6.6",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}

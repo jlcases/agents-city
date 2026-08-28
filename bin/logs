@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Durable visible conversation and operational diagnostics for the selected city.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/logs.py" "$@"

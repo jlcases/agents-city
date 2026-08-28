@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.bak
+.DS_Store
+city/oven/glb/
+city/oven/oven.js
+__pycache__/
+*.pyc
+dist-hall/
+*.tgz

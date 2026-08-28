@@ -1,0 +1,8 @@
+{
+  "strategy": "single-agent",
+  "events": [
+    {"type": "position", "actor": "seat", "saw_peer": false, "evidence": ["seat:inspection"]},
+    {"type": "decision", "pending_floor": 0},
+    {"type": "close", "verification": "none", "executor": "seat", "verifier": "seat"}
+  ]
+}

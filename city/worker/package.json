@@ -1,0 +1,16 @@
+{
+  "name": "city-worker",
+  "private": true,
+  "scripts": {
+    "dev": "bun x wrangler@4 dev --local",
+    "deploy": "bun x wrangler@4 deploy",
+    "d1:crear": "bun x wrangler@4 d1 create city",
+    "d1:schema": "bun x wrangler@4 d1 execute city --remote --file schema.sql",
+    "d1:schema:local": "bun x wrangler@4 d1 execute city --local --file schema.sql",
+    "typecheck": "tsc"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260826.1",
+    "typescript": "^7.0.2"
+  }
+}

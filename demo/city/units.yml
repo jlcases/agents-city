@@ -1,0 +1,10 @@
+# A compact city: enough variety to understand districts without turning the
+# first screen into a wall of houses.
+units:
+  - id: games    ; name: Player Games      ; color: 3fb8a0 ; order: 1
+  - id: platform ; name: Shared Platform   ; color: 8f7ae6 ; order: 2
+  - id: data     ; name: Player Data       ; color: e2604f ; order: 3
+
+special:
+  - id: lab      ; name: Lab               ; color: 8fb8c9 ; order: 90
+  - id: none     ; name: Shared             ; color: c8b48a ; order: 99

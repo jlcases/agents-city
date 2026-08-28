@@ -1,0 +1,200 @@
+#!/usr/bin/env bash
+# Aurora Games: one disposable personal city, the real Hall, the real local
+# WebSocket bus and a guided chair-mediated committee. No provider account,
+# repository or permanent Agents City data is required.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+RAIZ="$PWD"
+
+ABRIR=1
+DOMINIO=software
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-browser) ABRIR=0 ;;
+    --domain)
+      shift
+      DOMINIO="${1:-}"
+      ;;
+    -h|--help)
+      cat <<'EOF'
+usage: agents-city demo [--domain software|medicina|legal] [--no-browser]
+
+Opens one disposable demo city in the full Town Hall. The centre is the map;
+the right sidebar receives a guided committee over the real local WebSocket
+bus, and the same events become short game-style speech bubbles over each
+agent. The stories are real chaos told in plain words, one per domain:
+
+  software  Aurora Games — la noche en que desaparecieron las partidas
+  medicina  Clínica Alba — la mañana de las citas duplicadas
+  legal     Costa & Ley — el plazo de mañana a las nueve
+
+No Claude/Codex account is used and your own cities are not selected or changed.
+EOF
+      exit 0
+      ;;
+    *) echo "  Unknown demo option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+# One fixture per domain: the story's cast are the city's agents, so a clinic
+# argues about patients and a firm about deadlines — never a repo about either.
+case "$DOMINIO" in
+  software) FIXTURE=city ;;
+  medicina) FIXTURE=clinica ;;
+  legal) FIXTURE=despacho ;;
+  *) echo "  Unknown demo domain: $DOMINIO (software, medicina or legal)" >&2; exit 2 ;;
+esac
+
+[ -f city/worker/schema.sql ] && [ -f "demo/$FIXTURE/city.yml" ] || {
+  echo "  This install is incomplete: the $DOMINIO demo city or map schema is missing." >&2
+  exit 1
+}
+
+lee_ciudad() { sed -n "s/^$1:[[:space:]]*//p" "demo/$FIXTURE/city.yml" | head -1; }
+DEMO_OWNER="$(lee_ciudad owner)"
+DEMO_SLUG="$(lee_ciudad slug)"
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "  I need $1. $2" >&2
+    exit 1
+  }
+}
+need npm "Install Node from nodejs.org."
+need node "Install Node from nodejs.org."
+need python3 "It ships with macOS; on Linux install python3."
+need curl "Install curl and try again."
+
+if command -v bunx >/dev/null 2>&1; then
+  RUNNER=(bunx)
+elif command -v bun >/dev/null 2>&1; then
+  RUNNER=(bun x)
+elif command -v npx >/dev/null 2>&1; then
+  RUNNER=(npx --yes)
+else
+  echo "  I need npx (comes with Node) or bun." >&2
+  exit 1
+fi
+
+free_port() {
+  local port=8787
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! lsof -ti:"$port" >/dev/null 2>&1; then
+      echo "$port"
+      return
+    fi
+    port=$((port + 1))
+  done
+  echo "  No free map port from 8787 to 8796." >&2
+  return 1
+}
+
+step() { printf '\n  \033[1m%s\033[0m\n' "$1"; }
+
+DEMO_PREFIX="${TMPDIR:-/tmp}/agents-city-demo."
+DEMO_RUNTIME="$(mktemp -d "${DEMO_PREFIX}XXXXXX")"
+DEMO_DATA="$DEMO_RUNTIME/city"
+DEMO_APP="$DEMO_RUNTIME/app"
+DEMO_STATE="$DEMO_RUNTIME/state"
+DEMO_CITY_ID="$(lee_ciudad id)"
+MAP_PORT="$(free_port)"
+MAP_PID=""
+STORY_PID=""
+
+cleanup() {
+  set +e
+  [ -n "$STORY_PID" ] && kill -TERM "$STORY_PID" 2>/dev/null
+  [ -n "$MAP_PID" ] && kill -TERM "$MAP_PID" 2>/dev/null
+  # The hub deliberately detaches in normal cities. This demo owns a temporary
+  # app home, so close only the PID recorded below that exact directory.
+  python3 - "$DEMO_APP" <<'PY'
+import glob, json, os, signal, sys
+for path in glob.glob(os.path.join(sys.argv[1], '.runtime', 'bus', '*', 'endpoint.json')):
+    try:
+        pid = int(json.load(open(path, encoding='utf-8')).get('pid', 0))
+        if pid > 1:
+            os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        pass
+PY
+  sleep 0.35
+  if command -v lsof >/dev/null 2>&1 && [ -d "$DEMO_RUNTIME" ]; then
+    while IFS= read -r pid; do
+      case "$pid" in ''|*[!0-9]*) ;; *) kill -TERM "$pid" 2>/dev/null ;; esac
+    done < <(lsof -t +D "$DEMO_RUNTIME" 2>/dev/null | sort -u)
+  fi
+  case "$DEMO_RUNTIME" in
+    "$DEMO_PREFIX"*) rm -rf -- "$DEMO_RUNTIME" ;;
+  esac
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+mkdir -p "$DEMO_DATA" "$DEMO_APP" "$DEMO_STATE"
+cp -R "$RAIZ/demo/$FIXTURE/." "$DEMO_DATA/"
+
+step "1/5  Building the full Hall and city map"
+if [ ! -f city/web/dist/index.html ] || [ ! -f city/web/dist-hall/hall.js ] \
+  || { [ -w city/web ] && [ city/web/src/main.ts -nt city/web/dist/city.js ]; } \
+  || { [ -w city/web ] && [ city/web/src/hall.ts -nt city/web/dist-hall/hall.js ]; }; then
+  if [ -w city/web ]; then
+    (cd city/web && npm install --silent && npm run build >/dev/null)
+  else
+    echo "  The installed front end is missing. Reinstall agents-city without sudo." >&2
+    exit 1
+  fi
+fi
+
+step "2/5  Creating a disposable demo city ($DOMINIO)"
+cd "$RAIZ/city/worker"
+"${RUNNER[@]}" wrangler@4 d1 execute city --local --persist-to "$DEMO_STATE" \
+  --file schema.sql >/dev/null
+cd "$RAIZ"
+CITY_PERSIST="$DEMO_STATE" ./city/scripts/seed.py \
+  --data "$DEMO_DATA" --fake-history --local
+
+step "3/5  Starting the city map"
+MAP_LOG="$DEMO_RUNTIME/map.log"
+cd "$RAIZ/city/worker"
+"${RUNNER[@]}" wrangler@4 dev --local --persist-to "$DEMO_STATE" \
+  --var "CITY_SECRET:local-test" --var "CITY_ID:$DEMO_CITY_ID" \
+  --port "$MAP_PORT" >"$MAP_LOG" 2>&1 &
+MAP_PID=$!
+cd "$RAIZ"
+
+MAP_READY=0
+for _ in $(seq 1 120); do
+  if curl -fsS "http://127.0.0.1:$MAP_PORT/api/identity" 2>/dev/null \
+    | python3 -c 'import json,sys; raise SystemExit(json.load(sys.stdin).get("cityId") != sys.argv[1])' \
+      "$DEMO_CITY_ID" 2>/dev/null; then
+    MAP_READY=1
+    break
+  fi
+  sleep 0.25
+done
+if [ "$MAP_READY" -ne 1 ]; then
+  echo "  The map did not become ready. Last output:" >&2
+  tail -20 "$MAP_LOG" >&2 || true
+  exit 1
+fi
+
+step "4/5  Connecting the authenticated WebSocket bus"
+DEMO_ENV=(
+  "AGENTS_CITY_HOME=$DEMO_APP"
+  "AGENTS_CITY_DATA=$DEMO_DATA"
+  "AGENTS_CITY_USER=$DEMO_OWNER"
+  "CITY_ADDRESS=$DEMO_OWNER/$DEMO_SLUG"
+)
+env "${DEMO_ENV[@]}" python3 "$RAIZ/demo/show.py" --story "$DOMINIO" &
+STORY_PID=$!
+
+step "5/5  Opening the playable Town Hall"
+echo "  The map owns the centre. Follow the complete committee on the right."
+echo "  Each live turn also appears over its speaker as Para <recipient>: …"
+echo "  Everything disappears when you press ctrl-c; your cities stay untouched."
+if [ "$ABRIR" -eq 1 ]; then
+  env "${DEMO_ENV[@]}" "$RAIZ/bin/hall"
+else
+  env "${DEMO_ENV[@]}" "$RAIZ/bin/hall" --no-browser
+fi

@@ -1,0 +1,16 @@
+{
+  "name": "agents-city",
+  "description": "Multiple autonomous agent cities: one owner seat, repo support agents, repo-owned skills and explicit roads.",
+  "owner": {
+    "name": "jlcases",
+    "url": "https://github.com/jlcases"
+  },
+  "plugins": [
+    {
+      "name": "city",
+      "source": "./plugin",
+      "version": "0.5.0",
+      "description": "Operate one autonomous city seat, its domain, role, repo support agents, goal, recognised skills and explicit roads to other cities."
+    }
+  ]
+}

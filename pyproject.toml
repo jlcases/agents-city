@@ -1,0 +1,33 @@
+# Lint for the Python half of this repo. The rules are chosen, not inherited, and
+# every exemption below says why it exists — an unexplained ignore is how a rule
+# dies in its sleep.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+include = ["bin/*.py", "plugin/scripts/*.py", "city/scripts/*.py", "demo/*.py"]
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, B bugbear (the one that catches real bites:
+# loop-variable closures, mutable defaults), C901 the god-function gate.
+select = ["E", "F", "W", "B", "C901"]
+ignore = [
+  # One-letter loop vars over lines of text (`for l in ...`) are this codebase's
+  # idiom and read fine next to their one-line bodies.
+  "E741",
+  # Module import not at top: every entry point does `sys.path.insert` before
+  # importing the shared modules, because the shared folder is what ships and the
+  # scripts must find it from a clone AND from an installed plugin. The pattern is
+  # the architecture, not an accident.
+  "E402",
+  # `noqa`-style deliberate lambdas remain case by case, not wholesale.
+]
+
+[tool.ruff.lint.mccabe]
+# The god-function gate. Event loops are exempted per file below — a curses key
+# handler IS a switch, and splitting a switch across functions hides its shape.
+max-complexity = 12
+
+[tool.ruff.lint.per-file-ignores]
+# ui.py holds the terminal widgets: each is one curses event loop whose branches
+# are keystrokes. Their complexity is the domain's, not the code's.
+"plugin/scripts/ui.py" = ["C901"]

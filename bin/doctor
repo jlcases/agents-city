@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Check this machine: tools, runtimes, the cage, the city, and the version.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/doctor.py" "$@"

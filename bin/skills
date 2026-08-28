@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Recognise repo-local skills without installing or changing them.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/capabilities.py" "$@"

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "city-bus": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/channel/run.sh",
+      "env": {
+        "CITY_BUS_TOKEN": "${user_config.bus_token}",
+        "CITY_BUS_AGENT_DEFAULT": "${user_config.bus_agent}",
+        "CITY_BUS_URL": "${user_config.bus_url}",
+        "AGENTS_CITY_URL": "${user_config.city_url}",
+        "AGENTS_CITY_DATA_DEFAULT": "${user_config.data_repo}",
+        "AGENTS_CITY_ORG": "${user_config.github_org}"
+      }
+    }
+  }
+}

@@ -1,0 +1,687 @@
+#!/usr/bin/env python3
+"""The agreements between doors — the class of bug the other suites cannot see.
+
+    ./bin/test-contracts.py
+
+Every bug that survived 290 checks had the same shape: two pieces of code holding
+the same fact, each correct alone, never confronted with each other. The session
+asked for `agente` while every card said `agent`. The reporter read `path` where
+every writer wrote `ruta`. The seat held eight of the wizard's twenty-one
+suffixes. The seat wrote a city to `~/.agents-city` while the plugin looked in
+`~/agents-city-data`. Module suites pass all of those, because each side is
+internally consistent — the disagreement lives between them.
+
+So this suite tests nothing about any module's inside. It only asserts
+agreements: two resolvers land on the same folder, two languages resolve the
+same key the same way, every writer's output satisfies the shared reader, every
+fact with one owner has exactly one definition, and every path a command tells
+an agent to run actually exists — the phantom `units.py --push` class.
+
+When one of these fails, the fix is never "make the test pass": it is to decide
+which side owns the fact and delete the other.
+"""
+import glob
+import importlib.machinery as mach
+import importlib.util as iu
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+AQUI = os.path.dirname(os.path.abspath(__file__))
+RAIZ = os.path.dirname(AQUI)
+sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+sys.path.insert(0, AQUI)
+from testlib import comprueba, afirma, resumen  # noqa: E402
+import card
+import parcels
+import roles
+import units  # noqa: E402
+
+
+def carga(nombre, ruta):
+    s = iu.spec_from_loader(nombre, mach.SourceFileLoader(nombre, ruta))
+    m = iu.module_from_spec(s)
+    s.loader.exec_module(m)
+    return m
+
+
+# ══ the two resolvers of "where do the cards live" ══════════════════════════
+def resolvedores():
+    print('  where the cards live: four resolvers, one answer')
+
+    # Run each side in a subprocess with a controlled HOME, because this is about
+    # what a fresh machine resolves — not what this one has lying around.
+    def py(codigo, casa, entorno=None):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('AGENTS_CITY_DATA', 'AGENTS_CITY_HOME',
+                            'AGENTS_CITY_USER', 'CITY_DIR')}
+        env['HOME'] = casa
+        env['AGENTS_CITY_USER'] = 'alice'
+        env.update(entorno or {})
+        r = subprocess.run([sys.executable, '-c', codigo],
+                           capture_output=True, text=True, env=env)
+        return r.stdout.strip()
+
+    seatDatos = (f"import sys; sys.path.insert(0, {os.path.join(RAIZ, 'plugin', 'scripts')!r})\n"
+                 "import importlib.machinery as m, importlib.util as u\n"
+                 "s = u.spec_from_loader('seat', m.SourceFileLoader('seat', "
+                 f"{os.path.join(RAIZ, 'plugin', 'scripts', 'seat.py')!r}))\n"
+                 "mod = u.module_from_spec(s); s.loader.exec_module(mod)\n"
+                 "print(mod.donde_viven_las_fichas())")
+    envDatos = (f"import sys; sys.path.insert(0, {os.path.join(RAIZ, 'plugin', 'scripts')!r})\n"
+                "import city_env; print(city_env.datos())")
+    shDatos = (f'. {os.path.join(RAIZ, "plugin", "scripts", "city-env.sh")}; '
+               'printf "%s" "$AGENTS_CITY_DATA"')
+
+    def sh(casa, entorno=None):
+        env = {k: v for k, v in os.environ.items()
+               if k not in ('AGENTS_CITY_DATA', 'AGENTS_CITY_HOME',
+                            'AGENTS_CITY_USER', 'CITY_DIR')}
+        env['HOME'] = casa
+        env['AGENTS_CITY_USER'] = 'alice'
+        env.update(entorno or {})
+        r = subprocess.run(['/bin/bash', '-c', shDatos],
+                           capture_output=True, text=True, env=env)
+        return r.stdout.strip()
+
+    # A machine with nothing: everyone lands on the seat's own folder.
+    casa = tempfile.mkdtemp()
+    espera = os.path.realpath(os.path.join(casa, '.agents-city', 'alice', 'home'))
+    comprueba('· blank machine — the seat', py(seatDatos, casa), espera)
+    comprueba('· blank machine — the plugin (python)', py(envDatos, casa), espera)
+    comprueba('· blank machine — the hooks (shell)', sh(casa), espera)
+
+    # A legacy team-looking folder is no longer magical: personal city selection
+    # remains user/home unless explicitly requested.
+    os.makedirs(os.path.join(casa, 'agents-city-data'))
+    comprueba('· unrelated team folder — the seat', py(seatDatos, casa), espera)
+    comprueba('· unrelated team folder — the plugin', py(envDatos, casa), espera)
+    comprueba('· unrelated team folder — the hooks', sh(casa), espera)
+
+    # An explicit setting beats everything, everywhere. It has to point at a real
+    # directory for the seat (which validates), so make one.
+    puesto = os.path.realpath(os.path.join(casa, 'elegido'))
+    os.makedirs(puesto)
+    e = {'AGENTS_CITY_DATA': puesto}
+    comprueba('· explicit setting — the seat', py(seatDatos, casa, e), puesto)
+    comprueba('· explicit setting — the plugin', py(envDatos, casa, e), puesto)
+    comprueba('· explicit setting — the hooks', sh(casa, e), puesto)
+    shutil.rmtree(casa)
+
+
+# ══ every writer satisfies the one reader ═══════════════════════════════════
+def escritores():
+    print('  every writer against the shared reader')
+    d = tempfile.mkdtemp()
+
+    # units.yml has one writer module and two callers that used to inline it.
+    import setup as W
+    W.escribe({'destino': d, 'unidades': [{'id': 'x', 'name': 'X', 'color': 'aabbcc'}],
+               'roles': ['cpto'], 'repos': [], 'gente': [], 'org': '', 'rutas': {},
+               'kind': 'product', 'grow_cmd': ''})
+    ids = {u['id'] for u in units.lee(os.path.join(d, 'units.yml'))}
+    comprueba("· the wizard's units.yml reads back, specials included",
+              ids, {'x', 'lab', 'none'})
+
+    seat = carga('seat', os.path.join(RAIZ, 'plugin', 'scripts', 'seat.py'))
+    d2 = tempfile.mkdtemp()
+    seat.escribe_suelo(d2, ['api'])
+    comprueba("· the seat's units.yml reads back the same way",
+              {u['id'] for u in units.lee(os.path.join(d2, 'units.yml'))},
+              {'mine', 'lab', 'none'})
+    ps, lab, raras = parcels.lee(os.path.join(d2, 'parcels.yml'))
+    comprueba("· and the seat's parcels.yml satisfies the shared reader",
+              ([p['id'] for p in ps], lab, raras), (['api'], set(), []))
+
+    # The wizard's parcels.yml too.
+    ps, _, raras = parcels.lee(os.path.join(d, 'parcels.yml'))
+    comprueba("· the wizard's parcels.yml too", raras, [])
+    shutil.rmtree(d)
+    shutil.rmtree(d2)
+
+
+# ══ facts with one owner have one definition ═════════════════════════════════
+def una_definicion():
+    print('  one fact, one definition')
+
+    fuentes = []
+    for base in ('bin', 'plugin/scripts', 'city/scripts', 'demo'):
+        for f in glob.glob(os.path.join(RAIZ, base, '*')):
+            if not os.path.isfile(f):
+                continue
+            es_py = f.endswith('.py') or open(f, 'rb').read(24).startswith(
+                b'#!/usr/bin/env python')
+            if es_py:
+                fuentes.append(f)
+
+    def definiciones(patron, dueno):
+        fuera = []
+        for f in fuentes:
+            if os.path.basename(f).startswith('test'):
+                continue
+            for i, l in enumerate(open(f, encoding='utf-8').readlines(), 1):
+                if re.search(patron, l) and not l.strip().startswith('#'):
+                    rel = os.path.relpath(f, RAIZ)
+                    if rel != dueno:
+                        fuera.append(f'{rel}:{i}')
+        return fuera
+
+    for patron, dueno, que in (
+            (r"ARQUITECTOS\s*=\s*\{", 'plugin/scripts/roles.py', 'who sets the goals'),
+            (r"SUFIJOS\s*=\s*\{|AGENTE\s*=\s*\{'cpto'", 'plugin/scripts/roles.py',
+             'the agent suffix per role'),
+            (r"f'\{repo\}:\{ruta\}'", 'plugin/scripts/parcels.py', "a parcel's id"),
+            (r"def usuario_de_correo", 'plugin/scripts/gh.py', 'email → username'),
+            (r"def bloque_objetivo", 'plugin/scripts/card.py', "a goal's card lines"),
+    ):
+        extras = definiciones(patron, dueno)
+        afirma(f'· {que} is defined only in {os.path.basename(dueno)}',
+               not extras, 'also in: ' + ', '.join(extras))
+
+
+# ══ what the commands tell an agent to run must exist ════════════════════════
+def rutas_reales():
+    print('  every path a command names exists')
+    docs = (glob.glob(os.path.join(RAIZ, 'plugin', 'commands', '*.md'))
+            + glob.glob(os.path.join(RAIZ, 'plugin', 'skills', '*', 'SKILL.md')))
+    patron = re.compile(r'(?:[a-z]+/)*(?:scripts|bin)/[a-zA-Z0-9._-]+\.(?:py|sh)')
+    for doc in docs:
+        for ref in set(patron.findall(open(doc, encoding='utf-8').read())):
+            base = os.path.basename(ref)
+            hay = (glob.glob(os.path.join(RAIZ, '**', base), recursive=False)
+                   or glob.glob(os.path.join(RAIZ, '*', 'scripts', base))
+                   or glob.glob(os.path.join(RAIZ, 'bin', base))
+                   or glob.glob(os.path.join(RAIZ, 'plugin', 'scripts', base)))
+            afirma(f'· {os.path.relpath(doc, RAIZ)} → {ref}',
+                   bool(hay), 'names a file that does not exist — the phantom '
+                              '`units.py --push` class')
+
+    # The hooks configuration too: a hook pointing nowhere fails on every turn.
+    hooks = json.load(open(os.path.join(RAIZ, 'plugin', 'hooks', 'hooks.json')))
+    texto = json.dumps(hooks)
+    for m in set(re.findall(r'[\w${}/.-]*/((?:[\w-]+)\.(?:sh|py))', texto)):
+        afirma(f'· hooks.json → {m}',
+               os.path.isfile(os.path.join(RAIZ, 'plugin', 'hooks', m))
+               or os.path.isfile(os.path.join(RAIZ, 'plugin', 'scripts', m)), '')
+
+
+# ══ the conscience stays inside the city ═════════════════════════════════════
+def conciencia_acotada():
+    """Installing the plugin must not enrol every Claude session on the machine.
+
+    Happy: inside a city runtime (CITY_BUS_ACTOR set) the guard lets the hook
+    run; CITY_HOOKS=everywhere restores the machine-wide behaviour explicitly.
+    Non-happy: a plain session — no identity, no opt-in — gets `{}` and silence
+    from every hook, and no file appears anywhere.
+    """
+    print('  the conscience stays inside the city')
+    guardia = os.path.join(RAIZ, 'plugin', 'hooks', 'solo-en-ciudad.sh')
+
+    def corre(entorno, script=None, marca='; echo despues'):
+        casa = tempfile.mkdtemp()
+        env = {'HOME': casa, 'PATH': os.environ.get('PATH', ''),
+               'CLAUDE_PLUGIN_ROOT': os.path.join(RAIZ, 'plugin')}
+        env.update(entorno)
+        orden = f'. {guardia}{marca}' if script is None else None
+        r = subprocess.run(['/bin/bash', '-c', orden] if orden else ['/bin/bash', script],
+                           input='{}', capture_output=True, text=True, env=env)
+        residuos = os.listdir(casa)
+        shutil.rmtree(casa, ignore_errors=True)
+        return r, residuos
+
+    r, residuos = corre({})
+    afirma('· non-happy: outside a city the guard answers {} and stops',
+           r.returncode == 0 and r.stdout.strip() == '{}' and not residuos, r.stdout)
+    r, _ = corre({'CITY_BUS_ACTOR': 'nova'})
+    afirma('· happy: a city runtime passes the guard',
+           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
+    r, _ = corre({'CITY_HOOKS': 'everywhere'})
+    afirma('· happy: CITY_HOOKS=everywhere is the explicit machine-wide opt-in',
+           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
+    # The opt-in also reads $CITY_DIR/.env, where the transport settings live.
+    casa = tempfile.mkdtemp()
+    canal = os.path.join(casa, 'canal')
+    os.makedirs(canal)
+    open(os.path.join(canal, '.env'), 'w').write('CITY_HOOKS=everywhere\n')
+    r = subprocess.run(['/bin/bash', '-c', f'. {guardia}; echo despues'],
+                       input='{}', capture_output=True, text=True,
+                       env={'HOME': casa, 'PATH': os.environ.get('PATH', ''),
+                            'CITY_DIR': canal})
+    shutil.rmtree(casa, ignore_errors=True)
+    afirma('· happy: the opt-in can live in $CITY_DIR/.env',
+           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
+
+    # Every hook wires the guard, and outside a city every hook is silent.
+    for nombre in sorted(glob.glob(os.path.join(RAIZ, 'plugin', 'hooks', '*.sh'))):
+        base = os.path.basename(nombre)
+        if base == 'solo-en-ciudad.sh':
+            continue
+        afirma(f'· {base} sources the guard',
+               'solo-en-ciudad.sh' in open(nombre, encoding='utf-8').read(), '')
+        r, residuos = corre({}, script=nombre)
+        afirma(f'· non-happy: {base} is mute outside a city',
+               r.returncode == 0 and r.stdout.strip() == '{}' and not residuos,
+               f'{r.stdout!r} {residuos}')
+
+
+# ══ the demo is a city this code would write ═════════════════════════════════
+def demo_coherente():
+    print('  the demo agrees with the code')
+    for f in sorted(glob.glob(os.path.join(RAIZ, 'demo', '*.md'))):
+        c = card.lee(f)
+        if not c.get('user'):
+            continue
+        comprueba(f"· {c['user']}'s agent is what roles.py would mint",
+                  c['agent'], f"{c['user']}/{roles.sufijo(c['role'])}")
+    # And every role a demo card claims has a role file for a round to read.
+    for f in sorted(glob.glob(os.path.join(RAIZ, 'demo', '*.md'))):
+        c = card.lee(f)
+        if c.get('user'):
+            afirma(f"· role file exists for {c['role']}",
+                   os.path.isfile(os.path.join(RAIZ, 'plugin', 'roles', 'examples',
+                                               f"{c['role']}.md")), '')
+
+
+# ══ several cities, one machine ══════════════════════════════════════════════
+def varias_ciudades():
+    print('  several cities on one machine')
+    import cities
+
+    casa = tempfile.mkdtemp()
+    # Two cities, one of them named, plus the solo default.
+    rankia = os.path.join(casa, 'rankia-data')
+    os.makedirs(rankia)
+    open(os.path.join(rankia, 'city.yml'), 'w').write('kind: product\nname: Rankia\n')
+    open(os.path.join(rankia, 'units.yml'), 'w').write('units:\n')
+    cliente = os.path.join(casa, 'acme')
+    os.makedirs(cliente)
+    open(os.path.join(cliente, 'units.yml'), 'w').write('units:\n')
+
+    comprueba('· even the first city carries owner and city in its session',
+              cities.sesion('jl', os.path.expanduser('~/.agents-city')), 'jl-agents-city')
+    comprueba('· a named city suffixes it, so two never share one session',
+              cities.sesion('jl', rankia), 'jl-rankia')
+    afirma('· two folders sharing a basename get different state slugs',
+           cities.slug(rankia) != cities.slug(cliente))
+
+    # The shell delegates to the same code — pin the delegation, not a copy.
+    cli = subprocess.run([sys.executable,
+                          os.path.join(RAIZ, 'plugin', 'scripts', 'cities.py'),
+                          'sesion', 'jl', rankia],
+                         capture_output=True, text=True).stdout.strip()
+    comprueba('· the tmux script (via the CLI) agrees with the module',
+              cli, cities.sesion('jl', rankia))
+    afirma('· and city-session.sh actually delegates instead of copying the rule',
+           'cities.py" sesion' in open(os.path.join(
+               RAIZ, 'plugin', 'scripts', 'city-session.sh')).read())
+
+    comprueba('· a name resolves to its folder',
+              cities.resuelve(rankia), os.path.realpath(rankia))
+    comprueba('· and an unknown name resolves to nothing, not a guess',
+              cities.resuelve('no-such-city-xyz'), '')
+    afirma('· a random folder is not a city and cannot be registered',
+           not cities.es_ciudad(tempfile.mkdtemp()))
+    shutil.rmtree(casa)
+
+
+def motor_para_todos():
+    """The card says which model a window runs, once, whatever CLI runs it.
+
+    Both fields used to be Claude's alone. They are not: the native gateways
+    parse `--model` — and Codex `--effort` — out of the command string and send
+    them with the turn, which is why one key on the card can mean the same thing
+    for all four. This checks the launcher actually hands them over, because a
+    dropdown whose value never reaches a process is a lie with a nice font.
+    """
+    print('  the engine reaches every runtime')
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
+    afirma('· a native runtime command goes through con_motor, not raw',
+           'con_motor "$win" "$KIND" "$OTRO"' in fuente, '')
+    afirma('· and so does the seat when it runs one',
+           'con_motor seat "$SEAT_RUNTIME" "$SEAT_OTRO"' in fuente, '')
+
+    # The two functions, lifted out and exercised against a stub card reader.
+    casa = tempfile.mkdtemp()
+    # A stand-in for read-card.py, in the language the launcher invokes it in.
+    lector = os.path.join(casa, 'leer.py')
+    # It answers the batched form too, because that is what the launcher asks:
+    # a stub that only knows the one-field call would test a door nobody uses.
+    open(lector, 'w', encoding='utf-8').write(
+        'import sys\n'
+        "CARD = {'model.dbt': 'gpt-5.6-sol', 'effort.dbt': 'max'}\n"
+        "campos = sys.argv[3:] if sys.argv[1:2] == ['--varios'] else sys.argv[-1:]\n"
+        "print('\\n'.join(CARD.get(c, '') for c in campos))\n"
+    )
+    trozo = fuente[fuente.index('motor_de() {'):fuente.index('runtime_de() {')]
+    guion = os.path.join(casa, 'motor.sh')
+    open(guion, 'w', encoding='utf-8').write(
+        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\n'
+        'printf "%s\\n" "$(con_motor "$1" "$2" "$3")"\n'
+    )
+
+    def con(ventana, motor, orden):
+        return subprocess.run(['bash', guion, ventana, motor, orden],
+                              capture_output=True, text=True).stdout.strip()
+
+    comprueba('· claude gets both flags',
+              con('dbt', 'claude', 'claude'), 'claude --model gpt-5.6-sol --effort max')
+    comprueba('· codex gets both too — its gateway reads them off the command',
+              con('dbt', 'codex', 'codex'), 'codex --model gpt-5.6-sol --effort max')
+    comprueba('· opencode gets the model and no effort it cannot read',
+              con('dbt', 'opencode', 'opencode'), 'opencode --model gpt-5.6-sol')
+    comprueba('· and neither does kimi',
+              con('dbt', 'kimi', 'kimi'), 'kimi --model gpt-5.6-sol')
+    comprueba('· a window with nothing on the card gets no flags at all',
+              con('otra', 'codex', 'codex'), 'codex')
+    # A command that already says it wins: somebody who wrote the flag meant it.
+    comprueba('· an explicit --model on the card is never doubled',
+              con('dbt', 'codex', 'codex --model o3'), 'codex --model o3 --effort max')
+    comprueba('· nor an explicit --effort',
+              con('dbt', 'codex', 'codex --effort low'),
+              'codex --effort low --model gpt-5.6-sol')
+    shutil.rmtree(casa, ignore_errors=True)
+
+
+def asiento_con_su_arnes():
+    """The chair keeps the harness the person came with.
+
+    Claude behind the gateway is headless with a `city>` prompt in front of it.
+    That is right for a house, which must be able to RECEIVE work from the bus,
+    and wrong for the chair, where somebody works by hand with their own
+    plugins, statusline and slash commands. The city plugin's hooks already
+    report a normal session's prompts and answers onto the bus, so the chair
+    loses nothing by opening its own interface.
+
+    What must never differ between the two shapes are the two flags that make
+    the bus the only route between agents. A quieter product with a hole in it
+    is the failure this checks for.
+    """
+    print('  the chair keeps its own interface')
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
+    cuerpo = fuente[fuente.index('lanza_asiento_claude() {'):fuente.index('# The seat runs Claude')]
+    afirma('· both shapes of the chair come out of one function',
+           fuente.count('lanza_asiento_claude "') == 2, '')
+    afirma('· the tui branch runs the command itself',
+           'lanza "$SESSION:seat" seat "$EQUIPO" "$entorno${CLAUDE_AUTH_PREFIX}$orden"' in cuerpo,
+           cuerpo)
+    afirma('· the gateway branch is still there, one card key away',
+           'gateway_line seat "$EQUIPO" "$orden"' in cuerpo, cuerpo)
+    afirma('· and the flags are built once, before the branch, so they cannot differ',
+           cuerpo.count('$SETTINGS') == 0 and cuerpo.count('NO_PEER_TOOLS') == 0, cuerpo)
+    # Every Claude command in the file is built the same way: the engine
+    # through `con_motor` (which carries the "an explicit flag wins" guard) and
+    # the deal through `$CLAUDE_TRATO` (which is asked of the declaration). A
+    # branch that skips either is a window that silently runs differently.
+    ordenes = [l for l in fuente.split('\n')
+               if 'CLAUDE_SEAT="' in l or 'CLAUDE_REPO="' in l
+               or 'lanza_asiento_claude "' in l]
+    afirma('· every Claude launch in the file was found', len(ordenes) == 5, str(ordenes))
+    for linea in ordenes:
+        if linea.strip().startswith('lanza_asiento_claude "$CLAUDE_SEAT"'):
+            continue  # this one passes a command already built above
+        afirma(f'· the engine goes through con_motor: {linea.strip()[:40]}…',
+               'con_motor' in linea, linea)
+        afirma(f'· and the deal through the declaration: {linea.strip()[:40]}…',
+               '$CLAUDE_TRATO' in linea, linea)
+    afirma('· the chair still opens with its yolo flag',
+           any('$SEAT_YOLO_FLAG' in l for l in ordenes), str(ordenes))
+    afirma('· and the deal is asked of arnes.py, not respelled here',
+           'arnes.py" flags claude' in fuente
+           and "crossSessionInbound" not in fuente
+           and "SendMessage,ListAgents" not in fuente, '')
+
+    # A house is not a chair: it must still be reachable from the bus.
+    afirma('· an agent house still goes through the gateway',
+           'gateway_line "$win" "$path" "$CLAUDE_REPO"' in fuente, '')
+
+    # `ui.<window>`, lifted out and exercised.
+    casa = tempfile.mkdtemp()
+    lector = os.path.join(casa, 'leer.py')
+    open(lector, 'w', encoding='utf-8').write(
+        'import sys\n'
+        "print({'ui.seat': 'gateway', 'ui.raro': 'nonsense'}.get(sys.argv[-1], ''))\n"
+    )
+    trozo = fuente[fuente.index('ui_de() {'):fuente.index('runtime_de() {')]
+    guion = os.path.join(casa, 'ui.sh')
+    open(guion, 'w', encoding='utf-8').write(
+        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\nprintf "%s\\n" "$(ui_de "$1" "$2")"\n'
+    )
+
+    def ui(ventana, defecto):
+        return subprocess.run(['bash', guion, ventana, defecto],
+                              capture_output=True, text=True).stdout.strip()
+
+    comprueba('· a card that says gateway gets the gateway', ui('seat', 'tui'), 'gateway')
+    comprueba('· a card that says nothing gets the default', ui('otra', 'tui'), 'tui')
+    comprueba('· and a house defaults the other way', ui('otra', 'gateway'), 'gateway')
+    comprueba('· a card that says nonsense is not obeyed', ui('raro', 'tui'), 'tui')
+    shutil.rmtree(casa, ignore_errors=True)
+
+
+def ventanas_gemelas():
+    """Window, engine key and bus actor share one canonical repo slug."""
+    print('  the window slug has one owner')
+
+    sesion = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
+                  encoding='utf-8').read()
+    afirma('· city-session delegates instead of copying the slug rule',
+           'python3 "$LEER" --window "$r"' in sesion)
+    lector = os.path.join(RAIZ, 'plugin', 'scripts', 'read-card.py')
+    for nombre in ('MiApp@feature/X', 'Data_Pipeline', 'API', 'a/b_c@d',
+                   'web.app', 'two words', 'plain'):
+        concha = subprocess.run(
+            [sys.executable, lector, '--window', nombre],
+            capture_output=True, text=True).stdout.strip()
+        comprueba(f'· {nombre!r} has the same slug through both doors',
+                  card.ventana(nombre), concha)
+
+
+def canal_compilado():
+    """Every vendor-neutral bus entry point ships as a committed bundle."""
+    print('  the channel artifacts match their sources')
+
+    ts = open(os.path.join(RAIZ, 'plugin/channel/bus.ts'), encoding='utf-8').read()
+    js = open(os.path.join(RAIZ, 'plugin/channel/bus.js'), encoding='utf-8').read()
+    tools = re.findall(r"name:\s*'(bus_[a-z_]+)'", ts)
+
+    afirma('· bus.ts declares at least the send/roster/inbox trio',
+           {'bus_send', 'bus_roster', 'bus_inbox'} <= set(tools),
+           f'found only: {sorted(set(tools))}')
+    faltan = sorted({t for t in tools if t not in js})
+    afirma('· every tool in bus.ts exists in the committed bus.js',
+           not faltan, 'stale artifact, missing: ' + ', '.join(faltan)
+           + ' — rebuild: cd plugin/channel && npm run build')
+    marcadores = {
+        'local-hub.js': ('agents-city-bus/2', 'committee.open'),
+        'client.js': ('committee.open', 'road.send'),
+        'adapter.js': ('Agents City authenticated local bus', 'tmux'),
+    }
+    for nombre, esperados in marcadores.items():
+        ruta = os.path.join(RAIZ, 'plugin', 'channel', nombre)
+        contenido = open(ruta, encoding='utf-8').read() if os.path.isfile(ruta) else ''
+        afirma(f'· {nombre} is built and carries its contract',
+               all(valor in contenido for valor in esperados),
+               f'missing marker in {nombre}; run npm run build')
+
+
+def plugin_canal():
+    """Claude must discover the same MCP server named by the Channel."""
+    print('  the installed Claude Channel contract')
+    manifest_path = os.path.join(RAIZ, 'plugin', '.claude-plugin', 'plugin.json')
+    package_path = os.path.join(RAIZ, 'package.json')
+    marketplace_path = os.path.join(RAIZ, '.claude-plugin', 'marketplace.json')
+    mcp_path = os.path.join(RAIZ, 'plugin', '.mcp.json')
+    manifest = json.load(open(manifest_path, encoding='utf-8'))
+    package = json.load(open(package_path, encoding='utf-8'))
+    marketplace = json.load(open(marketplace_path, encoding='utf-8'))
+    marketplace_plugin = next(
+        (plugin for plugin in marketplace.get('plugins', [])
+         if plugin.get('name') == manifest.get('name')),
+        {},
+    )
+    afirma('· package, plugin and marketplace publish one release version',
+           package.get('version') == manifest.get('version')
+           == marketplace_plugin.get('version'),
+           f"package={package.get('version')!r}, plugin={manifest.get('version')!r}, "
+           f"marketplace={marketplace_plugin.get('version')!r}")
+    afirma('· the plugin ships its MCP registry at the plugin root',
+           os.path.isfile(mcp_path),
+           'Claude can load skills while reporting MCP servers (0) without plugin/.mcp.json')
+    mcp = json.load(open(mcp_path, encoding='utf-8')) if os.path.isfile(mcp_path) else {}
+    servers = mcp.get('mcpServers', {})
+    channels = manifest.get('channels', [])
+    afirma('· the Channel names a server Claude can actually discover',
+           len(channels) == 1 and channels[0].get('server') in servers,
+           f'channels={channels!r}, servers={sorted(servers)!r}')
+    city_bus = servers.get('city-bus', {})
+    comprueba('· the discovered server executes the production launcher',
+              city_bus.get('command'), '${CLAUDE_PLUGIN_ROOT}/channel/run.sh')
+    afirma('· plugin options still reach the MCP subprocess',
+           city_bus.get('env', {}).get('AGENTS_CITY_DATA_DEFAULT')
+           == '${user_config.data_repo}'
+           and city_bus.get('env', {}).get('CITY_BUS_TOKEN')
+           == '${user_config.bus_token}',
+           str(city_bus.get('env', {})))
+    afirma('· there is only one MCP registry to keep in sync',
+           'mcpServers' not in manifest,
+           'remove the duplicate inline registry from plugin.json')
+
+
+def puerta_npm():
+    """Every npm command remains visually distinct in the public help."""
+    print('  the npm front door')
+    salida = subprocess.run(
+        ['node', os.path.join(RAIZ, 'bin', 'agents-city.js'), '--help'],
+        capture_output=True, text=True).stdout
+    afirma('· the longest command does not run into its description',
+           'committee  chair-mediated' in salida, salida[:240])
+
+
+def documentacion_publica():
+    """Both public READMEs remain complete operational manuals.
+
+    Help output and implementation tests own the detailed behaviour. This check
+    protects the other direction: adding a public command, slash command, domain,
+    runtime, or release without documenting it in both supported languages.
+    """
+    print('  bilingual public documentation')
+    public_commands = [
+        'hall', 'seat', 'cities', 'road', 'bus', 'committee', 'benchmark',
+        'reset', 'skills', 'city', 'demo', 'setup', 'report', 'tokens', 'exit',
+        'test', 'shortcut', 'doctor', 'update',
+    ]
+    public_contract = [
+        '--help', '--version', '--no-browser', '--out', '--tui', '--repos',
+        '--agent-roles', '--agents', '--goal', '--engines', '--domain', '--role',
+        '--no-yolo', '--no-sync', '--only', '--model', '--effort',
+        'cities list', 'cities current', 'cities create', 'cities use',
+        'road list', 'road connect', 'road disconnect', 'road invite',
+        'bus roster', 'bus inbox', 'bus send',
+        'committee list', 'committee history', 'committee show',
+        'committee status', 'committee open', 'committee respond',
+        'committee synthesize', 'committee floor-request',
+        'committee floor-grant', 'committee floor-deny', 'committee reply',
+        'committee decide', 'committee verify', 'committee replan',
+        'committee close', 'committee cancel', 'committee schema', '--input',
+        'benchmark stress', 'benchmark live', 'benchmark committee', '--runtime',
+        '--command', '--timeout', '--json', '--keep', '--no-save', '--dry-run',
+        '--push', '--quiet', '--days', '--all',
+        'claude-stream-json', 'stream-json', 'managed-settings.json',
+    ]
+    slash_commands = [
+        f'/city:{os.path.basename(path)[:-3]}'
+        for path in glob.glob(os.path.join(RAIZ, 'plugin', 'commands', '*.md'))
+    ]
+    domain_ids = []
+    for path in glob.glob(os.path.join(RAIZ, 'plugin', 'domains', '*.md')):
+        match = re.search(r'^id:\s*(\S+)', open(path, encoding='utf-8').read(), re.M)
+        if match:
+            domain_ids.append(match.group(1))
+
+    for filename, language_heading, cookbook_prefix in (
+        ('README.es.md', '## Referencia completa de comandos', '### Caso '),
+        ('README.md', '## Complete command reference', '### Case '),
+    ):
+        path = os.path.join(RAIZ, filename)
+        content = open(path, encoding='utf-8').read()
+        afirma(f'· {filename} is a detailed manual, not a short landing page',
+               content.count('\n') > 1_500 and language_heading in content,
+               f'only {content.count(chr(10)) + 1} lines')
+        missing_commands = [
+            command for command in public_commands
+            if f'agents-city {command}' not in content
+        ]
+        afirma(f'· {filename} documents every npm command',
+               not missing_commands, 'missing: ' + ', '.join(missing_commands))
+        missing_contract = [token for token in public_contract if token not in content]
+        afirma(f'· {filename} documents every public option and subcommand',
+               not missing_contract, 'missing: ' + ', '.join(missing_contract))
+        missing_slash = [command for command in slash_commands if command not in content]
+        afirma(f'· {filename} documents every Claude slash command',
+               not missing_slash, 'missing: ' + ', '.join(missing_slash))
+        missing_domains = [domain for domain in domain_ids if f'`{domain}`' not in content]
+        afirma(f'· {filename} documents every built-in domain',
+               not missing_domains, 'missing: ' + ', '.join(missing_domains))
+        afirma(f'· {filename} covers all five runtime modes',
+               all(name in content for name in
+                   ('Claude', 'Codex', 'OpenCode', 'Kimi', 'terminal:')))
+        afirma(f'· {filename} carries eighteen reproducible use cases',
+               content.count(cookbook_prefix) == 18,
+               f'found {content.count(cookbook_prefix)}')
+        # The install instructions must not name a versioned tarball. They used
+        # to, and every release left a README telling newcomers to install a
+        # file that no longer existed — so the contract was "repeat the current
+        # version everywhere". A glob cannot go stale, which is the better
+        # answer: what is pinned here is that nobody re-introduces the trap.
+        tarballs_fijos = re.findall(r'agents-city-\d[\w.\-]*\.tgz', content)
+        afirma(f'· {filename} installs by glob, never a tarball name that goes stale',
+               not tarballs_fijos, 'pinned: ' + ', '.join(sorted(set(tarballs_fijos))))
+        afirma(f'· {filename} opens with the one command that installs from npm',
+               'npm install -g agents-city' in content.split('## ')[0],
+               'the first screen does not show the npm install line')
+        afirma(f'· {filename} links to the other language',
+               '[Español](README.es.md)' in content and '[English](README.md)' in content)
+        afirma(f'· {filename} shows the real city identity key',
+               'cityId' not in content and 'schema: agents-city/city@1' not in content,
+               'documents a field city.yml does not write')
+
+
+def ci_bootstrap():
+    """A clean Linux checkout installs the WebSocket runtime before E2E tests."""
+    print('  clean-checkout CI bootstrap')
+    workflow = open(
+        os.path.join(RAIZ, '.github', 'workflows', 'test.yml'), encoding='utf-8'
+    ).read()
+    install = workflow.find('npm --prefix plugin/channel ci --silent')
+    suites = workflow.find('run: ./bin/test')
+    afirma('· CI installs local channel dependencies before integration suites',
+           0 <= install < suites,
+           'the clean checkout would launch WebSocket doubles without ws installed')
+
+
+def main():
+    print()
+    resolvedores()
+    escritores()
+    una_definicion()
+    rutas_reales()
+    conciencia_acotada()
+    demo_coherente()
+    varias_ciudades()
+    ventanas_gemelas()
+    motor_para_todos()
+    asiento_con_su_arnes()
+    canal_compilado()
+    plugin_canal()
+    puerta_npm()
+    documentacion_publica()
+    ci_bootstrap()
+    return resumen('contracts')
+
+
+if __name__ == '__main__':
+    sys.exit(main())

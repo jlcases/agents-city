@@ -1,0 +1,73 @@
+{
+  "name": "agents-city",
+  "version": "0.5.0",
+  "description": "Run autonomous agent cities: one chair seat, role-aware repo agents, repo-owned skills, and explicit roads.",
+  "bin": {
+    "agents-city": "bin/agents-city.js"
+  },
+  "scripts": {
+    "prepublishOnly": "npm --prefix plugin/channel ci --silent && npm --prefix plugin/channel run build && cd city/web && npm install --silent && npm run build && cd ../.. && ./bin/test",
+    "test": "./bin/test"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "files": [
+    "NOTICE",
+    "bin",
+    "plugin",
+    "demo",
+    "templates",
+    "docs",
+    "benchmarks",
+    "city/scripts",
+    "city/oven/collect.py",
+    "city/oven/oven.html",
+    "city/oven/README.md",
+    "city/worker/src",
+    "city/worker/schema.sql",
+    "city/worker/wrangler.toml",
+    "city/worker/package.json",
+    "city/web/src",
+    "city/web/assets",
+    "city/web/index.html",
+    "city/web/sella.py",
+    "city/web/package.json",
+    "city/web/dist",
+    "city/web/dist-hall",
+    ".claude-plugin",
+    "bus/scripts",
+    "bus/worker/src",
+    "bus/worker/package.json",
+    "bus/worker/package-lock.json",
+    "bus/worker/tsconfig.json",
+    "bus/worker/wrangler.toml",
+    "!**/node_modules/**",
+    "!**/.wrangler/**",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
+    "!**/.DS_Store",
+    "README.md",
+    "README.es.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "repository": "github:jlcases/agents-city",
+  "author": "jlcases",
+  "license": "Apache-2.0",
+  "keywords": [
+    "agents",
+    "multi-agent",
+    "claude-code",
+    "tmux",
+    "cities",
+    "coordination",
+    "local-first"
+  ]
+}

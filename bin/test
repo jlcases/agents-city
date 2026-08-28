@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# Every test in the repo, in one command.
+#
+#   ./bin/test              all of it
+#   ./bin/test card seat    just these
+#
+# Twelve suites and two compatibility walks. Nothing here needs a network, an
+# account, a terminal or a deployed anything: the widgets run against a fake curses
+# window, the reporter against a temporary git repo, and the wizard against a file
+# of answers. The one browser suite drives headless Chrome when the machine has
+# one and says so when it does not — a page whose buttons are wired to nothing
+# passes every other check in here, and one shipped.
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+
+# Arm the commit-time gate while we are here. Git refuses to ship hooks inside a
+# repo (on purpose), so the first test run in a clone points this clone at ours.
+# Installed copies are not git repos and skip this silently.
+if [ -d .git ] && [ -x .githooks/pre-commit ] \
+   && [ -z "$(git config core.hooksPath 2>/dev/null)" ]; then
+  git config core.hooksPath .githooks \
+    && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
+fi
+
+SUITES=(widgets card parcels domains busca arnes serve seat cities channel committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
+[ $# -gt 0 ] && SUITES=("$@")
+
+fallos=0
+total=0
+
+printf '\n'
+for s in "${SUITES[@]}"; do
+  guion="bin/test-$s.py"
+  if [ ! -x "$guion" ]; then
+    printf '  %-10s \033[31mno such suite\033[0m (%s)\n' "$s" "$guion"
+    fallos=$((fallos + 1)); continue
+  fi
+  salida="$(./"$guion" 2>&1)"
+  if [ $? -eq 0 ]; then
+    n="$(printf '%s' "$salida" | grep -oE '[0-9]+ checks' | tail -1)"
+    printf '  %-10s \033[32mok\033[0m  %s\n' "$s" "${n:-}"
+    total=$((total + $(printf '%s' "${n:-0}" | grep -oE '^[0-9]+' || echo 0)))
+  else
+    printf '  %-10s \033[31mFAILED\033[0m\n' "$s"
+    printf '%s\n' "$salida" | sed 's/^/      /'
+    fallos=$((fallos + 1))
+  fi
+done
+
+if [ $# -eq 0 ]; then
+  if ./bin/setup.py --help 2>&1 | grep -q 'one personal Agents City' \
+     && ! ./bin/setup.py --help 2>&1 | grep -q 'legacy-team'; then
+    printf '  %-10s \033[32mok\033[0m  public setup exposes only personal cities\n' "setup"
+  else
+    printf '  %-10s \033[31mFAILED\033[0m\n' "setup"
+    fallos=$((fallos + 1))
+  fi
+
+  # The map fixture remains a compatibility input for the visual seeder.
+  if [ "$(./city/scripts/seed.py --data demo --fake-history 2>/dev/null \
+          | grep -c 'INSERT INTO parcela')" = 34 ]; then
+    printf '  %-10s \033[32mok\033[0m  the demo still seeds 34 parcels\n' "seeder"
+  else
+    printf '  %-10s \033[31mFAILED\033[0m\n' "seeder"
+    fallos=$((fallos + 1))
+  fi
+fi
+
+# The npm package: every path the shim dispatches to must actually ship. This is
+# the check that catches "added a module, forgot the files whitelist" — the shim
+# would break only on the installed machine, where nobody is looking.
+if [ $# -eq 0 ] && command -v npm >/dev/null 2>&1; then
+  faltan=$(npm pack --dry-run --json 2>/dev/null | python3 -c '
+import json, sys
+salida = json.load(sys.stdin)
+dentro = {f["path"] for f in salida[0]["files"]}
+necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/demo",
+              "bin/setup.py", "bin/serve.py", "bin/hall.html",
+              "bin/ui.py" if "bin/ui.py" in dentro else "plugin/scripts/ui.py",
+              "plugin/scripts/seat.py", "plugin/scripts/card.py",
+              "plugin/scripts/parcels.py", "plugin/scripts/units.py",
+              "plugin/scripts/roles.py", "plugin/scripts/gh.py",
+              "plugin/scripts/domains.py", "plugin/domains/software.md",
+              "plugin/roles/examples/data-engineer.md",
+              "plugin/scripts/cities.py", "plugin/scripts/roads.py",
+              "plugin/scripts/cage.py", "plugin/scripts/broker.py",
+              "plugin/scripts/rutas.py", "plugin/scripts/evidencia.py",
+              "plugin/scripts/admision.py", "plugin/scripts/pairing.py",
+              "plugin/scripts/hall_protocol.py", "plugin/scripts/doctor.py",
+              "plugin/scripts/workspace.py", "plugin/scripts/avatar.py",
+              "plugin/scripts/crecimiento.py",
+              "plugin/scripts/reset.py", "plugin/scripts/desinstala.py",
+              "plugin/scripts/demos.py", "plugin/scripts/arnes.py",
+              "plugin/channel/runtime/arnes.json", "plugin/scripts/capabilities.py",
+              "plugin/scripts/deliberations.py",
+              "plugin/scripts/runtime_processes.py",
+              "plugin/scripts/runtime_log.py", "plugin/scripts/logs.py",
+              "plugin/scripts/launch.py", "plugin/scripts/hook_activity.py",
+              "plugin/scripts/city-session.sh", "plugin/scripts/city-runtime.sh",
+              "plugin/scripts/find-repos.sh",
+              "plugin/scripts/busca.py",
+              "plugin/channel/bus.js", "plugin/channel/local-hub.js",
+              "plugin/channel/client.js", "plugin/channel/adapter.js",
+              "plugin/channel/runtime-gateway.js",
+              "plugin/.mcp.json",
+              "bin/cities", "bin/road", "bin/bus", "bin/committee", "bin/agents",
+              "bin/reset", "bin/uninstall", "bin/skills", "bin/benchmark", "bin/logs",
+              "demo/graba.py", "demo/grabaciones/software.jsonl",
+              "demo/grabaciones/medicina.jsonl", "demo/grabaciones/legal.jsonl",
+              "benchmarks/committee/run.py",
+              "benchmarks/latency/live.py", "benchmarks/latency/README.md",
+              "benchmarks/latency/fake-native-server.mjs",
+              "benchmarks/latency/fake-claude-cli.mjs",
+              "benchmarks/stress/run.py", "benchmarks/stress/README.md",
+              "city/web/src/repo-roles.ts",
+              "demo/show.py", "demo/city/city.yml", "demo/city/ada.md",
+              "city/scripts/seed.py", "city/worker/schema.sql", "demo/parcels.yml"]
+problemas = [f"missing: {n}" for n in necesarios if n not in dentro]
+basura = ("/node_modules/", "/__pycache__/", "/.wrangler/")
+for ruta in sorted(dentro):
+    if any(x in f"/{ruta}/" for x in basura) or ruta.endswith((".pyc", "/.DS_Store")):
+        problemas.append(f"development artifact shipped: {ruta}")
+print("\n".join(problemas))')
+  if [ -z "$faltan" ]; then
+    printf '  %-10s \033[32mok\033[0m  every path the shim needs ships in the tarball\n' "package"
+  else
+    printf '  %-10s \033[31mFAILED\033[0m — invalid npm package contents:\n' "package"
+    printf '%s\n' "$faltan" | sed 's/^/      /'
+    fallos=$((fallos + 1))
+  fi
+fi
+
+printf '\n'
+if [ "$fallos" -gt 0 ]; then
+  printf '  \033[31m%d suite(s) failed\033[0m\n\n' "$fallos"
+  exit 1
+fi
+printf '  \033[32mall green\033[0m — %d checks\n\n' "$total"

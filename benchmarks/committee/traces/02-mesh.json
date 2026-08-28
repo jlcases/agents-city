@@ -1,0 +1,16 @@
+{
+  "strategy": "free-mesh",
+  "events": [
+    {"type": "position", "actor": "api", "saw_peer": false, "evidence": ["api:test"]},
+    {"type": "message", "from": "api", "to": "web"},
+    {"type": "position", "actor": "web", "saw_peer": true, "evidence": ["web:e2e"]},
+    {"type": "message", "from": "web", "to": "api"},
+    {"type": "message", "from": "api", "to": "web"},
+    {"type": "message", "from": "web", "to": "ops"},
+    {"type": "message", "from": "ops", "to": "api"},
+    {"type": "floor_reply", "actor": "ops", "granted": false, "evidence": ["ops:log"]},
+    {"type": "decision", "pending_floor": 1},
+    {"type": "verification", "actor": "api", "executor": "api", "result": "pass", "evidence": ["api:self-check"]},
+    {"type": "close", "verification": "pass", "executor": "api", "verifier": "api"}
+  ]
+}

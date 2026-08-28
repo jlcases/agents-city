@@ -1,0 +1,106 @@
+# Every check, on every push. The suites are the product's memory of its own
+# bugs — the reporter that never worked, the field no writer wrote, the two
+# resolvers that disagreed — and a memory nobody consults on push is decoration.
+name: test
+on:
+  push: {branches: [main]}
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      # tmux for the seat's options suite; bubblewrap because the Linux cage IS
+      # bubblewrap, and a cage suite that skips proves nothing.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap
+      # Ubuntu 24 ships with unprivileged user namespaces restricted by AppArmor,
+      # which is exactly the case cage.py probes for — and a runner that cannot
+      # build one tests the cage's fallback instead of the cage. Turn it on here
+      # so CI exercises what a normal Linux desktop gives an owner.
+      - name: allow the unprivileged namespaces the Linux cage is made of
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 || true
+          bwrap --ro-bind / / --dev /dev true && echo "bubblewrap can build a namespace here"
+      # A source checkout has no node_modules. The protocol doubles and browser
+      # spectator tests resolve `ws` from this package before the later typecheck.
+      - name: install local channel dependencies for the integration suites
+        run: npm --prefix plugin/channel ci --silent
+      # Installed BEFORE the suites: the browser suite rebuilds the Hall bundle
+      # so it drives the current source rather than a committed one that may be
+      # a commit behind.
+      - name: install the front end's build tools
+        run: npm --prefix city/web ci --silent
+      - name: all suites, both compatibility walks, and the package check
+        # The runner ships Chrome; REQUIRED makes a runner that lost it fail
+        # loudly instead of quietly skipping the only checks that click.
+        env:
+          CITY_BROWSER_REQUIRED: '1'
+          # Same idea for the cage: this runner installs bubblewrap, so a run
+          # where the live namespace checks skip is a run that tested nothing.
+          CITY_CAGE_REQUIRED: '1'
+        run: ./bin/test
+      - name: the typed front ends hold under tsc --strict
+        run: cd city/web && npm run typecheck
+      - name: the worker holds under tsc --strict too
+        run: cd city/worker && npm ci --silent && npm run typecheck
+      - name: the remote road relay holds its typed envelope and durable queue
+        run: cd bus/worker && npm ci --silent && npm run typecheck && npm run test:local
+      - name: python lint — bugbear, style, and the god-function gate (C901 ≤ 12)
+        run: pip install --quiet ruff && ruff check bin plugin/scripts city/scripts demo benchmarks
+      - name: shell lint
+        run: shellcheck -S warning plugin/scripts/*.sh plugin/hooks/*.sh bus/scripts/*.sh bin/agents bin/bus bin/cities bin/committee bin/city bin/demo bin/reset bin/road bin/doctor bin/shortcut bin/skills bin/test bin/update
+      - name: prettier holds on every TypeScript file
+        run: npx --yes prettier --check 'city/web/src/*.ts' 'city/worker/src/*.ts' 'plugin/channel/**/*.ts' 'bus/worker/src/*.ts' 'bus/scripts/*.ts'
+      # The four runtime bundles are committed so the plugin runs with no build
+      # step; the honest assertion here is that their sources still compile — bundles are not
+      # byte-stable across esbuild versions, so a diff would lie. Nothing silenced:
+      # the first version of this step swallowed npm's stderr and failed unreadably,
+      # which is the exact sin the rest of this repo exists to catch.
+      - name: the channel's source still compiles
+        run: |
+          cd plugin/channel
+          npm ci
+          npm run typecheck
+          npm run build
+
+  # Windows runs this product through WSL, which no hosted runner gives us — so
+  # what CAN be checked here is checked here: the pure-Python modules that a
+  # Windows machine executes (the card, the roster, the desktop shortcut's icon
+  # and command building). It is deliberately not the whole suite: tmux and bash
+  # are not on this runner, and pretending otherwise would be a green tick that
+  # means nothing.
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      # The disk scanner is here on purpose: it used to be a bash script, so on
+      # Windows there was simply no way to find a repository. It is Python now,
+      # and this is what keeps that true.
+      - name: the modules a Windows machine actually runs
+        run: |
+          python bin/test-card.py
+          python bin/test-workspace.py
+          python bin/test-atajos.py
+          python bin/test-domains.py
+          python bin/test-busca.py
+
+  # The cage is a macOS seatbelt profile checked against the live kernel, and
+  # the broker guards what the cage seals. Linux cannot exercise either, so the
+  # security suites get the one runner where they mean something.
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - run: brew install tmux shellcheck 2>/dev/null || true
+      - name: install local channel dependencies
+        run: npm --prefix plugin/channel ci --silent
+      - name: the security suites against the real kernel
+        run: ./bin/test cage broker security workspace

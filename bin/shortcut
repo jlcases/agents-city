@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Put a city on your desktop: its icon, its name, double-click to enter.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/atajos.py" "$@"

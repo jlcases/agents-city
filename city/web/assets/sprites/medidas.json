@@ -1,0 +1,248 @@
+{
+ "building-a": {
+  "alto": 1.293,
+  "ancho": 0.94,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-b": {
+  "alto": 1.293,
+  "ancho": 0.97,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-c": {
+  "alto": 0.893,
+  "ancho": 1.09,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-d": {
+  "alto": 1.293,
+  "ancho": 0.9,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-e": {
+  "alto": 0.893,
+  "ancho": 1.64,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-f": {
+  "alto": 1.693,
+  "ancho": 1.03,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-g": {
+  "alto": 1.693,
+  "ancho": 0.97,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-h": {
+  "alto": 1.293,
+  "ancho": 1.008,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-i": {
+  "alto": 1.68,
+  "ancho": 1.302,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-j": {
+  "alto": 1.693,
+  "ancho": 2.084,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-k": {
+  "alto": 1.47,
+  "ancho": 2.084,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-l": {
+  "alto": 2.27,
+  "ancho": 1.402,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-m": {
+  "alto": 3.15,
+  "ancho": 1.242,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-n": {
+  "alto": 2.48,
+  "ancho": 2.32,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-skyscraper-a": {
+  "alto": 2.88,
+  "ancho": 1.36,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-skyscraper-b": {
+  "alto": 4.48,
+  "ancho": 1.36,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-skyscraper-c": {
+  "alto": 4.08,
+  "ancho": 1.388,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-skyscraper-d": {
+  "alto": 5.47,
+  "ancho": 1.388,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "building-skyscraper-e": {
+  "alto": 4.08,
+  "ancho": 1.295,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-awning": {
+  "alto": 0.4,
+  "ancho": 0.4,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-awning-wide": {
+  "alto": 0.4,
+  "ancho": 0.8,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-overhang": {
+  "alto": 0.4,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-overhang-wide": {
+  "alto": 0.4,
+  "ancho": 1,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-parasol-a": {
+  "alto": 0.45,
+  "ancho": 0.4,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "detail-parasol-b": {
+  "alto": 0.45,
+  "ancho": 0.4,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-a": {
+  "alto": 2,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-b": {
+  "alto": 2.225,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-c": {
+  "alto": 2.25,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-d": {
+  "alto": 1.75,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-e": {
+  "alto": 1.8,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-f": {
+  "alto": 2,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-g": {
+  "alto": 2,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-h": {
+  "alto": 2.1,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-i": {
+  "alto": 1.775,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-j": {
+  "alto": 1.75,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-k": {
+  "alto": 1.55,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-l": {
+  "alto": 1.85,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-m": {
+  "alto": 1.975,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-n": {
+  "alto": 0.7,
+  "ancho": 0.5,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-wide-a": {
+  "alto": 1.1,
+  "ancho": 1,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ },
+ "low-detail-building-wide-b": {
+  "alto": 1.15,
+  "ancho": 1,
+  "ancla": 0.75,
+  "pxUnidad": 75.294
+ }
+}

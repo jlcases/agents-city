@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Close the day — everything, or one city: `./bin/exit [city] [--dry-run]`.
+# The logic lives in plugin/scripts/apaga.py so /city:exit inside Claude and this
+# launcher are the same code through two doors.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/apaga.py" "$@"

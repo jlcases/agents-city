@@ -1,0 +1,58 @@
+name = "city"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+# The same Cloudflare account as the bus.
+account_id = "<YOUR_CLOUDFLARE_ACCOUNT_ID>"
+
+# The front end is served by the Worker itself: one origin, no CORS, no separate
+# CDN. run_worker_first is about security and not performance: without it the
+# static files are served BEFORE the Worker runs, so the Access door covered
+# neither the HTML nor the JS nor the sprites.
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+run_worker_first = true
+
+# In production: turn these off and route a custom domain instead. A workers.dev
+# URL cannot sit behind an identity proxy, so leaving it on is a permanent back
+# door. Left on here so `wrangler dev` and a first deploy just work.
+# workers_dev = false
+# preview_urls = false
+#
+# [[routes]]
+# pattern = "city.example.com"
+# custom_domain = true
+
+# The square: live state, and fan-out to the spectators.
+[[durable_objects.bindings]]
+name = "SQUARE"
+class_name = "Square"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Square"]
+
+# The history: what has been built, which does not fit in memory and is queried.
+[[d1_databases]]
+binding = "DB"
+database_name = "city"
+database_id = "<YOUR_D1_DATABASE_ID>"
+
+# The bus's own token KV: a worker identifies itself with its own token.
+[[kv_namespaces]]
+binding = "TOKENS"
+id = "<YOUR_KV_NAMESPACE_ID>"
+
+[triggers]
+crons = ["*/5 * * * *"]   # batches of 6 repos: the whole org about every 2h
+
+[vars]
+GITHUB_ORG = "your-org"
+# Closed in production, open when you clone it. With "1", nothing is served
+# without the header your identity proxy sets — the static HTML included. Leave
+# it at "0" for local development and set it to "1" before you deploy: see
+# docs/install.md, "Closing the door".
+REQUIRE_ACCESS = "0"
+
+[observability]
+enabled = true

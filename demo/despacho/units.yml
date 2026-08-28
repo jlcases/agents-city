@@ -1,0 +1,9 @@
+# A small law firm: three districts anyone can read at a glance.
+units:
+  - id: civil      ; name: Derecho Civil ; color: e2604f ; order: 1
+  - id: fiscalidad ; name: Fiscal        ; color: f5c451 ; order: 2
+  - id: gestion    ; name: Gestión       ; color: 8f7ae6 ; order: 3
+
+special:
+  - id: lab        ; name: Lab           ; color: 8fb8c9 ; order: 90
+  - id: none       ; name: Shared        ; color: c8b48a ; order: 99
