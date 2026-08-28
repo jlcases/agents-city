@@ -22,7 +22,7 @@ if [ -d .git ] && [ -x .githooks/pre-commit ] \
     && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
 fi
 
-SUITES=(widgets card parcels domains busca arnes serve seat cities channel committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
+SUITES=(widgets card parcels domains busca arnes serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
 [ $# -gt 0 ] && SUITES=("$@")
 
 fallos=0
@@ -101,6 +101,9 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "plugin/scripts/busca.py",
               "plugin/channel/bus.js", "plugin/channel/local-hub.js",
               "plugin/channel/client.js", "plugin/channel/adapter.js",
+              "plugin/channel/managed-connect-core.js",
+              "plugin/channel/managed-connect-client.js",
+              "plugin/channel/managed-connect-cli.js", "bin/connect",
               "plugin/channel/runtime-gateway.js",
               "plugin/.mcp.json",
               "bin/cities", "bin/road", "bin/bus", "bin/committee", "bin/agents",

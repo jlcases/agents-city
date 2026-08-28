@@ -491,6 +491,7 @@ agents-city setup
 agents-city seat
 agents-city cities
 agents-city road
+agents-city connect
 agents-city bus
 agents-city committee
 agents-city agents
@@ -688,6 +689,32 @@ agents-city road disconnect producto <city-id-remoto>
 
 No se puede conectar una ciudad consigo misma. Una invitación remota debe
 aceptarse de forma independiente en cada máquina.
+
+### `agents-city connect`
+
+Empareja este ordenador con un servicio de Roads gestionadas y conecta ciudades
+locales. No crea una Road de forma unilateral: las dos personas siguen
+aprobando la conexión bilateral en el servicio.
+
+```bash
+agents-city connect --service https://connect.example.com
+agents-city connect --city producto
+agents-city connect --all
+agents-city connect status
+agents-city connect roads
+```
+
+El comando genera claves Ed25519/X25519 en este ordenador, muestra un PASCO de
+un solo uso y abre el navegador para autorizarlo. Las claves privadas permanecen
+en `~/.agents-city/.runtime/connect/` con permisos 0600/0700 y quedan selladas
+para las ventanas de agentes de repositorio en macOS y Linux. Cada ciudad
+conectada mantiene una sesión WSS saliente; el ordenador no abre un puerto
+público. Usa `--service URL` o `AGENTS_CITY_CONNECT_URL` para un endpoint piloto.
+El servidor alojado no forma parte de este repositorio Apache; el cliente y el
+protocolo auditables sí.
+
+[docs/managed-connect.md](docs/managed-connect.md) detalla el contrato de claves,
+sobres, cifrado, ACK, revocación y modelo de amenazas.
 
 ### `agents-city bus`
 
@@ -1574,7 +1601,22 @@ inyectado en cada ventana. El ejemplo lo hace explícito para una terminal exter
 
 ### Caso 10: conectar ciudades de dos máquinas o personas
 
-En la máquina A:
+Con un operador de Roads gestionadas, cada persona empareja el ordenador y
+elige la ciudad local que puede participar:
+
+```bash
+agents-city connect --city producto --service https://connect.example.com
+agents-city connect --city research --service https://connect.example.com
+```
+
+Una persona crea la invitación de Road en ese servicio y la otra la acepta. Los
+clientes conocen la Road bilateral activa mediante sus sesiones autenticadas
+con el relay; ninguna parte intercambia un token compartido del bus ni expone un
+puerto local. El contrato del cliente público está en
+[docs/managed-connect.md](docs/managed-connect.md).
+
+Para autoalojar el transporte remoto existente basado en token, intercambia en
+cambio las invitaciones públicas de ciudad. En la máquina A:
 
 ```bash
 agents-city road invite producto > producto.invitation.json
@@ -1966,10 +2008,14 @@ tus repos, adjuntarse a tu tmux o leer ficheros privados de tu home. Para códig
 no confiable usa cuentas/VMs/contenedores separados y aplica también los permisos
 del CLI de cada proveedor.
 
-El bus remoto amplía la superficie de confianza. Despliega HTTPS/WSS, rota
-tokens, limita los scopes y revisa [docs/self-host.md](docs/self-host.md). Una
-carretera autoriza intercambio de mensajes entre asientos; no implica confianza
-para ejecutar comandos recibidos ni acceso al filesystem remoto.
+Un bus remoto amplía la superficie de confianza. Para el transporte autoalojado
+con token, despliega HTTPS/WSS, rota tokens, limita los scopes y revisa
+[docs/self-host.md](docs/self-host.md). Managed Connect usa en cambio firmas de
+dispositivo y HPKE de extremo a extremo, y mantiene sus claves privadas en el
+directorio sellado por la jaula `~/.agents-city/.runtime/connect/`; consulta
+[docs/managed-connect.md](docs/managed-connect.md). Cualquiera de las dos Roads
+autoriza intercambio de texto entre asientos. Ninguna implica confianza para
+ejecutar comandos recibidos ni acceso al filesystem remoto.
 
 ## Resolución de problemas
 

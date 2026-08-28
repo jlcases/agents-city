@@ -25,6 +25,7 @@ const ORDENES = {
   cities: { que: ['bin/cities'], di: 'list, create or select your cities' },
   agents: { que: ['bin/agents'], di: 'list agents and manage their workspace mounts' },
   road: { que: ['bin/road'], di: 'connect two cities explicitly' },
+  connect: { que: ['bin/connect'], di: 'pair this computer and open encrypted managed Roads' },
   bus: { que: ['bin/bus'], di: 'send information over those roads (seat only)' },
   committee: { que: ['bin/committee'], di: 'chair-mediated work with repo agents' },
   benchmark: { que: ['bin/benchmark'], di: 'offline stress/governance or opt-in live runtime latency' },

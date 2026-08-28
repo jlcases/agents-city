@@ -335,6 +335,9 @@ def main():
                and envelope.get('scope') == 'road'
                and envelope.get('from', {}).get('actor') == 'seat'
                and envelope.get('to', {}).get('actor') == 'seat')
+        duplicate_file = os.path.join(queued_dir, 'duplicate-replay.json')
+        shutil.copyfile(queued_file, duplicate_file)
+        os.chmod(duplicate_file, 0o600)
         grande = a.herramienta(8, 'bus_send',
                                {'to': 'alice/lab', 'text': 'x' * 64_001})
         afirma('· local roads enforce the relay size boundary',
@@ -356,10 +359,18 @@ def main():
                and '"online": true' in texto(roster), texto(roster))
         road_notices = [m for m in b.mensajes
                         if m.get('method') == 'notifications/claude/channel']
-        afirma('· a queued road event reaches the seat through Channel exactly once',
+        afirma('· a replayed road event reaches the seat through Channel exactly once',
                len(road_notices) == 1
                and 'hello from home' in road_notices[0].get('params', {}).get('content', ''),
                str(road_notices))
+        history_path = os.path.join(
+            app, '.runtime', 'bus', 'city-lab', 'road-history.jsonl')
+        history = open(history_path, encoding='utf-8').read().splitlines()
+        receipts = os.path.join(app, '.runtime', 'bus', 'city-lab', 'road-receipts')
+        afirma('· replay deduplication is durable across inbox reads',
+               len(history) == 1 and len(os.listdir(receipts)) == 1
+               and envelope['id'] in history[0],
+               f'history={history} receipts={os.listdir(receipts)}')
         before = len(road_notices)
         b.herramienta(9, 'bus_roster')
         time.sleep(.15)

@@ -1,6 +1,6 @@
 import { ActorRole, BUS_PROTOCOL, BusEnvelope, isoNow, randomId, text } from '../protocol.js';
 import { CityContext } from '../city-config.js';
-import { recordRoadInbox, takeRoadInbox } from '../delivery-queue.js';
+import { markRoadInboxAccepted, recordRoadInbox, takeRoadInbox } from '../delivery-queue.js';
 import { requireChair } from '../committee/guards.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
@@ -8,8 +8,16 @@ import { localRoadOnline, sendLocalRoad } from './local-roads.js';
 import { remoteRoadBridge } from './remote-roads.js';
 
 export function roadController(context: CityContext, router: EnvelopeRouter) {
+  let remote: ReturnType<typeof remoteRoadBridge>;
+  const roads = () => {
+    const merged = [...context.roads, ...(remote?.roads() ?? [])];
+    return merged.filter(
+      (road, index) =>
+        merged.findIndex((candidate) => candidate.address === road.address) === index,
+    );
+  };
   const inbound = (envelope: BusEnvelope): void => {
-    const road = context.roads.find((candidate) => candidate.address === envelope.from.city);
+    const road = roads().find((candidate) => candidate.address === envelope.from.city);
     if (!road) throw new Error(`there is no road from ${envelope.from.city}`);
     if (
       envelope.protocol !== BUS_PROTOCOL ||
@@ -37,19 +45,18 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
             },
           }
         : envelope;
-    recordRoadInbox(context.runtimeDir, guarded);
+    if (!recordRoadInbox(context.runtimeDir, guarded)) return;
     router.roadInbound(guarded);
+    // Only now is the managed relay allowed to receive an ACK: both the
+    // operator-visible inbox and the seat outbox are durable under one stable
+    // envelope id. A crash before this marker is an at-least-once retry, never
+    // a lost message.
+    markRoadInboxAccepted(context.runtimeDir, guarded.id);
   };
-  const remote = remoteRoadBridge(context, (envelope) => {
-    try {
-      inbound(envelope);
-    } catch (error) {
-      console.error(`[city-bus] dropped remote envelope: ${(error as Error).message}`);
-    }
-  });
+  remote = remoteRoadBridge(context, inbound);
 
   const sendOne = async (to: string, body: string): Promise<string> => {
-    const road = context.roads.find((candidate) => candidate.address === to);
+    const road = roads().find((candidate) => candidate.address === to);
     if (!road) throw new Error(`no road from ${context.city.address} to ${to}`);
     const envelope: BusEnvelope = {
       protocol: BUS_PROTOCOL,
@@ -73,7 +80,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
   ): Promise<unknown> => {
     if (name === 'road.roster') {
       requireChair(actor, role);
-      return context.roads.map((road) => ({
+      return roads().map((road) => ({
         ...road,
         online: road.local ? localRoadOnline(context, road) : remote.online(road.address),
       }));
@@ -87,9 +94,10 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     const to = text(payload.to, 'to');
     const body = text(payload.text, 'text');
     if (to !== '*') return { results: [await sendOne(to, body)] };
-    if (!context.roads.length) throw new Error('this city has no roads');
+    const currentRoads = roads();
+    if (!currentRoads.length) throw new Error('this city has no roads');
     const results: string[] = [];
-    for (const road of context.roads) results.push(await sendOne(road.address, body));
+    for (const road of currentRoads) results.push(await sendOne(road.address, body));
     return { results };
   };
 

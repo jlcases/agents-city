@@ -486,6 +486,7 @@ agents-city setup
 agents-city seat
 agents-city cities
 agents-city road
+agents-city connect
 agents-city bus
 agents-city committee
 agents-city agents
@@ -680,6 +681,31 @@ agents-city road disconnect product <remote-city-id>
 
 A city cannot connect to itself. Each machine must independently accept the
 other remote invitation.
+
+### `agents-city connect`
+
+Pairs this computer with a managed Road service and connects local cities. It
+does not create a Road unilaterally: both people still approve the bilateral
+connection in the service.
+
+```bash
+agents-city connect --service https://connect.example.com
+agents-city connect --city product
+agents-city connect --all
+agents-city connect status
+agents-city connect roads
+```
+
+The command generates Ed25519/X25519 keys on this computer, prints a one-use
+PASCO and opens the browser for approval. Private keys remain under
+`~/.agents-city/.runtime/connect/` with 0600/0700 permissions and are sealed
+from repo-agent windows on macOS and Linux. Each connected city keeps one
+outbound WSS session; no public port is opened on its computer. Use `--service
+URL` or `AGENTS_CITY_CONNECT_URL` for a pilot endpoint. The hosted server is not
+part of this Apache repository; the auditable client and wire protocol are.
+
+See [docs/managed-connect.md](docs/managed-connect.md) for the exact key,
+envelope, encryption, ACK, revocation and threat-model contract.
 
 ### `agents-city bus`
 
@@ -1552,7 +1578,22 @@ injected into each window. The example makes it explicit for an outside terminal
 
 ### Case 10: connect cities belonging to different machines or people
 
-On machine A:
+With a managed Road operator, each person pairs the computer and chooses the
+local city that may participate:
+
+```bash
+agents-city connect --city product --service https://connect.example.com
+agents-city connect --city research --service https://connect.example.com
+```
+
+One person creates the Road invitation in that service and the other accepts
+it. The clients learn the active bilateral Road over their authenticated relay
+sessions; neither side exchanges a shared bus token or exposes a local port.
+The public client contract is documented in
+[docs/managed-connect.md](docs/managed-connect.md).
+
+To self-host the existing token-based remote transport instead, exchange the
+public city invitations manually. On machine A:
 
 ```bash
 agents-city road invite product > product.invitation.json
@@ -1936,9 +1977,13 @@ read your repos, attach to tmux, or read private files in your home. Use separat
 accounts, VMs, or containers for untrusted code, and also apply each provider
 CLI's permission controls.
 
-A remote bus expands the trust surface. Deploy HTTPS/WSS, rotate tokens, limit
-scopes, and read [docs/self-host.md](docs/self-host.md). A road authorises message
-exchange between seats; it neither authorises execution of received commands nor
+A remote bus expands the trust surface. For the self-hosted token transport,
+deploy HTTPS/WSS, rotate tokens, limit scopes, and read
+[docs/self-host.md](docs/self-host.md). Managed Connect instead uses device
+signatures plus end-to-end HPKE and keeps its private keys in the cage-sealed
+`~/.agents-city/.runtime/connect/` directory; see
+[docs/managed-connect.md](docs/managed-connect.md). Either Road authorises text
+exchange between seats. Neither authorises execution of received commands nor
 grants remote filesystem access.
 
 ## Troubleshooting

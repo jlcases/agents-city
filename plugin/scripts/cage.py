@@ -136,6 +136,11 @@ def sellados_por_tipo(casa):
     for f in SECRETOS_FICHERO:
         fuera[rutas.canonicaliza(os.path.join(casa, f))] = 'file'
     fuera[rutas.canonicaliza(os.path.join(ac, '.runtime', 'broker'))] = 'dir'
+    # Managed Roads use a device-held Ed25519 signing key and X25519 decryption
+    # key. Repo-agent windows never need either: the local hub is started by the
+    # human-facing connect command and owns the outbound session. Seal the whole
+    # state directory on both kernels, including before it exists.
+    fuera[rutas.canonicaliza(os.path.join(ac, '.runtime', 'connect'))] = 'dir'
     for f in ('credentials', 'credentials.toml'):
         fuera[rutas.canonicaliza(os.path.join(casa, '.cargo', f))] = 'file'
     # An owner's own denies: nothing declares their kind, so ask the disk and

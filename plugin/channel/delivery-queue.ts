@@ -1,4 +1,12 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { atomicJson } from './runtime-files.js';
 import { BusEnvelope, MAX_PENDING, MESSAGE_TTL_MS, safeSegment } from './protocol.js';
@@ -64,14 +72,37 @@ export function drainRoadQueue(runtimeDir: string): BusEnvelope[] {
   return out;
 }
 
-export function recordRoadInbox(runtimeDir: string, envelope: BusEnvelope): void {
+export function recordRoadInbox(runtimeDir: string, envelope: BusEnvelope): boolean {
   const directory = join(runtimeDir, 'road-inbox');
+  const receipts = join(runtimeDir, 'road-receipts');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
+  mkdirSync(receipts, { recursive: true, mode: 0o700 });
+  const key = fileKey(envelope.id);
+  const receipt = join(receipts, `${key}.json`);
+  if (existsSync(receipt)) return false;
   trim(directory);
-  atomicJson(join(directory, `${fileKey(envelope.id)}.json`), envelope);
-  appendFileSync(join(runtimeDir, 'road-history.jsonl'), JSON.stringify(envelope) + '\n', {
-    mode: 0o600,
-  });
+  const inbox = join(directory, `${key}.json`);
+  // A crash before markRoadInboxAccepted may replay the relay frame. Preserve
+  // the one inbox record and let the router idempotently recreate its outbox
+  // entry. The remote ACK is sent only after that durable handoff completes.
+  const recovered = existsSync(inbox);
+  if (!recovered) {
+    atomicJson(inbox, envelope);
+    appendFileSync(join(runtimeDir, 'road-history.jsonl'), JSON.stringify(envelope) + '\n', {
+      mode: 0o600,
+    });
+  }
+  return true;
+}
+
+export function markRoadInboxAccepted(runtimeDir: string, envelopeId: string): void {
+  const receipts = join(runtimeDir, 'road-receipts');
+  mkdirSync(receipts, { recursive: true, mode: 0o700 });
+  const key = fileKey(envelopeId);
+  const receipt = join(receipts, `${key}.json`);
+  if (existsSync(receipt)) return;
+  trimTo(receipts, 1_000);
+  atomicJson(receipt, { id: envelopeId, acceptedAt: new Date().toISOString() });
 }
 
 export function takeRoadInbox(runtimeDir: string): BusEnvelope[] {
@@ -109,8 +140,19 @@ function fileKey(value: string): string {
 }
 
 function trim(directory: string): void {
-  const files = jsonFiles(directory);
-  for (const path of files.slice(0, Math.max(0, files.length - MAX_PENDING + 1))) {
+  trimTo(directory, MAX_PENDING);
+}
+
+function trimTo(directory: string, maximum: number): void {
+  const files = jsonFiles(directory).sort((left, right) => {
+    try {
+      const delta = statSync(left).mtimeMs - statSync(right).mtimeMs;
+      return delta || left.localeCompare(right);
+    } catch {
+      return left.localeCompare(right);
+    }
+  });
+  for (const path of files.slice(0, Math.max(0, files.length - maximum + 1))) {
     try {
       unlinkSync(path);
     } catch {}

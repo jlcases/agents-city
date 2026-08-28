@@ -1,5 +1,17 @@
 import { randomBytes } from 'crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { dirname, join } from 'path';
 import { CityContext } from './city-config.js';
 import { ActorCredential, HubEndpoint, safeSegment } from './protocol.js';
@@ -7,13 +19,35 @@ import { ActorCredential, HubEndpoint, safeSegment } from './protocol.js';
 let counter = 0;
 
 export function atomicJson(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
   const tmp = `${path}.tmp-${process.pid}-${counter++}`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
-  renameSync(tmp, path);
   try {
+    const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    try {
+      writeFileSync(fd, JSON.stringify(value, null, 2) + '\n');
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, path);
     chmodSync(path, 0o600);
-  } catch {}
+    try {
+      const dirFd = openSync(directory, constants.O_RDONLY);
+      try {
+        fsyncSync(dirFd);
+      } finally {
+        closeSync(dirFd);
+      }
+    } catch {
+      // The file itself is synced; a few filesystems do not fsync directories.
+    }
+  } catch (error) {
+    try {
+      unlinkSync(tmp);
+    } catch {}
+    throw error;
+  }
 }
 
 export function actorCredential(context: CityContext, actor: string): ActorCredential {
