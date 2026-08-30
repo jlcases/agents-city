@@ -84,16 +84,35 @@ jobs:
       # suite that just ran checks the artifacts against their sources.
       - run: npm ci --silent
 
-      # `--ignore-scripts` skips `prepublishOnly`, and that is the point.
+      # Built here, explicitly, and then published with the scripts off.
       #
-      # That script exists so a person publishing by hand cannot ship an
-      # unbuilt, untested tree — and by hand it is the only safety net there
-      # is. Here it is not: the suite has already run on three platforms above
-      # (`needs: test`), and that same run rebuilt the committed artifacts and
-      # compared them BYTE for byte. Running it a fourth time on a machine that
-      # is also building adds no verification and one more roll of the dice: it
-      # already cost a release, on a timing-sensitive test that had passed on
-      # all three platforms minutes earlier.
+      # `prepublishOnly` is build-and-test. The test half is what has to go: the
+      # suite has already run on three platforms above, and a fourth run on a
+      # machine that is also compiling adds no verification and one more roll of
+      # the dice — it already cost a release, on a timing-sensitive check that
+      # had passed everywhere minutes earlier.
+      #
+      # The build half must NOT go, and skipping the whole script to drop the
+      # test half is how that was learned: `city/web/dist` and `dist-hall` are
+      # gitignored, so they exist only because something builds them. A publish
+      # with no build shipped 447 files instead of 503 — no map, no Hall bundle.
+      # It is the same `npm run build` a person publishing by hand runs, named
+      # once so the two cannot drift.
+      - run: npm run build
+
+      # The gitignored half of the package, checked before it goes out rather
+      # than discovered by somebody installing it.
+      - name: the tarball carries the front end it is supposed to
+        run: |
+          lista="$(npm pack --dry-run --ignore-scripts 2>&1)"
+          for necesario in city/web/dist/index.html city/web/dist-hall/hall.js; do
+            printf '%s' "$lista" | grep -q "$necesario" || {
+              echo "::error::$necesario is not in the tarball — the build did not run"
+              exit 1
+            }
+          done
+          echo "$(printf '%s' "$lista" | grep -c 'npm notice.*kB') files"
+
       - name: publish with provenance
         run: npm publish --provenance --access public --ignore-scripts
 

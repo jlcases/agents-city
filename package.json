@@ -6,7 +6,8 @@
     "agents-city": "bin/agents-city.js"
   },
   "scripts": {
-    "prepublishOnly": "npm --prefix plugin/channel ci --silent && npm --prefix plugin/channel run build && cd city/web && npm install --silent && npm run build && cd ../.. && ./bin/test",
+    "build": "npm --prefix plugin/channel ci --silent && npm --prefix plugin/channel run build && cd city/web && npm install --silent && npm run build && cd ../..",
+    "prepublishOnly": "npm run build && ./bin/test",
     "test": "./bin/test"
   },
   "dependencies": {

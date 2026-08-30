@@ -722,6 +722,22 @@ def publicar_es_verificable():
     afirma('· and it does not run the suite a fourth time to publish',
            '--ignore-scripts' in release,
            'prepublishOnly duplicates what needs: test already proved')
+    # Skipping the scripts also skips the BUILD, and `city/web/dist*` are
+    # gitignored — they exist only because something builds them. Turning the
+    # test half off by turning the whole script off shipped a package with no
+    # map and no Hall bundle: 447 files instead of 503.
+    afirma('· but it still builds the gitignored half of the package',
+           'run: npm run build' in release
+           and release.index('run: npm run build') < release.rindex('run: npm publish'),
+           'a publish with no build ships no front end')
+    afirma('· and checks the front end is in the tarball before sending it',
+           'city/web/dist/index.html' in release and 'city/web/dist-hall/hall.js' in release,
+           'the gitignored artifacts are the ones nobody notices missing')
+    paquete = json.load(open(os.path.join(RAIZ, 'package.json'), encoding='utf-8'))
+    afirma('· and the build has one spelling, shared with a publish by hand',
+           paquete['scripts'].get('prepublishOnly', '').startswith('npm run build')
+           and 'city/web' in paquete['scripts'].get('build', ''),
+           str(paquete.get('scripts')))
 
 
 def main():
