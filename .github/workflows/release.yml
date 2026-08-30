@@ -46,6 +46,25 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing is npm 11.5.1 and newer. Node 22 bundles npm 10,
+      # which does not know how to trade the workflow's OIDC token for a
+      # registry credential — so it does not try, sends the tarball
+      # unauthenticated, and the registry answers 404 (it says "not found"
+      # rather than "not allowed", so as not to reveal which packages exist).
+      # That reads like a missing package and is really a missing credential,
+      # which is why this step exists instead of a comment.
+      - name: an npm that can exchange the OIDC token
+        run: |
+          npm install -g npm@^11
+          echo "npm $(npm --version)"
+          node -e '
+            const [ma, mi, pa] = process.argv[1].split(".").map(Number);
+            if (ma < 11 || (ma === 11 && (mi < 5 || (mi === 5 && pa < 1)))) {
+              console.error("npm " + process.argv[1] + " cannot do trusted publishing; need >= 11.5.1");
+              process.exit(1);
+            }
+          ' "$(npm --version)"
+
       # A tag that disagrees with the manifests would publish one version under
       # another one's name, in a public registry, permanently. The contracts
       # suite already checks that the three manifests agree with each other;
