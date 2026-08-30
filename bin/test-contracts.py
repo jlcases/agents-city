@@ -528,6 +528,19 @@ def plugin_canal():
            == marketplace_plugin.get('version'),
            f"package={package.get('version')!r}, plugin={manifest.get('version')!r}, "
            f"marketplace={marketplace_plugin.get('version')!r}")
+    # The series this product is on, written down so moving off it is a
+    # deliberate line in a diff rather than somebody's judgement call on a
+    # Friday. A minor bump reads as "this reached a milestone", and it has been
+    # spent four times in one day on work that was ordinary. Patches until
+    # 0.5.999; the day 0.6 means something, this line changes with it.
+    SERIE = (0, 5)
+    partes = str(package.get('version', '')).split('.')
+    afirma('· the release stays on the 0.5 series until somebody decides otherwise',
+           len(partes) == 3 and tuple(int(x) for x in partes[:2]) == SERIE
+           and partes[2].isdigit() and int(partes[2]) <= 999,
+           f"version={package.get('version')!r}, series={SERIE}: patches only "
+           "until 0.5.999. Changing series means changing this line too.")
+
     afirma('· the plugin ships its MCP registry at the plugin root',
            os.path.isfile(mcp_path),
            'Claude can load skills while reporting MCP servers (0) without plugin/.mcp.json')

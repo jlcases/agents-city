@@ -2334,6 +2334,19 @@ alguien diciendo lo que quería, y una clave genérica no debe pisar una frase
 concreta. El esfuerzo sólo se escribe donde se lee, porque un flag que nadie lee
 es justo como un control acaba pareciendo que funciona.
 
+### Versiones
+
+Parches sobre la serie `0.5`, hasta `0.5.999`. Subir de minor se lee como «esto
+ha alcanzado un hito», así que se gasta cuando se alcanza uno y no cuando el
+trabajo de un día parece grande — que es como se fueron cuatro en una sola
+jornada antes de dejarlo escrito.
+
+Tres manifiestos llevan el número — `package.json`,
+`plugin/.claude-plugin/plugin.json` y `.claude-plugin/marketplace.json` — y la
+suite de contratos falla si no coinciden, o si la versión se sale de la serie.
+Cambiar de serie obliga a editar también esa comprobación, que es justo lo que
+se busca: que sea una línea deliberada en un diff y no un criterio del momento.
+
 ### Desinstalarlo del todo
 
 ```bash

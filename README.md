@@ -2297,6 +2297,19 @@ was somebody saying what they meant, and a generic key must not overrule a
 specific sentence. Effort is written only where it is read, because a flag
 nothing reads is how a control ends up looking like it works.
 
+### Versions
+
+Patches on the `0.5` series, all the way to `0.5.999`. A minor bump reads as
+"this reached a milestone", so it is spent when one is reached and not when a
+day's work happens to feel large — which is how four of them went in a single
+day before this was written down.
+
+Three manifests carry the number — `package.json`, `plugin/.claude-plugin/plugin.json`
+and `.claude-plugin/marketplace.json` — and the contracts suite fails when they
+disagree, or when the version leaves the series. Moving off `0.5` means editing
+that assertion too, which is the point: it becomes a deliberate line in a diff
+rather than a judgement call.
+
 ### Removing it completely
 
 ```bash
