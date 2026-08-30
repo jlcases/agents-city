@@ -619,10 +619,16 @@ class Manejador(http.server.BaseHTTPRequestHandler):
     _ultimo = None
     _error = None
 
-    def apunta(self, tipo, **campos):
-        """One journal line for this city. Never raises."""
+    def apunta(self, q, tipo, **campos):
+        """One journal line, in the journal of the city the request acted on.
+
+        Not the selected one: a request carries `?city=`, and writing its line
+        into whichever city happened to be current put the record of what
+        happened to one city in another city's file. Which is worse than no
+        record, because it is a record that lies about where.
+        """
         try:
-            diario.apunta(self.ciudad({}), tipo, **campos)
+            diario.apunta(self.ciudad(q), tipo, **campos)
         except Exception:  # noqa: BLE001  logging must not break the request
             pass
 
@@ -787,7 +793,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as e:
             return self.responde({"error": f"unreadable body: {e}"}, codigo=400)
         if ruta not in self.POSTS:
-            self.apunta("post", ruta=ruta, estado=404, error="no such thing")
+            self.apunta(q, "post", ruta=ruta, estado=404, error="no such thing")
             return self.responde({"error": "no such thing"}, codigo=404)
         # Every write is recorded before it happens and judged after, so a
         # request that never came back says so too — a handler that hangs or
@@ -797,10 +803,10 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         try:
             salida = getattr(self, self.POSTS[ruta])(q, cuerpo)
         except Exception as e:  # noqa: BLE001  the log is the point
-            self.apunta("post", ruta=ruta, error=f"{type(e).__name__}: {e}",
+            self.apunta(q, "post", ruta=ruta, error=f"{type(e).__name__}: {e}",
                         cuerpo=cuerpo, ms=int((time.monotonic() - empezado) * 1000))
             raise
-        self.apunta("post", ruta=ruta, estado=self._ultimo,
+        self.apunta(q, "post", ruta=ruta, estado=self._ultimo,
                     cuerpo=cuerpo if self._ultimo != 200 else _resumen_cuerpo(cuerpo),
                     error=self._error, ms=int((time.monotonic() - empezado) * 1000))
         return salida

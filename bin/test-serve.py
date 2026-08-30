@@ -132,6 +132,11 @@ def la_casa_que_no_debe_construirse(puerto, hallDatos):
     # what somebody sends when it happens on their machine and not here.
     print("  the house that must not be built")
     antes = open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read()
+    # Every reason this test provoked, so the journal can be checked against
+    # what actually happened rather than against a number somebody guessed.
+    # The count was the wrong assertion: it passed here and failed on Linux,
+    # and said nothing about WHICH refusal had gone missing.
+    provocados = []
     for nombre, porque in (
         ("", "no name at all"),
         ("   ", "a name that is only spaces"),
@@ -141,8 +146,10 @@ def la_casa_que_no_debe_construirse(puerto, hallDatos):
         st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
                           cuerpo={"name": nombre, "kind": "code", "role": "blank"})
         comprueba(f"· {porque} is refused", st, 400)
+        motivo = json.loads(cuerpo).get("error", "")
         afirma(f"· {porque} is refused with a reason a person can read",
-               len(json.loads(cuerpo).get("error", "")) > 12, cuerpo.decode())
+               len(motivo) > 12, cuerpo.decode())
+        provocados.append(motivo)
     afirma("· and not one of them changed the card",
            open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read() == antes,
            "a refused agent must leave no trace")
@@ -153,21 +160,25 @@ def la_casa_que_no_debe_construirse(puerto, hallDatos):
     st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
                       cuerpo={"name": "dos veces", "kind": "code", "role": "blank"})
     comprueba("· and the same name again is a conflict, not a duplicate", st, 409)
+    provocados.append(json.loads(cuerpo).get("error", ""))
     st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
                       cuerpo={"name": "tercera", "kind": "inventada", "role": "blank"})
     comprueba("· a kind nobody offers is refused", st, 400)
+    provocados.append(json.loads(cuerpo).get("error", ""))
 
     import diario as _diario
 
-    anotado = _diario.lee(hallDatos, 200)
-    rechazos = [l for l in anotado
+    anotado = _diario.lee(hallDatos, 400)
+    escritos = [l.get("error") for l in anotado
                 if l.get("ruta") == "/api/agentes" and l.get("estado") in (400, 409)]
-    afirma("· every refusal is in the journal, with its reason",
-           len(rechazos) >= 6 and all(r.get("error") for r in rechazos),
-           f"{len(rechazos)} refusals journalled: "
-           + str([r.get('error') for r in rechazos]))
+    faltan = [m for m in provocados if m not in escritos]
+    afirma("· every refusal this test caused is in the journal, with its reason",
+           not faltan,
+           f"missing from the journal: {faltan}; journalled: {escritos}")
     afirma("· and the journal says what was asked for, not just that it failed",
-           any("name" in (r.get("cuerpo") or {}) for r in rechazos), str(rechazos[:1]))
+           any("name" in (l.get("cuerpo") or {}) for l in anotado
+               if l.get("ruta") == "/api/agentes"),
+           str(anotado[-1:]))
 
 
 def main():
