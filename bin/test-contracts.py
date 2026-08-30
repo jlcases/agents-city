@@ -663,6 +663,51 @@ def ci_bootstrap():
            'the clean checkout would launch WebSocket doubles without ws installed')
 
 
+def publicar_es_verificable():
+    """A release is a tag, and what it publishes can be checked by a stranger.
+
+    Three properties, and each one is a way this has already gone wrong or
+    could: the suite runs before the registry sees anything; the tag and the
+    manifests are made to agree, because a tag that lies publishes one version
+    under another's name forever; and the credential is an OIDC identity rather
+    than a stored token, because a secret that does not exist cannot leak.
+    """
+    print('  a release is a tag, and it is verifiable')
+    ruta = os.path.join(RAIZ, '.github', 'workflows', 'release.yml')
+    afirma('· there is a release workflow at all', os.path.isfile(ruta), ruta)
+    if not os.path.isfile(ruta):
+        return
+    release = open(ruta, encoding='utf-8').read()
+    prueba = open(os.path.join(RAIZ, '.github', 'workflows', 'test.yml'),
+                  encoding='utf-8').read()
+
+    afirma('· it runs on a tag, not on a push to a branch',
+           "tags: ['v*']" in release and 'branches' not in release, release[:400])
+    # The last occurrence: the header comment names `npm publish` while
+    # explaining what this replaced, and a check that cannot tell a command
+    # from a sentence about it fails on its own documentation.
+    afirma('· the whole suite runs before anything is published',
+           'uses: ./.github/workflows/test.yml' in release
+           and release.index('uses: ./.github/workflows/test.yml')
+           < release.rindex('run: npm publish'),
+           'publish must depend on the suite, not race it')
+    afirma('· and the suite is the same one, called rather than copied',
+           'workflow_call:' in prueba, 'test.yml must be reusable')
+    afirma('· needs: test — the dependency is declared, not implied',
+           'needs: test' in release, release)
+    afirma('· the tag has to agree with package.json before it publishes',
+           'GITHUB_REF_NAME#v' in release and 'exit 1' in release,
+           'a tag that disagrees would publish one version under another name')
+    afirma('· it publishes with provenance, so the tarball names its commit',
+           '--provenance' in release, release)
+    afirma('· through a short-lived identity, with no token stored anywhere',
+           'id-token: write' in release
+           and 'NPM_TOKEN' not in release and 'secrets.' not in release,
+           'trusted publishing: a secret that does not exist cannot leak')
+    afirma('· and it asks for nothing else',
+           release.count('write') == 1, 'id-token is the only write permission')
+
+
 def main():
     print()
     resolvedores()
@@ -680,6 +725,7 @@ def main():
     puerta_npm()
     documentacion_publica()
     ci_bootstrap()
+    publicar_es_verificable()
     return resumen('contracts')
 
 

@@ -59,7 +59,9 @@
     "darwin",
     "linux"
   ],
+  "homepage": "https://agentscity.net",
   "repository": "github:jlcases/agents-city",
+  "bugs": "https://github.com/jlcases/agents-city/issues",
   "author": "jlcases",
   "license": "Apache-2.0",
   "keywords": [

@@ -2334,6 +2334,32 @@ alguien diciendo lo que quería, y una clave genérica no debe pisar una frase
 concreta. El esfuerzo sólo se escribe donde se lee, porque un flag que nadie lee
 es justo como un control acaba pareciendo que funciona.
 
+### Publicar una versión
+
+Una release es una etiqueta. Empujar `v0.5.2` ejecuta la suite entera en Linux,
+macOS y Windows, comprueba que la etiqueta y los tres manifiestos dicen la misma
+versión, y publica con **procedencia**: una declaración firmada de qué commit y
+qué workflow produjeron ese tarball exacto. Cualquiera puede comprobarlo:
+
+```bash
+npm audit signatures
+```
+
+No hay ningún token guardado. Publica por *trusted publishing* de npm, que
+cambia una identidad OIDC de corta vida emitida por el workflow por el derecho a
+publicar este paquete: un secreto que no existe no se puede filtrar.
+
+```bash
+npm version patch --no-git-tag-version   # y luego un PR con la subida
+git tag v0.5.2 && git push origin v0.5.2 # la etiqueta es la release
+```
+
+Esto existe porque publicar a mano no funcionaba. Cuatro versiones se quedaron
+sin publicar en un solo día, no por descuido sino porque el paso vivía en la
+cabeza de una persona y necesitaba su passkey — y lo que llegaba al registro era
+lo que hubiera en un directorio de trabajo, sin conexión con ningún commit que
+nadie pudiera nombrar.
+
 ### Desinstalarlo del todo
 
 ```bash
