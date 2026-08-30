@@ -166,15 +166,21 @@ def la_casa_que_no_debe_construirse(puerto, hallDatos):
     comprueba("· a kind nobody offers is refused", st, 400)
     provocados.append(json.loads(cuerpo).get("error", ""))
 
-    import diario as _diario
-
-    anotado = _diario.lee(hallDatos, 400)
+    # Read the journal through the endpoint, not by guessing its path.
+    #
+    # `ciudad({})` falls back to the SELECTED city, and this suite changes which
+    # one that is — it archives one, resets another, creates a third. Computing
+    # the path from `hallDatos` and hoping it matched is how this passed here
+    # and failed on Linux: five refusals in the file it looked at and one in
+    # another. Asking the server resolves the city exactly as the writes did.
+    _st, _cuerpo = pide(puerto, "/api/diario?n=400")
+    anotado = json.loads(_cuerpo)["lineas"]
     escritos = [l.get("error") for l in anotado
                 if l.get("ruta") == "/api/agentes" and l.get("estado") in (400, 409)]
     faltan = [m for m in provocados if m not in escritos]
     afirma("· every refusal this test caused is in the journal, with its reason",
            not faltan,
-           f"missing from the journal: {faltan}; journalled: {escritos}")
+           f"missing from {json.loads(_cuerpo)['ruta']}: {faltan}; journalled: {escritos}")
     afirma("· and the journal says what was asked for, not just that it failed",
            any("name" in (l.get("cuerpo") or {}) for l in anotado
                if l.get("ruta") == "/api/agentes"),
