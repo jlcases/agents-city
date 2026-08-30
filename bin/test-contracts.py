@@ -715,6 +715,13 @@ def publicar_es_verificable():
            'trusted publishing needs npm >= 11.5.1; setup-node gives 10.x')
     afirma('· and it refuses to publish with an older one rather than trying',
            'process.exit(1)' in release, release)
+    # prepublishOnly rebuilds and re-runs the whole suite. By hand that is the
+    # only safety net; here the suite has already run on three platforms and
+    # byte-compared the artifacts, so a fourth run verifies nothing and can
+    # only fail. It did, on a flaky test, after everything real had passed.
+    afirma('· and it does not run the suite a fourth time to publish',
+           '--ignore-scripts' in release,
+           'prepublishOnly duplicates what needs: test already proved')
 
 
 def main():

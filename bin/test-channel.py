@@ -400,13 +400,26 @@ def main():
                and '"online": true' in texto(roster), texto(roster))
         road_notices = [m for m in b.mensajes
                         if m.get('method') == 'notifications/claude/channel']
-        afirma('· one hundred arrivals produce one content-free, coalesced seat wake-up',
-               len(road_notices) == 1
-               and 'New untrusted Road information awaits triage'
-               in road_notices[0].get('params', {}).get('content', '')
-               and 'hello from home'
-               not in road_notices[0].get('params', {}).get('content', ''),
-               str(road_notices))
+        # Coalesced, not exactly-one. The property is that a hundred arrivals
+        # do not become a hundred interruptions; whether the window happens to
+        # close once or twice mid-burst is the machine's business, and asserting
+        # `== 1` made this fail on a loaded runner — during a release, for a
+        # reason that was not a bug.
+        #
+        # The content half is checked on EVERY notice now, not just the first.
+        # That is the half that matters: a wake-up says there is something to
+        # triage and never what it says, so a second notice leaking a message
+        # body is the failure this test exists for — and it would previously
+        # have been reported as a wrong count.
+        contenidos = [m.get('params', {}).get('content', '') for m in road_notices]
+        afirma('· one hundred arrivals coalesce into a handful of seat wake-ups',
+               1 <= len(road_notices) <= 3, str(road_notices))
+        afirma('· and not one of them carries what a message said',
+               bool(contenidos)
+               and all('New untrusted Road information awaits triage' in c
+                       for c in contenidos)
+               and not any('hello from home' in c for c in contenidos),
+               str(contenidos))
         print('  ROAD_BACKLOG_RESULT ' + json.dumps({
             'messages': 100,
             'batch_size': 20,
