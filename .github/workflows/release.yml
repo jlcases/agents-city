@@ -84,8 +84,18 @@ jobs:
       # suite that just ran checks the artifacts against their sources.
       - run: npm ci --silent
 
+      # `--ignore-scripts` skips `prepublishOnly`, and that is the point.
+      #
+      # That script exists so a person publishing by hand cannot ship an
+      # unbuilt, untested tree — and by hand it is the only safety net there
+      # is. Here it is not: the suite has already run on three platforms above
+      # (`needs: test`), and that same run rebuilt the committed artifacts and
+      # compared them BYTE for byte. Running it a fourth time on a machine that
+      # is also building adds no verification and one more roll of the dice: it
+      # already cost a release, on a timing-sensitive test that had passed on
+      # all three platforms minutes earlier.
       - name: publish with provenance
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --ignore-scripts
 
       # The release notes are the commits since the previous tag, written by
       # whoever wrote them. Nothing here invents a changelog.
