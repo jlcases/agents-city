@@ -6,6 +6,9 @@ on:
   push: {branches: [main]}
   pull_request:
   workflow_dispatch:
+  # A release calls this before it publishes. Nothing goes to the registry that
+  # these three runners have not agreed on first.
+  workflow_call:
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -33,6 +36,20 @@ jobs:
       # spectator tests resolve `ws` from this package before the later typecheck.
       - name: install local channel dependencies for the integration suites
         run: npm --prefix plugin/channel ci --silent
+      # What is committed has to BE what a publish would ship.
+      #
+      # `prepublishOnly` rebuilds these bundles, so the tarball on the registry
+      # is whatever that rebuild produces — not what anybody reviewed. They had
+      # already drifted apart, silently, because the suites check the artifacts
+      # for markers and markers survive a different build. This compares bytes.
+      - name: the committed bundles are the ones a publish would build
+        run: |
+          npm --prefix plugin/channel run build >/dev/null
+          git diff --exit-code -- plugin/channel/'*.js' || {
+            echo "::error::the committed channel bundles are not what the build produces."
+            echo "Run: npm --prefix plugin/channel ci && npm --prefix plugin/channel run build"
+            exit 1
+          }
       # Installed BEFORE the suites: the browser suite rebuilds the Hall bundle
       # so it drives the current source rather than a committed one that may be
       # a commit behind.

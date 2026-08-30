@@ -1,0 +1,76 @@
+# A release is a tag, and what it publishes is verifiable.
+#
+# Publishing used to be a person running `npm publish --auth-type=web` with a
+# passkey, and the trouble with that is not the typing: four versions went
+# unpublished in a single day because the step lived in somebody's head. It also
+# meant the tarball on the registry was whatever happened to be in a working
+# directory, connected to no commit anybody could name.
+#
+# So: push a tag, and the tag is the release. The full suite runs first on all
+# three platforms; the tag has to agree with the manifests; and npm attaches
+# provenance — a signed statement of which commit and which workflow produced
+# that exact tarball, which anyone can check with `npm audit signatures`.
+#
+# No token is stored anywhere. It publishes through npm's trusted publishing,
+# which trades a short-lived OIDC identity from this workflow for the right to
+# publish this one package. A leaked secret cannot exist if there is no secret.
+#
+# One-time setup on npmjs.com, under the package's Settings → Trusted publisher:
+#   repository  jlcases/agents-city
+#   workflow    release.yml
+#
+# To release:  npm version patch --no-git-tag-version  (then a PR)
+#              git tag v0.5.2 && git push origin v0.5.2
+name: release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  # Nothing is published that the whole suite has not passed, on the three
+  # kernels this product claims to run on.
+  test:
+    uses: ./.github/workflows/test.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # The OIDC identity npm exchanges for publish rights. Nothing else.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # A tag that disagrees with the manifests would publish one version under
+      # another one's name, in a public registry, permanently. The contracts
+      # suite already checks that the three manifests agree with each other;
+      # this is the fourth voice, and it is the one a person types by hand.
+      - name: the tag and the manifests name the same version
+        run: |
+          etiqueta="${GITHUB_REF_NAME#v}"
+          manifiesto="$(node -p "require('./package.json').version")"
+          if [ "$etiqueta" != "$manifiesto" ]; then
+            echo "tag $GITHUB_REF_NAME says $etiqueta, package.json says $manifiesto" >&2
+            exit 1
+          fi
+          echo "releasing $manifiesto"
+
+      # npm ci, not install: a release builds from the lockfile or it is not a
+      # release. The front end is prebuilt and committed, and the contracts
+      # suite that just ran checks the artifacts against their sources.
+      - run: npm ci --silent
+
+      - name: publish with provenance
+        run: npm publish --provenance --access public
+
+      # The release notes are the commits since the previous tag, written by
+      # whoever wrote them. Nothing here invents a changelog.
+      - name: github release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag

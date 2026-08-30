@@ -2297,6 +2297,32 @@ was somebody saying what they meant, and a generic key must not overrule a
 specific sentence. Effort is written only where it is read, because a flag
 nothing reads is how a control ends up looking like it works.
 
+### Releasing
+
+A release is a tag. Pushing `v0.5.2` runs the whole suite on Linux, macOS and
+Windows, checks that the tag and the three manifests name the same version, and
+publishes with **provenance** — a signed statement of which commit and which
+workflow produced that exact tarball. Anyone can check it:
+
+```bash
+npm audit signatures
+```
+
+No token is stored anywhere. It publishes through npm's trusted publishing,
+which trades a short-lived OIDC identity from the workflow for the right to
+publish this one package: a secret that does not exist cannot leak.
+
+```bash
+npm version patch --no-git-tag-version   # then open a PR with the bump
+git tag v0.5.2 && git push origin v0.5.2 # the tag is the release
+```
+
+This exists because publishing by hand did not work. Four versions went
+unpublished in a single day, not because anybody was careless but because the
+step lived in a person's head and needed their passkey — and what reached the
+registry was whatever happened to be in a working directory, connected to no
+commit anyone could name.
+
 ### Removing it completely
 
 ```bash
