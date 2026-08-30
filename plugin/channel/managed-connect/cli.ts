@@ -18,12 +18,14 @@ import {
   loadTransparencyProfile,
   normalizeConnectServiceUrl,
   readConnectState,
+  refreshStoredTransparency,
   removePendingConnectState,
+  resolveStoredTransparency,
   writeConnectState,
   type ConnectedConnectState,
   type ConnectedCityBinding,
   type PendingConnectState,
-  type TransparencyProfile,
+  type StoredTransparencyProfile,
 } from './storage.js';
 import { ensureHub } from '../hub-client.js';
 import { loadCityContext } from '../city-config.js';
@@ -51,9 +53,10 @@ prints a one-use PASCO, opens the service for approval, and starts the owner
 reception bridge from the selected local city hub. A person connection never
 reveals or selects that city. No private key is uploaded. Add --no-open when you
 want to open the URL by hand. Later calls reuse the service recorded in the local
-device state. A self-hosted service must provide its pinned operator and witness
-profile through --trust-file; the official managed service ships its profile
-with Agents City before production is enabled.`;
+device state. A self-hosted service must provide its signed, versioned root
+chain through --trust-file. Passing a newer chain later rotates operator or
+witness keys without silently replacing trust. The official managed service
+ships its initial root with Agents City before production is enabled.`;
 }
 
 function optionsOf(args: string[]): CliOptions {
@@ -116,7 +119,7 @@ function remainingAuthorization(
 async function identityFor(
   serviceUrl: string,
   openBrowser: boolean,
-  keyTransparency: TransparencyProfile,
+  keyTransparency: StoredTransparencyProfile,
 ): Promise<{
   identity: DeviceIdentity;
   connectedAt: string;
@@ -248,12 +251,25 @@ async function connect(options: CliOptions): Promise<void> {
     throw new Error('first pairing needs --service URL or AGENTS_CITY_CONNECT_URL');
   }
   options.serviceUrl = normalizedService(options.serviceUrl || remembered);
-  const existing = readConnectState();
-  const keyTransparency =
-    existing?.keyTransparency ?? loadTransparencyProfile(options.serviceUrl, options.trustFile);
+  let existing = readConnectState();
+  if (existing && !options.trustFile && !process.env.AGENTS_CITY_CONNECT_TRUST_FILE) {
+    const refreshed = await refreshStoredTransparency();
+    existing = refreshed.state;
+    if (refreshed.refreshWarning && !options.json) {
+      console.error(`  Warning: ${refreshed.refreshWarning}; using the unexpired local root.`);
+    }
+  }
+  const transparency = await loadTransparencyProfile(
+    options.serviceUrl,
+    options.trustFile,
+    existing?.keyTransparency.root ?? null,
+  );
   const catalogue = discoverLocalCities();
   const chosen = selectLocalCities(catalogue, options.selectors, options.all);
-  const paired = await identityFor(options.serviceUrl, options.openBrowser, keyTransparency);
+  const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
+  if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
+    throw new Error('key_transparency_relay_mismatch');
+  }
   const cities = mergeCities(chosen, paired.previous);
   if (new Set(cities.map((city) => city.slug)).size !== cities.length) {
     throw new Error(
@@ -278,7 +294,7 @@ async function connect(options: CliOptions): Promise<void> {
       relayUrl: paired.identity.relayUrl,
       keyVersion: paired.identity.keyVersion,
     },
-    keyTransparency,
+    keyTransparency: transparency.stored,
     cities: bindingsFrom(cities, synced.cities),
   };
   writeConnectState(state);
@@ -300,11 +316,14 @@ async function connect(options: CliOptions): Promise<void> {
 async function status(options: CliOptions): Promise<void> {
   const state = readConnectState();
   if (!state) throw new Error('this computer has not been paired; run agents-city connect');
+  await resolveStoredTransparency(state);
   if (state.status === 'pending') {
     const value = {
       status: 'pending',
       service: state.serviceUrl,
       pasco: state.authorization.user_code,
+      trustRootVersion: state.keyTransparency.root.signed.version,
+      trustRootExpiresAt: new Date(state.keyTransparency.root.signed.expiresAt).toISOString(),
     };
     if (options.json) console.log(JSON.stringify(value, null, 2));
     else
@@ -317,6 +336,8 @@ async function status(options: CliOptions): Promise<void> {
     status: 'connected',
     service: state.serviceUrl,
     deviceId: state.device.deviceId,
+    trustRootVersion: state.keyTransparency.root.signed.version,
+    trustRootExpiresAt: new Date(state.keyTransparency.root.signed.expiresAt).toISOString(),
     cities: state.cities.map((city) => ({
       name: city.name,
       address: city.remoteAddress,
@@ -334,7 +355,12 @@ async function status(options: CliOptions): Promise<void> {
 async function roads(options: CliOptions): Promise<void> {
   const state = readConnectState();
   if (!state || state.status !== 'connected') throw new Error('this computer is not connected');
-  const directory = await listDeviceRoads(state.serviceUrl, await loadConnectIdentity(state));
+  const refreshed = await refreshStoredTransparency();
+  if (refreshed.state.status !== 'connected') throw new Error('this computer is not connected');
+  const directory = await listDeviceRoads(
+    refreshed.state.serviceUrl,
+    await loadConnectIdentity(refreshed.state),
+  );
   type ListedRoad =
     | {
         id: string;

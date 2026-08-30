@@ -6331,18 +6331,22 @@ import {
   writeFileSync as writeFileSync6
 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join11, resolve as resolve3 } from "node:path";
+import { dirname as dirname2, join as join11, resolve as resolve3 } from "node:path";
 import {
+  KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
   createOsProtectedDeviceVault,
-  initializeHybridCrypto
+  initializeHybridCrypto,
+  parseKeyTransparencyRootChain,
+  resolveKeyTransparencyRootChain
 } from "./managed-connect-client.js";
-var CONNECT_STATE_PROTOCOL = "agents-city-connect-state/2";
-var LEGACY_CONNECT_STATE_PROTOCOL = "agents-city-connect-state/1";
+var CONNECT_STATE_PROTOCOL = "agents-city-connect-state/3";
+var PLAINTEXT_KEY_CONNECT_STATE_PROTOCOL = "agents-city-connect-state/1";
+var UNVERSIONED_TRUST_CONNECT_STATE_PROTOCOL = "agents-city-connect-state/2";
 var MAX_STATE_BYTES = 128 * 1024;
+var MAX_ROOT_CHAIN_BYTES = 128 * 1024;
 var CITY_ADDRESS_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var OWNER_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-var KEY_ID_RE = /^[A-Za-z0-9._-]{1,80}$/;
 function agentsCityHome(explicit = "") {
   const requested = resolve3(
     explicit || process.env.AGENTS_CITY_HOME || join11(homedir2(), ".agents-city")
@@ -6401,6 +6405,35 @@ function assertPrivateFile(path) {
   if (info.size < 2 || info.size > MAX_STATE_BYTES) throw new Error("invalid_connect_state_size");
 }
 var noFollowFlag = () => typeof constants2.O_NOFOLLOW === "number" ? constants2.O_NOFOLLOW : 0;
+function writeConnectState(state, appHome = "") {
+  const checked = validateConnectState(state);
+  const directory = prepareStateDirectory(appHome);
+  const destination = join11(directory, "device.json");
+  const temporary = join11(directory, `.device-${process.pid}-${crypto.randomUUID()}.tmp`);
+  const fd = openSync3(
+    temporary,
+    constants2.O_WRONLY | constants2.O_CREAT | constants2.O_EXCL | noFollowFlag(),
+    384
+  );
+  try {
+    writeFileSync6(fd, `${JSON.stringify(checked, null, 2)}
+`, { encoding: "utf8" });
+    fsyncSync2(fd);
+  } finally {
+    closeSync3(fd);
+  }
+  renameSync5(temporary, destination);
+  chmodSync4(destination, 384);
+  try {
+    const directoryFd = openSync3(directory, constants2.O_RDONLY);
+    try {
+      fsyncSync2(directoryFd);
+    } finally {
+      closeSync3(directoryFd);
+    }
+  } catch {
+  }
+}
 function readConnectState(appHome = "") {
   const path = connectStatePath(appHome);
   if (!existsSync7(path)) return null;
@@ -6413,8 +6446,11 @@ function readConnectState(appHome = "") {
       throw new Error("invalid_connect_state_size");
     }
     const value = JSON.parse(readFileSync8(fd, "utf8"));
-    if (value.protocol === LEGACY_CONNECT_STATE_PROTOCOL) {
+    if (value.protocol === PLAINTEXT_KEY_CONNECT_STATE_PROTOCOL) {
       throw new Error("legacy_connect_state_contains_plaintext_keys");
+    }
+    if (value.protocol === UNVERSIONED_TRUST_CONNECT_STATE_PROTOCOL) {
+      throw new Error("connect_state_requires_versioned_trust_repairing");
     }
     return validateConnectState(value);
   } catch (error) {
@@ -6445,6 +6481,123 @@ function secureWebOrigin(value) {
   return url.toString().replace(/\/$/, "");
 }
 var normalizeConnectServiceUrl = (value) => secureWebOrigin(value);
+function transparencyResult(serviceUrl, root, trust) {
+  const normalized = normalizeConnectServiceUrl(serviceUrl);
+  if (root.signed.controlPlaneUrl !== normalized) {
+    throw new Error("key_transparency_origin_mismatch");
+  }
+  return {
+    stored: { root },
+    runtime: { controlPlaneUrl: normalized, trust }
+  };
+}
+async function resolveStoredTransparency(state) {
+  const chain = {
+    protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+    roots: [state.keyTransparency.root]
+  };
+  const resolvedProfile = await resolveKeyTransparencyRootChain(chain, state.keyTransparency.root);
+  const resolved = transparencyResult(
+    state.serviceUrl,
+    resolvedProfile.root,
+    resolvedProfile.trust
+  );
+  if (state.status === "connected" && resolvedProfile.root.signed.relayUrl !== state.device.relayUrl)
+    throw new Error("key_transparency_relay_mismatch");
+  return resolved.runtime;
+}
+async function readRootChainResponse(response) {
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > MAX_ROOT_CHAIN_BYTES) {
+    throw new Error("key_transparency_root_chain_too_large");
+  }
+  if (!response.body) throw new Error("empty_key_transparency_root_chain");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let body = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_ROOT_CHAIN_BYTES) {
+      await reader.cancel();
+      throw new Error("key_transparency_root_chain_too_large");
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+  body += decoder.decode();
+  try {
+    return parseKeyTransparencyRootChain(JSON.parse(body));
+  } catch {
+    throw new Error("invalid_key_transparency_root_chain_response");
+  }
+}
+async function refreshStoredTransparency(appHome = "", fetcher = fetch) {
+  const state = readConnectState(appHome);
+  if (!state) throw new Error("connect_state_missing");
+  let cached = null;
+  let cachedError = null;
+  try {
+    cached = await resolveStoredTransparency(state);
+  } catch (error) {
+    cachedError = error;
+  }
+  const endpoint = new URL("/api/key-transparency/roots", state.serviceUrl);
+  endpoint.searchParams.set("from", String(state.keyTransparency.root.signed.version));
+  let response;
+  try {
+    response = await fetcher(endpoint, {
+      headers: { accept: "application/json" },
+      redirect: "error",
+      signal: AbortSignal.timeout(5e3)
+    });
+  } catch {
+    if (!cached) throw cachedError;
+    return {
+      state,
+      runtime: cached,
+      updated: false,
+      refreshWarning: "key_transparency_root_refresh_unavailable"
+    };
+  }
+  if (!response.ok) {
+    if (!cached) throw cachedError;
+    return {
+      state,
+      runtime: cached,
+      updated: false,
+      refreshWarning: `key_transparency_root_refresh_http_${response.status}`
+    };
+  }
+  const chain = await readRootChainResponse(response);
+  const latestState = readConnectState(appHome);
+  if (!latestState) throw new Error("connect_state_missing");
+  const resolvedProfile = await resolveKeyTransparencyRootChain(
+    chain,
+    latestState.keyTransparency.root
+  );
+  const resolved = transparencyResult(
+    latestState.serviceUrl,
+    resolvedProfile.root,
+    resolvedProfile.trust
+  );
+  if (latestState.status === "connected" && resolvedProfile.root.signed.relayUrl !== latestState.device.relayUrl)
+    throw new Error("key_transparency_relay_mismatch");
+  const updated = resolvedProfile.root.signed.version > latestState.keyTransparency.root.signed.version;
+  const nextState = updated ? {
+    ...latestState,
+    ...latestState.status === "connected" ? { updatedAt: (/* @__PURE__ */ new Date()).toISOString() } : {},
+    keyTransparency: resolved.stored
+  } : latestState;
+  if (updated) writeConnectState(nextState, appHome);
+  return {
+    state: nextState,
+    runtime: resolved.runtime,
+    updated,
+    refreshWarning: null
+  };
+}
 function secureRelayUrl(value) {
   let url;
   try {
@@ -6468,49 +6621,23 @@ var decodedLength = (value) => {
     return -1;
   }
 };
-var publicEd25519 = (value) => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("invalid_transparency_public_key");
-  }
-  const key = value;
-  if (key.kty !== "OKP" || key.crv !== "Ed25519" || decodedLength(key.x) !== 32 || key.d !== void 0)
-    throw new Error("invalid_transparency_public_key");
-  return { kty: "OKP", crv: "Ed25519", x: key.x, ext: true };
-};
-function validateTransparency(value, serviceUrl) {
+function validateStoredTransparency(value, serviceUrl) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("invalid_key_transparency_profile");
   }
   const profile = value;
-  if (secureWebOrigin(profile.controlPlaneUrl) !== serviceUrl) {
+  if (Object.keys(profile).length !== 1 || !Object.hasOwn(profile, "root")) {
+    throw new Error("invalid_key_transparency_profile");
+  }
+  const parsed = parseKeyTransparencyRootChain({
+    protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+    roots: [profile.root]
+  });
+  const root = parsed.roots[0];
+  if (root.signed.controlPlaneUrl !== serviceUrl) {
     throw new Error("key_transparency_origin_mismatch");
   }
-  if (!profile.trust || typeof profile.trust !== "object") {
-    throw new Error("invalid_key_transparency_profile");
-  }
-  const trust = profile.trust;
-  if (!KEY_ID_RE.test(String(trust.operatorKeyId ?? "")) || !Number.isSafeInteger(trust.minimumWitnesses) || trust.minimumWitnesses < 1 || trust.minimumWitnesses > 16 || !Number.isSafeInteger(trust.maximumHeadAgeMs) || trust.maximumHeadAgeMs < 1e3 || trust.maximumHeadAgeMs > 864e5 || !Number.isSafeInteger(trust.maximumWitnessLagMs) || trust.maximumWitnessLagMs < 0 || trust.maximumWitnessLagMs > trust.maximumHeadAgeMs || !trust.witnessKeys || typeof trust.witnessKeys !== "object" || Array.isArray(trust.witnessKeys))
-    throw new Error("invalid_key_transparency_profile");
-  const witnessKeys = Object.fromEntries(
-    Object.entries(trust.witnessKeys).map(([id, key]) => {
-      if (!KEY_ID_RE.test(id)) throw new Error("invalid_key_transparency_profile");
-      return [id, publicEd25519(key)];
-    })
-  );
-  if (Object.keys(witnessKeys).length < trust.minimumWitnesses) {
-    throw new Error("insufficient_key_transparency_witnesses");
-  }
-  return {
-    controlPlaneUrl: serviceUrl,
-    trust: {
-      operatorKeyId: trust.operatorKeyId,
-      operatorSigningPublicJwk: publicEd25519(trust.operatorSigningPublicJwk),
-      witnessKeys,
-      minimumWitnesses: trust.minimumWitnesses,
-      maximumHeadAgeMs: trust.maximumHeadAgeMs,
-      maximumWitnessLagMs: trust.maximumWitnessLagMs
-    }
-  };
+  return { root };
 }
 function validateAuthorization(value, serviceUrl) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -6557,7 +6684,7 @@ function validateConnectState(value) {
   const state = value;
   if (state.protocol !== CONNECT_STATE_PROTOCOL) throw new Error("invalid_connect_state_protocol");
   const serviceUrl = normalizeConnectServiceUrl(state.serviceUrl);
-  const keyTransparency = validateTransparency(state.keyTransparency, serviceUrl);
+  const keyTransparency = validateStoredTransparency(state.keyTransparency, serviceUrl);
   if (state.status === "pending") {
     if (typeof state.machineName !== "string" || !state.machineName.trim() || state.machineName.length > 100 || typeof state.createdAt !== "string" || !Number.isFinite(Date.parse(state.createdAt)))
       throw new Error("invalid_connect_state");
@@ -6576,13 +6703,17 @@ function validateConnectState(value) {
   const cities = state.cities.map(validateBinding);
   if (new Set(cities.map((city) => city.localCityId)).size !== cities.length || new Set(cities.map((city) => city.remoteAddress)).size !== cities.length)
     throw new Error("duplicate_connected_city");
+  const device = validateAssignment(state.device);
+  if (keyTransparency.root.signed.relayUrl !== device.relayUrl) {
+    throw new Error("key_transparency_relay_mismatch");
+  }
   return {
     protocol: CONNECT_STATE_PROTOCOL,
     status: "connected",
     serviceUrl,
     connectedAt: state.connectedAt,
     updatedAt: state.updatedAt,
-    device: validateAssignment(state.device),
+    device,
     keyTransparency,
     cities
   };
@@ -6748,8 +6879,13 @@ function managedRoadBridge(context2, receive, receiveManaged) {
     }
     connecting = true;
     try {
+      const refreshed = await refreshStoredTransparency(context2.appHome);
+      if (refreshed.state.status !== "connected") throw new Error("connect_state_not_connected");
+      if (refreshed.refreshWarning && process.env.CITY_BUS_DEBUG === "1") {
+        console.error(`[city-bus] ${refreshed.refreshWarning}; using unexpired cached root`);
+      }
       const opened = await openManagedRelaySession(
-        await loadConnectIdentity(found.state, context2.appHome),
+        await loadConnectIdentity(refreshed.state, context2.appHome),
         found.binding.remoteAddress,
         {
           onText: async (message) => {
@@ -6761,7 +6897,7 @@ function managedRoadBridge(context2, receive, receiveManaged) {
               status: result2.inserted ? "inserted" : "duplicate"
             };
           },
-          keyTransparency: found.state.keyTransparency,
+          keyTransparency: refreshed.runtime,
           onSecurityError: (error) => {
             console.error(`[city-bus] managed Road frame rejected: ${error.message}`);
           },
@@ -7182,7 +7318,12 @@ function managedReceptionBridge(context2) {
     }
     connecting = true;
     try {
-      const activeIdentity = await identityFor(state);
+      const refreshed = await refreshStoredTransparency(context2.appHome);
+      if (refreshed.state.status !== "connected") throw new Error("connect_state_not_connected");
+      if (refreshed.refreshWarning) {
+        debug2(`${refreshed.refreshWarning}; using unexpired cached root`);
+      }
+      const activeIdentity = await identityFor(refreshed.state);
       const roads2 = await refreshDirectory();
       if (!roads2.length) {
         connecting = false;
@@ -7209,7 +7350,7 @@ function managedReceptionBridge(context2) {
             status: recorded.inserted ? "inserted" : "duplicate"
           };
         },
-        keyTransparency: state.keyTransparency,
+        keyTransparency: refreshed.runtime,
         onSecurityError: (error) => debug2(`security refusal: ${error.message}`),
         onLocalError: (error) => debug2(`local handoff failed: ${error.message}`)
       });

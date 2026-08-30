@@ -26,6 +26,7 @@ import {
   connectStateDirectory,
   loadConnectIdentity,
   readConnectState,
+  refreshStoredTransparency,
   type ConnectedConnectState,
 } from './storage.js';
 import { openManagedRelaySession } from './transport.js';
@@ -111,7 +112,12 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
     }
     connecting = true;
     try {
-      const activeIdentity = await identityFor(state);
+      const refreshed = await refreshStoredTransparency(context.appHome);
+      if (refreshed.state.status !== 'connected') throw new Error('connect_state_not_connected');
+      if (refreshed.refreshWarning) {
+        debug(`${refreshed.refreshWarning}; using unexpired cached root`);
+      }
+      const activeIdentity = await identityFor(refreshed.state);
       const roads = await refreshDirectory();
       if (!roads.length) {
         connecting = false;
@@ -138,7 +144,7 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
             status: recorded.inserted ? 'inserted' : 'duplicate',
           };
         },
-        keyTransparency: state.keyTransparency,
+        keyTransparency: refreshed.runtime,
         onSecurityError: (error) => debug(`security refusal: ${error.message}`),
         onLocalError: (error) => debug(`local handoff failed: ${error.message}`),
       });

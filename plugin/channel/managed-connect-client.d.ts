@@ -43,6 +43,42 @@ export type KeyTransparencyTrust = {
   maximumWitnessLagMs: number;
 };
 
+export type KeyTransparencyRootRole = {
+  keyIds: string[];
+  threshold: number;
+};
+
+export type KeyTransparencyRootMetadata = {
+  protocol: 'agents-city-key-transparency-root/1';
+  version: number;
+  environment: 'sandbox' | 'production';
+  controlPlaneUrl: string;
+  relayUrl: string;
+  issuedAt: number;
+  expiresAt: number;
+  previousRootHash: string | null;
+  keys: Readonly<Record<string, JsonWebKey>>;
+  roles: Readonly<Record<'root' | 'operator' | 'witness', KeyTransparencyRootRole>>;
+  maximumHeadAgeMs: number;
+  maximumWitnessLagMs: number;
+};
+
+export type KeyTransparencyRootSignature = {
+  protocol: 'agents-city-key-transparency-root-signature/1';
+  keyId: string;
+  signature: string;
+};
+
+export type KeyTransparencyRootEnvelope = {
+  signed: KeyTransparencyRootMetadata;
+  signatures: KeyTransparencyRootSignature[];
+};
+
+export type KeyTransparencyRootChain = {
+  protocol: 'agents-city-key-transparency-root-chain/1';
+  roots: KeyTransparencyRootEnvelope[];
+};
+
 export type SignedHybridPrekey = {
   record: {
     protocol: string;
@@ -157,7 +193,23 @@ export class ConnectApiError extends Error {
 export const RELAY_PROTOCOL: 'agents-city-relay/4';
 export const HYBRID_ESTABLISHMENT_SUITE: string;
 export const KEY_TRANSPARENCY_PROTOCOL: 'agents-city-key-transparency/1';
+export const KEY_TRANSPARENCY_ROOT_PROTOCOL: 'agents-city-key-transparency-root/1';
+export const KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL: 'agents-city-key-transparency-root-chain/1';
 export const SEALED_SUITE: string;
+
+export function parseKeyTransparencyRootChain(value: unknown): KeyTransparencyRootChain;
+export function parseKeyTransparencyRootEnvelope(value: unknown): KeyTransparencyRootEnvelope;
+export function hashKeyTransparencyRoot(value: unknown): Promise<string>;
+export function createKeyTransparencyRootSignature(
+  root: unknown,
+  keyId: string,
+  privateJwk: unknown,
+): Promise<KeyTransparencyRootSignature>;
+export function resolveKeyTransparencyRootChain(
+  chain: unknown,
+  persistedRoot?: unknown | null,
+  now?: number,
+): Promise<{ root: KeyTransparencyRootEnvelope; trust: KeyTransparencyTrust }>;
 
 export function initializeHybridCrypto(input?: Uint8Array | WebAssembly.Module): Promise<void>;
 export function createOsProtectedDeviceVault(options: {

@@ -16,24 +16,37 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
+  KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
   createOsProtectedDeviceVault,
   initializeHybridCrypto,
+  parseKeyTransparencyRootChain,
+  resolveKeyTransparencyRootChain,
   type DeviceAuthorization,
   type DeviceIdentity,
   type DeviceKeys,
+  type KeyTransparencyRootChain,
+  type KeyTransparencyRootEnvelope,
   type KeyTransparencyTrust,
   type NodeDeviceVault,
 } from '../managed-connect-client.js';
 
-export const CONNECT_STATE_PROTOCOL = 'agents-city-connect-state/2' as const;
-const LEGACY_CONNECT_STATE_PROTOCOL = 'agents-city-connect-state/1';
+export const CONNECT_STATE_PROTOCOL = 'agents-city-connect-state/3' as const;
+const PLAINTEXT_KEY_CONNECT_STATE_PROTOCOL = 'agents-city-connect-state/1';
+const UNVERSIONED_TRUST_CONNECT_STATE_PROTOCOL = 'agents-city-connect-state/2';
 const MAX_STATE_BYTES = 128 * 1024;
+const MAX_ROOT_CHAIN_BYTES = 128 * 1024;
 const CITY_ADDRESS_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OWNER_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const KEY_ID_RE = /^[A-Za-z0-9._-]{1,80}$/;
+const MANAGED_SANDBOX_ORIGIN = 'https://agents-city-connect-sandbox.pages.dev';
+
+const builtInRootChain = (serviceUrl: string) =>
+  serviceUrl === MANAGED_SANDBOX_ORIGIN
+    ? join(dirname(fileURLToPath(import.meta.url)), 'trust', 'agents-city-sandbox-roots.json')
+    : '';
 
 export type ConnectedCityBinding = {
   localCityId: string;
@@ -50,6 +63,10 @@ export type TransparencyProfile = {
   trust: KeyTransparencyTrust;
 };
 
+export type StoredTransparencyProfile = {
+  root: KeyTransparencyRootEnvelope;
+};
+
 export type DeviceAssignment = {
   deviceId: string;
   ownerPrefix: string;
@@ -64,7 +81,7 @@ export type PendingConnectState = {
   machineName: string;
   createdAt: string;
   authorization: DeviceAuthorization;
-  keyTransparency: TransparencyProfile;
+  keyTransparency: StoredTransparencyProfile;
 };
 
 export type ConnectedConnectState = {
@@ -74,7 +91,7 @@ export type ConnectedConnectState = {
   connectedAt: string;
   updatedAt: string;
   device: DeviceAssignment;
-  keyTransparency: TransparencyProfile;
+  keyTransparency: StoredTransparencyProfile;
   cities: ConnectedCityBinding[];
 };
 
@@ -190,8 +207,11 @@ export function readConnectState(appHome = ''): ConnectState | null {
       throw new Error('invalid_connect_state_size');
     }
     const value = JSON.parse(readFileSync(fd, 'utf8')) as { protocol?: unknown };
-    if (value.protocol === LEGACY_CONNECT_STATE_PROTOCOL) {
+    if (value.protocol === PLAINTEXT_KEY_CONNECT_STATE_PROTOCOL) {
       throw new Error('legacy_connect_state_contains_plaintext_keys');
+    }
+    if (value.protocol === UNVERSIONED_TRUST_CONNECT_STATE_PROTOCOL) {
+      throw new Error('connect_state_requires_versioned_trust_repairing');
     }
     return validateConnectState(value);
   } catch (error) {
@@ -232,35 +252,185 @@ function secureWebOrigin(value: unknown): string {
 
 export const normalizeConnectServiceUrl = (value: unknown) => secureWebOrigin(value);
 
-export function loadTransparencyProfile(
+export async function loadTransparencyProfile(
   serviceUrl: string,
   explicitPath = '',
-): TransparencyProfile {
-  const requested = explicitPath || process.env.AGENTS_CITY_CONNECT_TRUST_FILE || '';
-  if (!requested) {
+  persistedRoot: KeyTransparencyRootEnvelope | null = null,
+): Promise<{ stored: StoredTransparencyProfile; runtime: TransparencyProfile }> {
+  const normalizedService = normalizeConnectServiceUrl(serviceUrl);
+  const requested =
+    explicitPath ||
+    process.env.AGENTS_CITY_CONNECT_TRUST_FILE ||
+    (!persistedRoot ? builtInRootChain(normalizedService) : '');
+  if (!requested && !persistedRoot) {
     throw new Error(
-      'this service has no pinned trust profile; pass --trust-file or AGENTS_CITY_CONNECT_TRUST_FILE',
+      'this service has no pinned root chain; pass --trust-file or AGENTS_CITY_CONNECT_TRUST_FILE',
     );
   }
-  const path = resolve(requested);
-  const metadata = lstatSync(path);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > MAX_STATE_BYTES) {
-    throw new Error('invalid_key_transparency_profile_file');
+  let chain: KeyTransparencyRootChain;
+  if (requested) {
+    const path = resolve(requested);
+    const metadata = lstatSync(path);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > MAX_STATE_BYTES) {
+      throw new Error('invalid_key_transparency_profile_file');
+    }
+    try {
+      chain = parseKeyTransparencyRootChain(JSON.parse(readFileSync(path, 'utf8')));
+    } catch {
+      throw new Error('invalid_key_transparency_profile_file');
+    }
+  } else {
+    chain = {
+      protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+      roots: [persistedRoot!],
+    };
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    throw new Error('invalid_key_transparency_profile_file');
+  const resolvedProfile = await resolveKeyTransparencyRootChain(chain, persistedRoot);
+  return transparencyResult(normalizedService, resolvedProfile.root, resolvedProfile.trust);
+}
+
+function transparencyResult(
+  serviceUrl: string,
+  root: KeyTransparencyRootEnvelope,
+  trust: KeyTransparencyTrust,
+): { stored: StoredTransparencyProfile; runtime: TransparencyProfile } {
+  const normalized = normalizeConnectServiceUrl(serviceUrl);
+  if (root.signed.controlPlaneUrl !== normalized) {
+    throw new Error('key_transparency_origin_mismatch');
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('invalid_key_transparency_profile_file');
-  }
-  const profile = value as { controlPlaneUrl?: unknown; trust?: unknown };
-  return validateTransparency(
-    { controlPlaneUrl: profile.controlPlaneUrl, trust: profile.trust },
-    normalizeConnectServiceUrl(serviceUrl),
+  return {
+    stored: { root },
+    runtime: { controlPlaneUrl: normalized, trust },
+  };
+}
+
+export async function resolveStoredTransparency(state: ConnectState): Promise<TransparencyProfile> {
+  const chain = {
+    protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+    roots: [state.keyTransparency.root],
+  } as const;
+  const resolvedProfile = await resolveKeyTransparencyRootChain(chain, state.keyTransparency.root);
+  const resolved = transparencyResult(
+    state.serviceUrl,
+    resolvedProfile.root,
+    resolvedProfile.trust,
   );
+  if (
+    state.status === 'connected' &&
+    resolvedProfile.root.signed.relayUrl !== state.device.relayUrl
+  )
+    throw new Error('key_transparency_relay_mismatch');
+  return resolved.runtime;
+}
+
+async function readRootChainResponse(response: Response): Promise<KeyTransparencyRootChain> {
+  const declared = Number(response.headers.get('content-length') ?? 0);
+  if (Number.isFinite(declared) && declared > MAX_ROOT_CHAIN_BYTES) {
+    throw new Error('key_transparency_root_chain_too_large');
+  }
+  if (!response.body) throw new Error('empty_key_transparency_root_chain');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let body = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_ROOT_CHAIN_BYTES) {
+      await reader.cancel();
+      throw new Error('key_transparency_root_chain_too_large');
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+  body += decoder.decode();
+  try {
+    return parseKeyTransparencyRootChain(JSON.parse(body));
+  } catch {
+    throw new Error('invalid_key_transparency_root_chain_response');
+  }
+}
+
+export async function refreshStoredTransparency(
+  appHome = '',
+  fetcher: typeof fetch = fetch,
+): Promise<{
+  state: ConnectState;
+  runtime: TransparencyProfile;
+  updated: boolean;
+  refreshWarning: string | null;
+}> {
+  const state = readConnectState(appHome);
+  if (!state) throw new Error('connect_state_missing');
+  let cached: TransparencyProfile | null = null;
+  let cachedError: unknown = null;
+  try {
+    cached = await resolveStoredTransparency(state);
+  } catch (error) {
+    cachedError = error;
+  }
+  const endpoint = new URL('/api/key-transparency/roots', state.serviceUrl);
+  endpoint.searchParams.set('from', String(state.keyTransparency.root.signed.version));
+  let response: Response;
+  try {
+    response = await fetcher(endpoint, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    if (!cached) throw cachedError;
+    return {
+      state,
+      runtime: cached,
+      updated: false,
+      refreshWarning: 'key_transparency_root_refresh_unavailable',
+    };
+  }
+  if (!response.ok) {
+    if (!cached) throw cachedError;
+    return {
+      state,
+      runtime: cached,
+      updated: false,
+      refreshWarning: `key_transparency_root_refresh_http_${response.status}`,
+    };
+  }
+
+  const chain = await readRootChainResponse(response);
+  const latestState = readConnectState(appHome);
+  if (!latestState) throw new Error('connect_state_missing');
+  const resolvedProfile = await resolveKeyTransparencyRootChain(
+    chain,
+    latestState.keyTransparency.root,
+  );
+  const resolved = transparencyResult(
+    latestState.serviceUrl,
+    resolvedProfile.root,
+    resolvedProfile.trust,
+  );
+  if (
+    latestState.status === 'connected' &&
+    resolvedProfile.root.signed.relayUrl !== latestState.device.relayUrl
+  )
+    throw new Error('key_transparency_relay_mismatch');
+
+  const updated =
+    resolvedProfile.root.signed.version > latestState.keyTransparency.root.signed.version;
+  const nextState: ConnectState = updated
+    ? {
+        ...latestState,
+        ...(latestState.status === 'connected' ? { updatedAt: new Date().toISOString() } : {}),
+        keyTransparency: resolved.stored,
+      }
+    : latestState;
+  if (updated) writeConnectState(nextState, appHome);
+  return {
+    state: nextState,
+    runtime: resolved.runtime,
+    updated,
+    refreshWarning: null,
+  };
 }
 
 function secureRelayUrl(value: unknown): string {
@@ -288,69 +458,23 @@ const decodedLength = (value: unknown) => {
   }
 };
 
-const publicEd25519 = (value: unknown): JsonWebKey => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('invalid_transparency_public_key');
-  }
-  const key = value as JsonWebKey;
-  if (
-    key.kty !== 'OKP' ||
-    key.crv !== 'Ed25519' ||
-    decodedLength(key.x) !== 32 ||
-    key.d !== undefined
-  )
-    throw new Error('invalid_transparency_public_key');
-  return { kty: 'OKP', crv: 'Ed25519', x: key.x, ext: true };
-};
-
-function validateTransparency(value: unknown, serviceUrl: string): TransparencyProfile {
+function validateStoredTransparency(value: unknown, serviceUrl: string): StoredTransparencyProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('invalid_key_transparency_profile');
   }
-  const profile = value as Partial<TransparencyProfile>;
-  if (secureWebOrigin(profile.controlPlaneUrl) !== serviceUrl) {
+  const profile = value as Record<string, unknown>;
+  if (Object.keys(profile).length !== 1 || !Object.hasOwn(profile, 'root')) {
+    throw new Error('invalid_key_transparency_profile');
+  }
+  const parsed = parseKeyTransparencyRootChain({
+    protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+    roots: [profile.root],
+  });
+  const root = parsed.roots[0]!;
+  if (root.signed.controlPlaneUrl !== serviceUrl) {
     throw new Error('key_transparency_origin_mismatch');
   }
-  if (!profile.trust || typeof profile.trust !== 'object') {
-    throw new Error('invalid_key_transparency_profile');
-  }
-  const trust = profile.trust as KeyTransparencyTrust;
-  if (
-    !KEY_ID_RE.test(String(trust.operatorKeyId ?? '')) ||
-    !Number.isSafeInteger(trust.minimumWitnesses) ||
-    trust.minimumWitnesses < 1 ||
-    trust.minimumWitnesses > 16 ||
-    !Number.isSafeInteger(trust.maximumHeadAgeMs) ||
-    trust.maximumHeadAgeMs < 1_000 ||
-    trust.maximumHeadAgeMs > 86_400_000 ||
-    !Number.isSafeInteger(trust.maximumWitnessLagMs) ||
-    trust.maximumWitnessLagMs < 0 ||
-    trust.maximumWitnessLagMs > trust.maximumHeadAgeMs ||
-    !trust.witnessKeys ||
-    typeof trust.witnessKeys !== 'object' ||
-    Array.isArray(trust.witnessKeys)
-  )
-    throw new Error('invalid_key_transparency_profile');
-  const witnessKeys = Object.fromEntries(
-    Object.entries(trust.witnessKeys).map(([id, key]) => {
-      if (!KEY_ID_RE.test(id)) throw new Error('invalid_key_transparency_profile');
-      return [id, publicEd25519(key)];
-    }),
-  );
-  if (Object.keys(witnessKeys).length < trust.minimumWitnesses) {
-    throw new Error('insufficient_key_transparency_witnesses');
-  }
-  return {
-    controlPlaneUrl: serviceUrl,
-    trust: {
-      operatorKeyId: trust.operatorKeyId,
-      operatorSigningPublicJwk: publicEd25519(trust.operatorSigningPublicJwk),
-      witnessKeys,
-      minimumWitnesses: trust.minimumWitnesses,
-      maximumHeadAgeMs: trust.maximumHeadAgeMs,
-      maximumWitnessLagMs: trust.maximumWitnessLagMs,
-    },
-  };
+  return { root };
 }
 
 function validateAuthorization(value: unknown, serviceUrl: string): DeviceAuthorization {
@@ -431,7 +555,7 @@ export function validateConnectState(value: unknown): ConnectState {
   const state = value as Partial<ConnectState> & Record<string, unknown>;
   if (state.protocol !== CONNECT_STATE_PROTOCOL) throw new Error('invalid_connect_state_protocol');
   const serviceUrl = normalizeConnectServiceUrl(state.serviceUrl);
-  const keyTransparency = validateTransparency(state.keyTransparency, serviceUrl);
+  const keyTransparency = validateStoredTransparency(state.keyTransparency, serviceUrl);
   if (state.status === 'pending') {
     if (
       typeof state.machineName !== 'string' ||
@@ -467,13 +591,17 @@ export function validateConnectState(value: unknown): ConnectState {
     new Set(cities.map((city) => city.remoteAddress)).size !== cities.length
   )
     throw new Error('duplicate_connected_city');
+  const device = validateAssignment(state.device);
+  if (keyTransparency.root.signed.relayUrl !== device.relayUrl) {
+    throw new Error('key_transparency_relay_mismatch');
+  }
   return {
     protocol: CONNECT_STATE_PROTOCOL,
     status: 'connected',
     serviceUrl,
     connectedAt: state.connectedAt,
     updatedAt: state.updatedAt,
-    device: validateAssignment(state.device),
+    device,
     keyTransparency,
     cities,
   };

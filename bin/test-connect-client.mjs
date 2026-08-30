@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 import {
   chmodSync,
   lstatSync,
@@ -14,19 +15,23 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   HYBRID_ESTABLISHMENT_SUITE,
   KEY_TRANSPARENCY_PROTOCOL,
+  KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+  KEY_TRANSPARENCY_ROOT_PROTOCOL,
   RELAY_PROTOCOL,
   SEALED_DELIVERY_PROTOCOL,
   SEALED_SUITE,
   createHybridSenderSecret,
+  createKeyTransparencyRootSignature,
   createRoadEnvelope,
   createSealedRoadSubmission,
   deriveHybridRecipientSecret,
   generateDeviceKeys,
   generateMlKem768Prekey,
+  hashKeyTransparencyRoot,
   initializeHybridCrypto,
   openHybridEstablishment,
   openRoadEnvelope,
@@ -65,6 +70,13 @@ function exportedArtifactBoundary() {
   const runtime = readFileSync(join(ROOT, 'plugin/channel/managed-connect-client.js'), 'utf8');
   check('the shipped runtime is relay v4 and contains no relay v2 fallback',
     runtime.includes('agents-city-relay/4') && !runtime.includes('agents-city-relay/2'));
+  const sandboxRoots = readFileSync(
+    join(ROOT, 'plugin/channel/trust/agents-city-sandbox-roots.json'),
+    'utf8',
+  );
+  check('the managed sandbox pin ships as public versioned root metadata',
+    sandboxRoots.includes('agents-city-key-transparency-root-chain/1')
+      && !sandboxRoots.includes('"d"'));
 }
 
 function documentationBoundary() {
@@ -87,9 +99,9 @@ function documentationBoundary() {
     managed.includes('not production-enabled')
       && managed.includes('not itself application-level encrypted')
       && managed.includes('independent security audit'));
-  check('both READMEs require a pinned trust profile in first-pairing examples',
-    english.includes('--service https://connect.example.com --trust-file trust.json')
-      && spanish.includes('--service https://connect.example.com --trust-file trust.json'));
+  check('both READMEs require a signed root chain in first-pairing examples',
+    english.includes('--service https://connect.example.com --trust-file roots.json')
+      && spanish.includes('--service https://connect.example.com --trust-file roots.json'));
   check('obsolete HPKE and relay-v2 documentation is gone',
     !/\bHPKE\b|protocol[- ]v?2|managed-connect-(?:core)|managed-connect\/(?:protocol|hpke|road)\.ts/.test(publicWords));
 }
@@ -269,6 +281,43 @@ const cli = (home, ...args) => spawnSync(process.execPath, [CLI, ...args], {
   env: { ...process.env, AGENTS_CITY_HOME: home },
 });
 
+const cliAsync = (home, ...args) => new Promise((resolve, reject) => {
+  const child = spawn(process.execPath, [CLI, ...args], {
+    env: { ...process.env, AGENTS_CITY_HOME: home },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => { stdout += chunk; });
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  child.once('error', reject);
+  child.once('close', (status) => resolve({ status, stdout, stderr }));
+});
+
+function builtInPinBoundary() {
+  const root = mkdtempSync(join(tmpdir(), 'agents-city-built-in-root-'));
+  try {
+    const result = cli(
+      root,
+      '--service',
+      'https://agents-city-connect-sandbox.pages.dev',
+      '--city',
+      'intentionally-missing',
+      '--no-open',
+    );
+    check('the official sandbox resolves its shipped root before any network pairing',
+      result.status !== 0
+        && result.stderr.includes('no local city called intentionally-missing')
+        && !result.stderr.includes('ENOENT')
+        && !result.stderr.includes('invalid_key_transparency_profile_file'),
+      result.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function localStateBoundary() {
   const root = mkdtempSync(join(tmpdir(), 'agents-city-connect-v4-'));
   try {
@@ -276,10 +325,49 @@ async function localStateBoundary() {
     mkdirSync(connect, { recursive: true, mode: 0o700 });
     chmodSync(join(root, '.runtime'), 0o700);
     chmodSync(connect, 0o700);
-    const operatorPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
-    const witnessPair = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    const [rootPair, operatorPair, witnessPair] = await Promise.all([
+      crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']),
+      crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']),
+      crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']),
+    ]);
+    const rootPublic = publicJwk(await crypto.subtle.exportKey('jwk', rootPair.publicKey));
+    const exportedRootPrivate = await crypto.subtle.exportKey('jwk', rootPair.privateKey);
+    const rootPrivate = {
+      kty: 'OKP', crv: 'Ed25519', x: exportedRootPrivate.x, d: exportedRootPrivate.d, ext: true,
+    };
+    const now = Date.now();
+    const trustRoot = {
+      protocol: KEY_TRANSPARENCY_ROOT_PROTOCOL,
+      version: 1,
+      environment: 'production',
+      controlPlaneUrl: 'https://connect.example.test',
+      relayUrl: 'wss://relay.example.test/v1/connect',
+      issuedAt: now,
+      expiresAt: now + 90 * 24 * 60 * 60_000,
+      previousRootHash: null,
+      keys: {
+        'offline-root-test-1': rootPublic,
+        'operator-test-1': publicJwk(await crypto.subtle.exportKey('jwk', operatorPair.publicKey)),
+        'witness-test-1': publicJwk(await crypto.subtle.exportKey('jwk', witnessPair.publicKey)),
+      },
+      roles: {
+        root: { keyIds: ['offline-root-test-1'], threshold: 1 },
+        operator: { keyIds: ['operator-test-1'], threshold: 1 },
+        witness: { keyIds: ['witness-test-1'], threshold: 1 },
+      },
+      maximumHeadAgeMs: 300_000,
+      maximumWitnessLagMs: 60_000,
+    };
+    const rootEnvelope = {
+      signed: trustRoot,
+      signatures: [await createKeyTransparencyRootSignature(
+        trustRoot,
+        'offline-root-test-1',
+        rootPrivate,
+      )],
+    };
     const state = {
-      protocol: 'agents-city-connect-state/2',
+      protocol: 'agents-city-connect-state/3',
       status: 'connected',
       serviceUrl: 'https://connect.example.test',
       connectedAt: new Date().toISOString(),
@@ -291,17 +379,7 @@ async function localStateBoundary() {
         keyVersion: 1,
       },
       keyTransparency: {
-        controlPlaneUrl: 'https://connect.example.test',
-        trust: {
-          operatorKeyId: 'operator-test-1',
-          operatorSigningPublicJwk: publicJwk(await crypto.subtle.exportKey('jwk', operatorPair.publicKey)),
-          witnessKeys: {
-            'witness-test-1': publicJwk(await crypto.subtle.exportKey('jwk', witnessPair.publicKey)),
-          },
-          minimumWitnesses: 1,
-          maximumHeadAgeMs: 300_000,
-          maximumWitnessLagMs: 60_000,
-        },
+        root: rootEnvelope,
       },
       cities: [{
         localCityId: 'city_local_1234',
@@ -321,7 +399,9 @@ async function localStateBoundary() {
       (lstatSync(path).mode & 0o777) === 0o600);
     const status = cli(root, 'status', '--json');
     check('the public CLI reads a v4-compatible keyless device assignment',
-      status.status === 0 && JSON.parse(status.stdout).deviceId === state.device.deviceId,
+      status.status === 0
+        && JSON.parse(status.stdout).deviceId === state.device.deviceId
+        && JSON.parse(status.stdout).trustRootVersion === 1,
       status.stderr);
     check('device.json and status output contain no private JWK material',
       !readFileSync(path, 'utf8').includes('"d"') && !status.stdout.includes('"d"'));
@@ -331,6 +411,22 @@ async function localStateBoundary() {
     });
     check('legacy plaintext-key state is refused instead of migrated silently',
       cli(root, 'status', '--json').stderr.includes('legacy_connect_state_contains_plaintext_keys'));
+    writeFileSync(path, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+    const tampered = structuredClone(state);
+    tampered.keyTransparency.root.signatures[0].signature = b64(64);
+    writeFileSync(path, `${JSON.stringify(tampered)}\n`, { mode: 0o600 });
+    check('a persisted root with a forged signature is refused before network use',
+      cli(root, 'status', '--json').stderr.includes(
+        'insufficient_key_transparency_root_signatures',
+      ));
+    writeFileSync(path, `${JSON.stringify(state)}\n`, { mode: 0o600 });
+    writeFileSync(path, JSON.stringify({ protocol: 'agents-city-connect-state/2' }), {
+      mode: 0o600,
+    });
+    check('unversioned online trust is refused instead of becoming a root silently',
+      cli(root, 'status', '--json').stderr.includes(
+        'connect_state_requires_versioned_trust_repairing',
+      ));
     writeFileSync(path, `${JSON.stringify(state)}\n`, { mode: 0o600 });
     chmodSync(path, 0o644);
     check('over-broad state permissions are refused',
@@ -354,11 +450,160 @@ async function localStateBoundary() {
   }
 }
 
+async function rootRefreshBoundary() {
+  const appHome = mkdtempSync(join(tmpdir(), 'agents-city-root-refresh-'));
+  let chain;
+  const server = createServer((request, response) => {
+    if (request.url === '/api/key-transparency/roots?from=1' && chain) {
+      const body = JSON.stringify(chain);
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      });
+      response.end(body);
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const serviceUrl = `http://127.0.0.1:${address.port}`;
+    const relayUrl = `ws://127.0.0.1:${address.port}/v1/connect`;
+    const [oldRootPair, newRootPair, operatorPair, witnessPair] = await Promise.all(
+      Array.from({ length: 4 }, () => crypto.subtle.generateKey(
+        { name: 'Ed25519' }, true, ['sign', 'verify'],
+      )),
+    );
+    const strictPrivate = async (pair) => {
+      const value = await crypto.subtle.exportKey('jwk', pair.privateKey);
+      return { kty: 'OKP', crv: 'Ed25519', x: value.x, d: value.d, ext: true };
+    };
+    const now = Date.now();
+    const common = {
+      protocol: KEY_TRANSPARENCY_ROOT_PROTOCOL,
+      environment: 'sandbox',
+      controlPlaneUrl: serviceUrl,
+      relayUrl,
+      roles: {
+        operator: { keyIds: ['operator-refresh-1'], threshold: 1 },
+        witness: { keyIds: ['witness-refresh-1'], threshold: 1 },
+      },
+      maximumHeadAgeMs: 300_000,
+      maximumWitnessLagMs: 30_000,
+    };
+    const onlineKeys = {
+      'operator-refresh-1': publicJwk(await crypto.subtle.exportKey('jwk', operatorPair.publicKey)),
+      'witness-refresh-1': publicJwk(await crypto.subtle.exportKey('jwk', witnessPair.publicKey)),
+    };
+    const first = {
+      ...common,
+      version: 1,
+      issuedAt: now - 48 * 60 * 60_000,
+      expiresAt: now - 60 * 60_000,
+      previousRootHash: null,
+      keys: {
+        'root-refresh-old': publicJwk(await crypto.subtle.exportKey('jwk', oldRootPair.publicKey)),
+        ...onlineKeys,
+      },
+      roles: {
+        root: { keyIds: ['root-refresh-old'], threshold: 1 },
+        ...common.roles,
+      },
+    };
+    const firstEnvelope = {
+      signed: first,
+      signatures: [await createKeyTransparencyRootSignature(
+        first,
+        'root-refresh-old',
+        await strictPrivate(oldRootPair),
+      )],
+    };
+    const second = {
+      ...common,
+      version: 2,
+      issuedAt: now - 1_000,
+      expiresAt: now + 90 * 24 * 60 * 60_000,
+      previousRootHash: await hashKeyTransparencyRoot(first),
+      keys: {
+        'root-refresh-new': publicJwk(await crypto.subtle.exportKey('jwk', newRootPair.publicKey)),
+        ...onlineKeys,
+      },
+      roles: {
+        root: { keyIds: ['root-refresh-new'], threshold: 1 },
+        ...common.roles,
+      },
+    };
+    const secondEnvelope = {
+      signed: second,
+      signatures: [
+        await createKeyTransparencyRootSignature(
+          second,
+          'root-refresh-old',
+          await strictPrivate(oldRootPair),
+        ),
+        await createKeyTransparencyRootSignature(
+          second,
+          'root-refresh-new',
+          await strictPrivate(newRootPair),
+        ),
+      ],
+    };
+    chain = {
+      protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+      roots: [firstEnvelope, secondEnvelope],
+    };
+
+    const connect = join(appHome, '.runtime', 'connect');
+    mkdirSync(connect, { recursive: true, mode: 0o700 });
+    chmodSync(join(appHome, '.runtime'), 0o700);
+    chmodSync(connect, 0o700);
+    const statePath = join(connect, 'device.json');
+    writeFileSync(statePath, JSON.stringify({
+      protocol: 'agents-city-connect-state/3',
+      status: 'connected',
+      serviceUrl,
+      connectedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      device: {
+        deviceId: randomUUID(),
+        ownerPrefix: 'refresh',
+        relayUrl,
+        keyVersion: 1,
+      },
+      keyTransparency: { root: firstEnvelope },
+      cities: [],
+    }), { mode: 0o600 });
+
+    const result = await cliAsync(
+      appHome,
+      '--service', serviceUrl,
+      '--city', 'intentionally-missing',
+      '--no-open',
+    );
+    const persisted = JSON.parse(readFileSync(statePath, 'utf8'));
+    check('an expired cached root can advance only through a valid old-and-new transition',
+      result.status !== 0
+        && persisted.keyTransparency.root.signed.version === 2
+        && !result.stderr.includes('expired_key_transparency_root'),
+      result.stderr);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(appHome, { recursive: true, force: true });
+  }
+}
+
 check('the exported constants identify key transparency and relay v4',
   RELAY_PROTOCOL === 'agents-city-relay/4'
     && KEY_TRANSPARENCY_PROTOCOL === 'agents-city-key-transparency/1');
 exportedArtifactBoundary();
 documentationBoundary();
 await cryptoBoundary();
+builtInPinBoundary();
 await localStateBoundary();
+await rootRefreshBoundary();
 console.log(JSON.stringify({ ok: true, checks: checks.length, names: checks }, null, 2));

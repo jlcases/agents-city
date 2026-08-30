@@ -968,7 +968,14 @@ var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a
 var BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
 var base64urlDecodedLength = (value) => {
   if (!BASE64URL_RE.test(value)) return Number.POSITIVE_INFINITY;
-  return Math.floor(value.length * 3 / 4);
+  try {
+    const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+    const decoded = atob(padded);
+    const canonical = btoa(decoded).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    return canonical === value ? decoded.length : Number.POSITIVE_INFINITY;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 };
 var standardBase64DecodedLength = (value) => {
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 === 1) {
@@ -1129,6 +1136,344 @@ var canonicalHybridTranscript = (fields) => {
     payload.ephemeralKey,
     payload.nonce
   ].join("\n");
+};
+
+// packages/service-protocol/src/key-transparency-root.ts
+var KEY_TRANSPARENCY_ROOT_PROTOCOL = "agents-city-key-transparency-root/1";
+var KEY_TRANSPARENCY_ROOT_SIGNATURE_PROTOCOL = "agents-city-key-transparency-root-signature/1";
+var KEY_TRANSPARENCY_ROOT_CONTEXT = "agents-city/key-transparency-root/v1";
+var KEY_ID_RE = /^[A-Za-z0-9._-]{1,80}$/;
+var ROOT_ROLES = ["root", "operator", "witness"];
+var MAX_KEYS = 32;
+var MAX_ROOT_KEYS = 8;
+var MAX_WITNESS_KEYS = 16;
+var MAX_SIGNATURES = 16;
+var MAX_ROOT_UPDATES = 32;
+var MIN_ROOT_LIFETIME_MS = 60 * 6e4;
+var MAX_ROOT_LIFETIME_MS = 366 * 24 * 60 * 6e4;
+var MAX_FUTURE_SKEW_MS = 9e4;
+var encoder = new TextEncoder();
+var compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+var exactRecord3 = (value, keys, error) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(error);
+  const record = value;
+  const actual = Object.keys(record).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(error);
+  }
+  return record;
+};
+var isLoopback = (url) => ["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname);
+var exactControlPlaneOrigin = (value, environment) => {
+  if (typeof value !== "string") throw new Error("invalid_key_transparency_root_endpoint");
+  const url = new URL(value);
+  if (url.protocol !== "https:" && !(environment === "sandbox" && url.protocol === "http:" && isLoopback(url)) || url.username || url.password || url.search || url.hash || url.pathname !== "/" && url.pathname !== "") throw new Error("invalid_key_transparency_root_endpoint");
+  return url.origin;
+};
+var exactRelayUrl = (value, environment) => {
+  if (typeof value !== "string") throw new Error("invalid_key_transparency_root_endpoint");
+  const url = new URL(value);
+  if (url.protocol !== "wss:" && !(environment === "sandbox" && url.protocol === "ws:" && isLoopback(url)) || url.username || url.password || url.search || url.hash || url.pathname !== "/v1/connect") throw new Error("invalid_key_transparency_root_endpoint");
+  return url.toString();
+};
+var publicEd25519 = (value) => {
+  const key = exactRecord3(value, ["crv", "ext", "kty", "x"], "invalid_key_transparency_root_key");
+  if (key.kty !== "OKP" || key.crv !== "Ed25519" || key.ext !== true || typeof key.x !== "string" || base64urlDecodedLength(key.x) !== 32) throw new Error("invalid_key_transparency_root_key");
+  return { kty: "OKP", crv: "Ed25519", x: key.x, ext: true };
+};
+var privateEd25519 = (value) => {
+  const key = exactRecord3(
+    value,
+    ["crv", "d", "ext", "kty", "x"],
+    "invalid_key_transparency_root_private_key"
+  );
+  if (key.kty !== "OKP" || key.crv !== "Ed25519" || key.ext !== true || typeof key.x !== "string" || typeof key.d !== "string" || base64urlDecodedLength(key.x) !== 32 || base64urlDecodedLength(key.d) !== 32) throw new Error("invalid_key_transparency_root_private_key");
+  return {
+    kty: "OKP",
+    crv: "Ed25519",
+    x: key.x,
+    d: key.d,
+    ext: true
+  };
+};
+var rootRole = (value, name) => {
+  const role = exactRecord3(value, ["keyIds", "threshold"], "invalid_key_transparency_root_role");
+  if (!Array.isArray(role.keyIds) || !role.keyIds.every((keyId) => typeof keyId === "string" && KEY_ID_RE.test(keyId)) || new Set(role.keyIds).size !== role.keyIds.length || !Number.isSafeInteger(role.threshold) || Number(role.threshold) < 1 || Number(role.threshold) > role.keyIds.length || name === "root" && role.keyIds.length > MAX_ROOT_KEYS || name === "operator" && (role.keyIds.length !== 1 || role.threshold !== 1) || name === "witness" && role.keyIds.length > MAX_WITNESS_KEYS) throw new Error("invalid_key_transparency_root_role");
+  return {
+    keyIds: [...role.keyIds].sort(),
+    threshold: Number(role.threshold)
+  };
+};
+var parseKeyTransparencyRootMetadata = (value) => {
+  const root = exactRecord3(value, [
+    "controlPlaneUrl",
+    "environment",
+    "expiresAt",
+    "issuedAt",
+    "keys",
+    "maximumHeadAgeMs",
+    "maximumWitnessLagMs",
+    "previousRootHash",
+    "protocol",
+    "relayUrl",
+    "roles",
+    "version"
+  ], "invalid_key_transparency_root");
+  if (root.protocol !== KEY_TRANSPARENCY_ROOT_PROTOCOL || !Number.isSafeInteger(root.version) || Number(root.version) < 1 || !["sandbox", "production"].includes(String(root.environment)) || !Number.isSafeInteger(root.issuedAt) || Number(root.issuedAt) < 0 || !Number.isSafeInteger(root.expiresAt) || Number(root.expiresAt) <= Number(root.issuedAt) || Number(root.expiresAt) - Number(root.issuedAt) < MIN_ROOT_LIFETIME_MS || Number(root.expiresAt) - Number(root.issuedAt) > MAX_ROOT_LIFETIME_MS || root.previousRootHash !== null && (typeof root.previousRootHash !== "string" || base64urlDecodedLength(root.previousRootHash) !== 32) || Number(root.version) === 1 !== (root.previousRootHash === null) || !Number.isSafeInteger(root.maximumHeadAgeMs) || Number(root.maximumHeadAgeMs) < 6e4 || Number(root.maximumHeadAgeMs) > 24 * 60 * 6e4 || !Number.isSafeInteger(root.maximumWitnessLagMs) || Number(root.maximumWitnessLagMs) < 1e3 || Number(root.maximumWitnessLagMs) > Number(root.maximumHeadAgeMs)) throw new Error("invalid_key_transparency_root");
+  if (!root.keys || typeof root.keys !== "object" || Array.isArray(root.keys)) {
+    throw new Error("invalid_key_transparency_root_keys");
+  }
+  const keysRecord = root.keys;
+  const entries = Object.entries(keysRecord);
+  if (entries.length < 3 || entries.length > MAX_KEYS) {
+    throw new Error("invalid_key_transparency_root_keys");
+  }
+  const keys = {};
+  const publicCoordinates = /* @__PURE__ */ new Set();
+  for (const [keyId, value2] of entries.sort(([left], [right]) => compareCodeUnits(left, right))) {
+    if (!KEY_ID_RE.test(keyId)) throw new Error("invalid_key_transparency_root_key");
+    const key = publicEd25519(value2);
+    if (publicCoordinates.has(key.x)) throw new Error("duplicate_key_transparency_root_key");
+    publicCoordinates.add(key.x);
+    keys[keyId] = key;
+  }
+  const rolesRecord = exactRecord3(root.roles, ROOT_ROLES, "invalid_key_transparency_root_roles");
+  const roles = Object.fromEntries(ROOT_ROLES.map((name) => [
+    name,
+    rootRole(rolesRecord[name], name)
+  ]));
+  const assigned = ROOT_ROLES.flatMap((name) => roles[name].keyIds);
+  if (new Set(assigned).size !== assigned.length || assigned.length !== Object.keys(keys).length || assigned.some((keyId) => !keys[keyId])) throw new Error("invalid_key_transparency_root_roles");
+  return {
+    protocol: KEY_TRANSPARENCY_ROOT_PROTOCOL,
+    version: Number(root.version),
+    environment: root.environment,
+    controlPlaneUrl: exactControlPlaneOrigin(
+      root.controlPlaneUrl,
+      root.environment
+    ),
+    relayUrl: exactRelayUrl(
+      root.relayUrl,
+      root.environment
+    ),
+    issuedAt: Number(root.issuedAt),
+    expiresAt: Number(root.expiresAt),
+    previousRootHash: root.previousRootHash,
+    keys,
+    roles,
+    maximumHeadAgeMs: Number(root.maximumHeadAgeMs),
+    maximumWitnessLagMs: Number(root.maximumWitnessLagMs)
+  };
+};
+var parseKeyTransparencyRootSignature = (value) => {
+  const signature = exactRecord3(
+    value,
+    ["keyId", "protocol", "signature"],
+    "invalid_key_transparency_root_signature"
+  );
+  if (signature.protocol !== KEY_TRANSPARENCY_ROOT_SIGNATURE_PROTOCOL || typeof signature.keyId !== "string" || !KEY_ID_RE.test(signature.keyId) || typeof signature.signature !== "string" || base64urlDecodedLength(signature.signature) !== 64) throw new Error("invalid_key_transparency_root_signature");
+  return {
+    protocol: KEY_TRANSPARENCY_ROOT_SIGNATURE_PROTOCOL,
+    keyId: signature.keyId,
+    signature: signature.signature
+  };
+};
+var parseKeyTransparencyRootEnvelope = (value) => {
+  const envelope = exactRecord3(
+    value,
+    ["signatures", "signed"],
+    "invalid_key_transparency_root_envelope"
+  );
+  if (!Array.isArray(envelope.signatures) || envelope.signatures.length > MAX_SIGNATURES) {
+    throw new Error("invalid_key_transparency_root_envelope");
+  }
+  const signatures = envelope.signatures.map(parseKeyTransparencyRootSignature);
+  if (new Set(signatures.map(({ keyId }) => keyId)).size !== signatures.length) {
+    throw new Error("duplicate_key_transparency_root_signature");
+  }
+  return {
+    signed: parseKeyTransparencyRootMetadata(envelope.signed),
+    signatures: [...signatures].sort((left, right) => compareCodeUnits(left.keyId, right.keyId))
+  };
+};
+var canonicalKeyTransparencyRoot = (value) => {
+  const root = parseKeyTransparencyRootMetadata(value);
+  return JSON.stringify({
+    protocol: root.protocol,
+    version: root.version,
+    environment: root.environment,
+    controlPlaneUrl: root.controlPlaneUrl,
+    relayUrl: root.relayUrl,
+    issuedAt: root.issuedAt,
+    expiresAt: root.expiresAt,
+    previousRootHash: root.previousRootHash,
+    keys: root.keys,
+    roles: root.roles,
+    maximumHeadAgeMs: root.maximumHeadAgeMs,
+    maximumWitnessLagMs: root.maximumWitnessLagMs
+  });
+};
+var bytesToBase64url = (value) => {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+};
+var base64urlToBytes = (value) => {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+};
+var signaturePayload = (root) => `${KEY_TRANSPARENCY_ROOT_CONTEXT}
+${canonicalKeyTransparencyRoot(root)}`;
+var hashKeyTransparencyRoot = async (value) => bytesToBase64url(
+  new Uint8Array(await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(canonicalKeyTransparencyRoot(value))
+  ))
+);
+var createKeyTransparencyRootSignature = async (rootValue, keyId, privateJwkValue) => {
+  const root = parseKeyTransparencyRootMetadata(rootValue);
+  if (!KEY_ID_RE.test(keyId)) throw new Error("invalid_key_transparency_root_signature_key");
+  const privateJwk = privateEd25519(privateJwkValue);
+  const expected = root.keys[keyId];
+  if (expected && expected.x !== privateJwk.x) {
+    throw new Error("key_transparency_root_signature_key_mismatch");
+  }
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    privateJwk,
+    { name: "Ed25519" },
+    false,
+    ["sign"]
+  );
+  const signature = new Uint8Array(await crypto.subtle.sign(
+    "Ed25519",
+    key,
+    encoder.encode(signaturePayload(root))
+  ));
+  return {
+    protocol: KEY_TRANSPARENCY_ROOT_SIGNATURE_PROTOCOL,
+    keyId,
+    signature: bytesToBase64url(signature)
+  };
+};
+var verifyRootSignature = async (root, signature, key) => {
+  try {
+    const imported = await crypto.subtle.importKey(
+      "jwk",
+      key,
+      { name: "Ed25519" },
+      false,
+      ["verify"]
+    );
+    return crypto.subtle.verify(
+      "Ed25519",
+      imported,
+      base64urlToBytes(signature.signature),
+      encoder.encode(signaturePayload(root))
+    );
+  } catch {
+    return false;
+  }
+};
+var thresholdMet = async (envelope, trustedRoot) => {
+  const role = trustedRoot.roles.root;
+  let valid = 0;
+  for (const signature of envelope.signatures) {
+    if (!role.keyIds.includes(signature.keyId)) continue;
+    const key = trustedRoot.keys[signature.keyId];
+    if (await verifyRootSignature(envelope.signed, signature, key)) valid += 1;
+  }
+  return valid >= role.threshold;
+};
+var exactSignatureAuthorities = (envelope, allowed) => {
+  if (envelope.signatures.some(({ keyId }) => !allowed.has(keyId))) {
+    throw new Error("unknown_key_transparency_root_signature");
+  }
+};
+var verifySelfSignedRoot = async (envelopeValue) => {
+  const envelope = parseKeyTransparencyRootEnvelope(envelopeValue);
+  if (!await thresholdMet(envelope, envelope.signed)) {
+    throw new Error("insufficient_key_transparency_root_signatures");
+  }
+  return envelope;
+};
+var verifyKeyTransparencyRootTransition = async (currentValue, nextValue, now = Date.now()) => {
+  const current = parseKeyTransparencyRootEnvelope(currentValue);
+  const next = parseKeyTransparencyRootEnvelope(nextValue);
+  if (next.signed.version !== current.signed.version + 1 || next.signed.previousRootHash !== await hashKeyTransparencyRoot(current.signed) || next.signed.environment !== current.signed.environment || next.signed.issuedAt < current.signed.issuedAt || next.signed.issuedAt > now + MAX_FUTURE_SKEW_MS) throw new Error("invalid_key_transparency_root_transition");
+  const allowed = /* @__PURE__ */ new Set([
+    ...current.signed.roles.root.keyIds,
+    ...next.signed.roles.root.keyIds
+  ]);
+  exactSignatureAuthorities(next, allowed);
+  if (!await thresholdMet(next, current.signed) || !await thresholdMet(next, next.signed)) throw new Error("insufficient_key_transparency_root_transition_signatures");
+  return next;
+};
+var applyKeyTransparencyRootUpdates = async (pinnedValue, updateValues = [], now = Date.now()) => {
+  if (!Array.isArray(updateValues) || updateValues.length > MAX_ROOT_UPDATES) {
+    throw new Error("too_many_key_transparency_root_updates");
+  }
+  let trusted = await verifySelfSignedRoot(pinnedValue);
+  for (const update of updateValues) {
+    trusted = await verifyKeyTransparencyRootTransition(trusted, update, now);
+  }
+  if (trusted.signed.issuedAt > now + MAX_FUTURE_SKEW_MS || trusted.signed.expiresAt <= now) throw new Error("expired_key_transparency_root");
+  return trusted;
+};
+var keyTransparencyTrustFromRoot = async (pinnedValue, updateValues = [], now = Date.now()) => {
+  const root = await applyKeyTransparencyRootUpdates(pinnedValue, updateValues, now);
+  const operatorKeyId = root.signed.roles.operator.keyIds[0];
+  const witnessKeys = Object.fromEntries(root.signed.roles.witness.keyIds.map((keyId) => [
+    keyId,
+    root.signed.keys[keyId]
+  ]));
+  return {
+    root,
+    trust: {
+      operatorKeyId,
+      operatorSigningPublicJwk: root.signed.keys[operatorKeyId],
+      witnessKeys,
+      minimumWitnesses: root.signed.roles.witness.threshold,
+      maximumHeadAgeMs: root.signed.maximumHeadAgeMs,
+      maximumWitnessLagMs: root.signed.maximumWitnessLagMs
+    }
+  };
+};
+
+// packages/service-protocol/src/key-transparency-root-chain.ts
+var KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL = "agents-city-key-transparency-root-chain/1";
+var MAX_CHAIN_ROOTS = 33;
+var parseKeyTransparencyRootChain = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_key_transparency_root_chain");
+  }
+  const record = value;
+  if (Object.keys(record).sort().join(",") !== "protocol,roots" || record.protocol !== KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL || !Array.isArray(record.roots) || record.roots.length < 1 || record.roots.length > MAX_CHAIN_ROOTS) throw new Error("invalid_key_transparency_root_chain");
+  const roots = record.roots.map(parseKeyTransparencyRootEnvelope);
+  for (let index = 1; index < roots.length; index += 1) {
+    if (roots[index].signed.version !== roots[index - 1].signed.version + 1 || roots[index].signed.environment !== roots[0].signed.environment) throw new Error("invalid_key_transparency_root_chain_sequence");
+  }
+  return { protocol: KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL, roots };
+};
+var resolveKeyTransparencyRootChain = async (chainValue, persistedRootValue = null, now = Date.now()) => {
+  const chain = parseKeyTransparencyRootChain(chainValue);
+  if (persistedRootValue === null) {
+    return keyTransparencyTrustFromRoot(chain.roots[0], chain.roots.slice(1), now);
+  }
+  const persisted = parseKeyTransparencyRootEnvelope(persistedRootValue);
+  const matchingIndex = chain.roots.findIndex(
+    ({ signed }) => signed.version === persisted.signed.version
+  );
+  if (matchingIndex < 0) throw new Error("persisted_key_transparency_root_missing");
+  if (await hashKeyTransparencyRoot(chain.roots[matchingIndex].signed) !== await hashKeyTransparencyRoot(persisted.signed)) throw new Error("persisted_key_transparency_root_conflict");
+  const root = await applyKeyTransparencyRootUpdates(
+    persisted,
+    chain.roots.slice(matchingIndex + 1),
+    now
+  );
+  return keyTransparencyTrustFromRoot(root, [], now);
 };
 
 // packages/service-protocol/src/key-transparency.ts
@@ -1312,13 +1657,13 @@ var parseKeyTransparencyQuery = (value) => {
     head: parseKeyLogHead(query.head)
   };
 };
-var encoder = new TextEncoder();
-var bytesToBase64url = (value) => {
+var encoder2 = new TextEncoder();
+var bytesToBase64url2 = (value) => {
   let binary = "";
   for (const byte of value) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 };
-var base64urlToBytes = (value) => {
+var base64urlToBytes2 = (value) => {
   if (!BASE64URL_RE.test(value)) throw new Error("invalid_base64url");
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
@@ -1336,7 +1681,7 @@ var concatBytes = (...values) => {
 var sha256 = async (value) => new Uint8Array(
   await crypto.subtle.digest("SHA-256", value.slice().buffer)
 );
-var sha256Base64url = async (value) => bytesToBase64url(await sha256(value));
+var sha256Base64url = async (value) => bytesToBase64url2(await sha256(value));
 var canonicalOkp = (value, curve) => {
   if (value.kty !== "OKP" || value.crv !== curve || value.ext !== true || typeof value.x !== "string" || base64urlDecodedLength(value.x) !== 32 || value.d !== void 0) throw new Error(`invalid_${curve.toLowerCase()}_public_key`);
   return ["OKP", curve, value.x, "true"].join(":");
@@ -1363,15 +1708,15 @@ var canonicalDeviceKeyRecord = (record) => {
   ].join("\n");
 };
 var hashDeviceKeyRecord = async (record) => sha256Base64url(
-  encoder.encode(canonicalDeviceKeyRecord(record))
+  encoder2.encode(canonicalDeviceKeyRecord(record))
 );
 var okpJwkThumbprint = async (jwk, curve) => {
   canonicalOkp(jwk, curve);
-  return sha256Base64url(encoder.encode(JSON.stringify({ crv: curve, kty: "OKP", x: jwk.x })));
+  return sha256Base64url(encoder2.encode(JSON.stringify({ crv: curve, kty: "OKP", x: jwk.x })));
 };
 var deviceTransparencyMapKey = async (deviceId) => {
   if (!UUID_RE.test(deviceId)) throw new Error("invalid_device_id");
-  return sha256Base64url(encoder.encode(`${KEY_TRANSPARENCY_CONTEXT}\0device\0${deviceId.toLowerCase()}`));
+  return sha256Base64url(encoder2.encode(`${KEY_TRANSPARENCY_CONTEXT}\0device\0${deviceId.toLowerCase()}`));
 };
 var mapLeafHashBytes = async (key, recordHash) => sha256(
   concatBytes(Uint8Array.of(0), key, recordHash)
@@ -1393,25 +1738,25 @@ var defaultSparseMerkleHashes = () => {
 var bitAt = (bytes, bit) => bytes[Math.floor(bit / 8)] >> 7 - bit % 8 & 1;
 var sparseMerkleLeafHash = async (key, record) => {
   if (base64urlDecodedLength(key) !== 32) throw new Error("invalid_map_key");
-  if (!record) return bytesToBase64url((await defaultSparseMerkleHashes())[0]);
-  return bytesToBase64url(await mapLeafHashBytes(
-    base64urlToBytes(key),
-    base64urlToBytes(await hashDeviceKeyRecord(record))
+  if (!record) return bytesToBase64url2((await defaultSparseMerkleHashes())[0]);
+  return bytesToBase64url2(await mapLeafHashBytes(
+    base64urlToBytes2(key),
+    base64urlToBytes2(await hashDeviceKeyRecord(record))
   ));
 };
 var sparseMerkleRoot = async (key, record, siblings) => {
-  const keyBytes = base64urlToBytes(key);
+  const keyBytes = base64urlToBytes2(key);
   if (keyBytes.byteLength !== 32) throw new Error("invalid_map_key");
   if (siblings.length > SPARSE_MERKLE_DEPTH || siblings.some(({ height, hash }) => !Number.isInteger(height) || height < 0 || height >= SPARSE_MERKLE_DEPTH || base64urlDecodedLength(hash) !== 32) || new Set(siblings.map(({ height }) => height)).size !== siblings.length) throw new Error("invalid_sparse_merkle_proof");
-  const provided = new Map(siblings.map(({ height, hash }) => [height, base64urlToBytes(hash)]));
+  const provided = new Map(siblings.map(({ height, hash }) => [height, base64urlToBytes2(hash)]));
   const defaults = await defaultSparseMerkleHashes();
-  let current = base64urlToBytes(await sparseMerkleLeafHash(key, record));
+  let current = base64urlToBytes2(await sparseMerkleLeafHash(key, record));
   for (let height = 0; height < SPARSE_MERKLE_DEPTH; height += 1) {
     const sibling = provided.get(height) ?? defaults[height];
     const branch = bitAt(keyBytes, SPARSE_MERKLE_DEPTH - 1 - height);
     current = branch === 0 ? await nodeHashBytes(current, sibling) : await nodeHashBytes(sibling, current);
   }
-  return bytesToBase64url(current);
+  return bytesToBase64url2(current);
 };
 var verifySparseMerkleProof = async (expectedRoot, record, proof) => {
   if (base64urlDecodedLength(expectedRoot) !== 32) return false;
@@ -1434,16 +1779,16 @@ var canonicalKeyLogEntry = (entry) => {
   ].join("\n");
 };
 var hashKeyLogEntry = async (entry) => sha256Base64url(
-  encoder.encode(canonicalKeyLogEntry(entry))
+  encoder2.encode(canonicalKeyLogEntry(entry))
 );
 var rfc6962LeafHash = async (canonicalLeaf) => sha256Base64url(
-  concatBytes(Uint8Array.of(0), encoder.encode(canonicalLeaf))
+  concatBytes(Uint8Array.of(0), encoder2.encode(canonicalLeaf))
 );
 var rfc6962NodeHash = async (left, right) => {
   if (base64urlDecodedLength(left) !== 32 || base64urlDecodedLength(right) !== 32) {
     throw new Error("invalid_log_node");
   }
-  return bytesToBase64url(await nodeHashBytes(base64urlToBytes(left), base64urlToBytes(right)));
+  return bytesToBase64url2(await nodeHashBytes(base64urlToBytes2(left), base64urlToBytes2(right)));
 };
 var keyLogLeafHash = (entry) => rfc6962LeafHash(canonicalKeyLogEntry(entry));
 var logRootFromFrontier = async (frontier) => {
@@ -1524,8 +1869,8 @@ var verifyEd25519 = async (jwk, message, signature) => {
     return crypto.subtle.verify(
       "Ed25519",
       key,
-      base64urlToBytes(signature),
-      encoder.encode(message)
+      base64urlToBytes2(signature),
+      encoder2.encode(message)
     );
   } catch {
     return false;
@@ -2016,12 +2361,12 @@ var concatBytes2 = (...values) => {
   }
   return result;
 };
-var bytesToBase64url2 = (value) => {
+var bytesToBase64url3 = (value) => {
   let binary = "";
   for (const byte of value) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 };
-var base64urlToBytes2 = (value) => {
+var base64urlToBytes3 = (value) => {
   if (!value || !BASE64URL_RE2.test(value)) throw new Error("invalid_base64url");
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
@@ -2031,7 +2376,7 @@ var bytesToHex = (value) => [...value].map((byte) => byte.toString(16).padStart(
 var randomBase64url = (bytes = 24) => {
   const value = new Uint8Array(bytes);
   crypto.getRandomValues(value);
-  return bytesToBase64url2(value);
+  return bytesToBase64url3(value);
 };
 var sha256Bytes = async (value) => new Uint8Array(
   await crypto.subtle.digest(
@@ -2040,7 +2385,7 @@ var sha256Bytes = async (value) => new Uint8Array(
   )
 );
 var sha256Hex = async (value) => bytesToHex(await sha256Bytes(value));
-var sha256Base64url2 = async (value) => bytesToBase64url2(await sha256Bytes(value));
+var sha256Base64url2 = async (value) => bytesToBase64url3(await sha256Bytes(value));
 var utf8Length = (value) => textEncoder.encode(value).byteLength;
 
 // packages/connect-client/src/ratchet.ts
@@ -2289,11 +2634,11 @@ var requireBytes = (value, length, code) => {
   if (!(value instanceof Uint8Array) || value.byteLength !== length) throw new Error(code);
 };
 var requirePrivateX25519 = (value) => {
-  if (value.kty !== "OKP" || value.crv !== "X25519" || typeof value.x !== "string" || typeof value.d !== "string" || base64urlToBytes2(value.x).byteLength !== 32 || base64urlToBytes2(value.d).byteLength !== 32) throw new Error("invalid_x25519_private_key");
+  if (value.kty !== "OKP" || value.crv !== "X25519" || typeof value.x !== "string" || typeof value.d !== "string" || base64urlToBytes3(value.x).byteLength !== 32 || base64urlToBytes3(value.d).byteLength !== 32) throw new Error("invalid_x25519_private_key");
   return value;
 };
 var requirePublicX25519 = (value) => {
-  if (value.kty !== "OKP" || value.crv !== "X25519" || typeof value.x !== "string" || value.d !== void 0 || base64urlToBytes2(value.x).byteLength !== 32) throw new Error("invalid_x25519_public_key");
+  if (value.kty !== "OKP" || value.crv !== "X25519" || typeof value.x !== "string" || value.d !== void 0 || base64urlToBytes3(value.x).byteLength !== 32) throw new Error("invalid_x25519_public_key");
   return { kty: "OKP", crv: "X25519", x: value.x, ext: true };
 };
 var deriveX25519 = async (privateKey, publicJwk) => {
@@ -2350,15 +2695,15 @@ var generateMlKem768Prekey = async () => {
     const publicKey = mlkem768_public_key(seed);
     requireBytes(publicKey, MLKEM768_PUBLIC_KEY_BYTES, "invalid_mlkem768_public_key");
     return {
-      seed: bytesToBase64url2(seed),
-      publicKey: bytesToBase64url2(publicKey)
+      seed: bytesToBase64url3(seed),
+      publicKey: bytesToBase64url3(publicKey)
     };
   } finally {
     seed.fill(0);
   }
 };
 var hybridPrekeyHash = (publicKey) => {
-  const bytes = base64urlToBytes2(publicKey);
+  const bytes = base64urlToBytes3(publicKey);
   requireBytes(bytes, MLKEM768_PUBLIC_KEY_BYTES, "invalid_mlkem768_public_key");
   return sha256Base64url2(bytes).finally(() => bytes.fill(0));
 };
@@ -2366,12 +2711,12 @@ var sealHybridEstablishment = (publicKey, classicalSecret, transcript, plaintext
   requireBytes(classicalSecret, 32, "invalid_x25519_shared_secret");
   requireBytes(kemRandomness, 32, "invalid_mlkem768_encapsulation_randomness");
   requireBytes(nonce, HYBRID_NONCE_BYTES, "invalid_hybrid_nonce");
-  const publicBytes = base64urlToBytes2(publicKey);
+  const publicBytes = base64urlToBytes3(publicKey);
   requireBytes(publicBytes, MLKEM768_PUBLIC_KEY_BYTES, "invalid_mlkem768_public_key");
   const transcriptBytes = textEncoder.encode(transcript);
   const plaintextBytes = textEncoder.encode(plaintext);
   try {
-    return bytesToBase64url2(hybrid_seal(
+    return bytesToBase64url3(hybrid_seal(
       publicBytes,
       classicalSecret,
       transcriptBytes,
@@ -2388,9 +2733,9 @@ var sealHybridEstablishment = (publicKey, classicalSecret, transcript, plaintext
 var openHybridEstablishment = (seed, classicalSecret, transcript, ciphertext, nonce) => {
   requireBytes(classicalSecret, 32, "invalid_x25519_shared_secret");
   requireBytes(nonce, HYBRID_NONCE_BYTES, "invalid_hybrid_nonce");
-  const seedBytes = base64urlToBytes2(seed);
+  const seedBytes = base64urlToBytes3(seed);
   const transcriptBytes = textEncoder.encode(transcript);
-  const ciphertextBytes = base64urlToBytes2(ciphertext);
+  const ciphertextBytes = base64urlToBytes3(ciphertext);
   requireBytes(seedBytes, MLKEM768_SEED_BYTES, "invalid_mlkem768_seed");
   try {
     return textDecoder.decode(hybrid_open(
@@ -2510,7 +2855,7 @@ var parseHybridEstablishmentOutboxEntry = (scope, value) => {
     type: "send",
     envelope: {
       ...unsigned,
-      signature: bytesToBase64url2(new Uint8Array(64))
+      signature: bytesToBase64url3(new Uint8Array(64))
     }
   }), Number(entry.createdAt));
   if (!parsed.ok || parsed.frame.type !== "send" || parsed.frame.envelope.payload.suite !== HYBRID_ESTABLISHMENT_SUITE || parsed.frame.envelope.roadId !== entry.roadId || parsed.frame.envelope.roadRevision !== entry.revision || parsed.frame.envelope.id !== entry.messageId || parsed.frame.envelope.createdAt !== entry.createdAt || parsed.frame.envelope.expiresAt !== entry.expiresAt) throw new Error("invalid_ratchet_state");
@@ -2683,7 +3028,7 @@ var EncryptedRatchetStateStore = class {
       TRANSPARENCY_STATE_PROTOCOL,
       LEGACY_STATE_PROTOCOL
     ].includes(String(encrypted.protocol)) || typeof encrypted.nonce !== "string" || typeof encrypted.ciphertext !== "string") throw new Error("invalid_encrypted_ratchet_state");
-    const nonce = base64urlToBytes2(encrypted.nonce);
+    const nonce = base64urlToBytes3(encrypted.nonce);
     if (nonce.byteLength !== 12) throw new Error("invalid_encrypted_ratchet_state");
     try {
       const plaintext = await crypto.subtle.decrypt({
@@ -2691,7 +3036,7 @@ var EncryptedRatchetStateStore = class {
         iv: toArrayBuffer(nonce),
         additionalData: toArrayBuffer(textEncoder.encode(encrypted.protocol)),
         tagLength: 128
-      }, await this.keyPromise, toArrayBuffer(base64urlToBytes2(encrypted.ciphertext)));
+      }, await this.keyPromise, toArrayBuffer(base64urlToBytes3(encrypted.ciphertext)));
       return validateState(JSON.parse(textDecoder.decode(plaintext)));
     } catch (error) {
       if (error instanceof Error && error.message === "invalid_ratchet_state") throw error;
@@ -2708,8 +3053,8 @@ var EncryptedRatchetStateStore = class {
     }, await this.keyPromise, toArrayBuffer(textEncoder.encode(JSON.stringify(state))));
     const encrypted = {
       protocol: STATE_PROTOCOL,
-      nonce: bytesToBase64url2(nonce),
-      ciphertext: bytesToBase64url2(new Uint8Array(ciphertext))
+      nonce: bytesToBase64url3(nonce),
+      ciphertext: bytesToBase64url3(new Uint8Array(ciphertext))
     };
     await this.backend.write(STATE_RECORD, JSON.stringify(encrypted));
   }
@@ -2813,7 +3158,7 @@ var removeHybridRoadPrekeys = (state, roadId, revision) => {
   for (const [id, prekey] of Object.entries(state.hybridPrekeys)) {
     if (prekey.roadId !== roadId || revision !== void 0 && prekey.revision !== revision) continue;
     try {
-      base64urlToBytes2(prekey.seed).fill(0);
+      base64urlToBytes3(prekey.seed).fill(0);
     } catch {
     }
     delete state.hybridPrekeys[id];
@@ -2971,7 +3316,7 @@ var RoadRatchet = class {
       let id = randomBase64url(24);
       while (state.hybridPrekeys[id]) id = randomBase64url(24);
       const generated = await generateMlKem768Prekey();
-      const publicKeyBytes = base64urlToBytes2(generated.publicKey);
+      const publicKeyBytes = base64urlToBytes3(generated.publicKey);
       let publicKeyHash;
       try {
         publicKeyHash = await sha256Base64url2(publicKeyBytes);
@@ -3872,7 +4217,7 @@ var signDeviceHybridPrekeys = async (keys, prekeys, keyVersion) => {
       signingKey,
       textEncoder.encode(canonicalHybridPrekeyRecord(record))
     ));
-    return { record, signature: bytesToBase64url2(signature) };
+    return { record, signature: bytesToBase64url3(signature) };
   }));
 };
 var signDeviceRatchetBundle = async (keys, publicBundle2 = keys.ratchetBundle) => {
@@ -3885,7 +4230,7 @@ var signDeviceRatchetBundle = async (keys, publicBundle2 = keys.ratchetBundle) =
     await importSigningKey(keys.signingPrivateJwk),
     textEncoder.encode(canonicalDeviceRatchetBundle(bundle))
   ));
-  return { bundle, signature: bytesToBase64url2(signature) };
+  return { bundle, signature: bytesToBase64url3(signature) };
 };
 var signDeviceKeyRecord = async (keys, record) => {
   const signature = new Uint8Array(await crypto.subtle.sign(
@@ -3893,7 +4238,7 @@ var signDeviceKeyRecord = async (keys, record) => {
     await importSigningKey(keys.signingPrivateJwk),
     textEncoder.encode(canonicalDeviceKeyRecord(record))
   ));
-  return bytesToBase64url2(signature);
+  return bytesToBase64url3(signature);
 };
 var importSigningKey = (jwk) => {
   if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string" || typeof jwk.d !== "string") throw new Error("invalid_ed25519_private_key");
@@ -3920,7 +4265,7 @@ var signDeviceProof = async (identity, method, pathname, body = "", city = "") =
     "x-agents-timestamp": String(fields.timestamp),
     "x-agents-nonce": fields.nonce,
     "x-agents-body-sha256": fields.bodySha256,
-    "x-agents-signature": bytesToBase64url2(signature)
+    "x-agents-signature": bytesToBase64url3(signature)
   };
 };
 var ConnectApiError = class extends Error {
@@ -4206,7 +4551,7 @@ var verifyPeerHybridPrekey = async (road) => {
   const valid = await crypto.subtle.verify(
     "Ed25519",
     await importSigningPublic(road.peerSigningPublicJwk),
-    base64urlToBytes2(signature),
+    base64urlToBytes3(signature),
     textEncoder.encode(canonicalHybridPrekeyRecord(record))
   );
   if (!valid) throw new Error("invalid_hybrid_prekey_signature");
@@ -4268,7 +4613,7 @@ var parsePendingHybridEnvelope = async (raw, identity, road) => {
     type: "send",
     envelope: {
       ...unsigned,
-      signature: bytesToBase64url2(new Uint8Array(64))
+      signature: bytesToBase64url3(new Uint8Array(64))
     }
   }), Number(unsigned.createdAt));
   if (!parsed.ok || parsed.frame.type !== "send" || parsed.frame.envelope.payload.suite !== HYBRID_ESTABLISHMENT_SUITE || unsigned.roadId !== road.id || unsigned.roadRevision !== road.revision || unsigned.from !== road.localCity || unsigned.to !== road.peerCity || unsigned.senderDeviceId !== identity.deviceId || unsigned.senderKeyVersion !== identity.keyVersion || unsigned.payload.recipientKeyId !== road.peerEncryptionKeyId) throw new Error("hybrid_establishment_outbox_mismatch");
@@ -4432,7 +4777,7 @@ var createEnvelope = async (identity, road, kind, content, options = {}) => {
           pqPrekeyId: prekey.keyId,
           pqPrekeyHash,
           ephemeralKey: sender.ephemeralKey,
-          nonce: bytesToBase64url2(nonce)
+          nonce: bytesToBase64url3(nonce)
         }
       };
       const plaintext = roadPlaintext(hybridPartial, kind, content);
@@ -4500,7 +4845,7 @@ var createEnvelope = async (identity, road, kind, content, options = {}) => {
     signingKey,
     textEncoder.encode(canonicalRelayEnvelope(partial))
   ));
-  const envelope = { ...partial, signature: bytesToBase64url2(signature) };
+  const envelope = { ...partial, signature: bytesToBase64url3(signature) };
   const parsed = parseRelayClientFrame(JSON.stringify({ type: "send", envelope }), createdAt);
   if (!parsed.ok) throw new Error(parsed.code);
   return envelope;
@@ -4558,7 +4903,7 @@ var openRoadEnvelope = async (identity, road, envelope, now = Date.now()) => {
   const valid = await crypto.subtle.verify(
     "Ed25519",
     await importSigningPublic(road.peerSigningPublicJwk),
-    base64urlToBytes2(envelope.signature),
+    base64urlToBytes3(envelope.signature),
     textEncoder.encode(canonicalRelayEnvelope(envelope))
   );
   if (!valid) throw new Error("invalid_road_signature");
@@ -4579,7 +4924,7 @@ var openRoadEnvelope = async (identity, road, envelope, now = Date.now()) => {
       identity.encryptionPrivateJwk,
       envelope.payload.ephemeralKey
     );
-    const nonce = base64urlToBytes2(envelope.payload.nonce);
+    const nonce = base64urlToBytes3(envelope.payload.nonce);
     try {
       opened = await identity.ratchet.decryptHybridEstablishment(
         road.id,
@@ -5886,8 +6231,8 @@ var isOkpJwk = (value, curve, privateKey) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const jwk = value;
   try {
-    if (jwk.kty !== "OKP" || jwk.crv !== curve || typeof jwk.x !== "string" || base64urlToBytes2(jwk.x).byteLength !== 32) return false;
-    return privateKey ? typeof jwk.d === "string" && base64urlToBytes2(jwk.d).byteLength === 32 : jwk.d === void 0;
+    if (jwk.kty !== "OKP" || jwk.crv !== curve || typeof jwk.x !== "string" || base64urlToBytes3(jwk.x).byteLength !== 32) return false;
+    return privateKey ? typeof jwk.d === "string" && base64urlToBytes3(jwk.d).byteLength === 32 : jwk.d === void 0;
   } catch {
     return false;
   }
@@ -5911,7 +6256,7 @@ var validateRatchetBundle = (value) => {
 var isBase64urlSize = (value, bytes) => {
   if (typeof value !== "string") return false;
   try {
-    return base64urlToBytes2(value).byteLength === bytes;
+    return base64urlToBytes3(value).byteLength === bytes;
   } catch {
     return false;
   }
@@ -5977,7 +6322,7 @@ var NodeDeviceVault = class {
       throw new Error("invalid_encrypted_device_vault");
     }
     if (encrypted.protocol !== ENCRYPTED_DEVICE_PROTOCOL || typeof encrypted.nonce !== "string" || typeof encrypted.ciphertext !== "string") throw new Error("invalid_encrypted_device_vault");
-    const nonce = base64urlToBytes2(encrypted.nonce);
+    const nonce = base64urlToBytes3(encrypted.nonce);
     if (nonce.byteLength !== 12) throw new Error("invalid_encrypted_device_vault");
     try {
       const plaintext = await crypto.subtle.decrypt({
@@ -5985,7 +6330,7 @@ var NodeDeviceVault = class {
         iv: toArrayBuffer(nonce),
         additionalData: toArrayBuffer(textEncoder.encode(ENCRYPTED_DEVICE_PROTOCOL)),
         tagLength: 128
-      }, await this.keyPromise, toArrayBuffer(base64urlToBytes2(encrypted.ciphertext)));
+      }, await this.keyPromise, toArrayBuffer(base64urlToBytes3(encrypted.ciphertext)));
       return validateDeviceRecord(JSON.parse(textDecoder.decode(plaintext)));
     } catch (error) {
       if (error instanceof Error && error.message === "invalid_device_vault_record") throw error;
@@ -6003,8 +6348,8 @@ var NodeDeviceVault = class {
     }, await this.keyPromise, toArrayBuffer(textEncoder.encode(JSON.stringify(validated))));
     const encrypted = {
       protocol: ENCRYPTED_DEVICE_PROTOCOL,
-      nonce: bytesToBase64url2(nonce),
-      ciphertext: bytesToBase64url2(new Uint8Array(ciphertext))
+      nonce: bytesToBase64url3(nonce),
+      ciphertext: bytesToBase64url3(new Uint8Array(ciphertext))
     };
     await new FileRatchetBackend(this.directory).write(DEVICE_RECORD, JSON.stringify(encrypted));
   }
@@ -6139,6 +6484,8 @@ export {
   HYBRID_ESTABLISHMENT_SUITE,
   HYBRID_INNER_PROTOCOL,
   KEY_TRANSPARENCY_PROTOCOL,
+  KEY_TRANSPARENCY_ROOT_CHAIN_PROTOCOL,
+  KEY_TRANSPARENCY_ROOT_PROTOCOL,
   MAX_HYBRID_ONE_TIME_KEYS,
   MAX_PENDING_PLAINTEXTS,
   MAX_PENDING_PLAINTEXT_AGE_MS,
@@ -6157,9 +6504,9 @@ export {
   SEALED_SENDER_PROTOCOL,
   SEALED_SUITE,
   SealedSenderError,
-  base64urlToBytes2 as base64urlToBytes,
+  base64urlToBytes3 as base64urlToBytes,
   beginDeviceAuthorization,
-  bytesToBase64url2 as bytesToBase64url,
+  bytesToBase64url3 as bytesToBase64url,
   bytesToHex,
   canonicalRelayEnvelope,
   claimDeviceAuthorization,
@@ -6168,6 +6515,7 @@ export {
   createFileDeviceVault,
   createFileRoadRatchet,
   createHybridSenderSecret,
+  createKeyTransparencyRootSignature,
   createOsProtectedDeviceVault,
   createOsProtectedRoadRatchet,
   createRoadCapabilityGrantEnvelope,
@@ -6179,6 +6527,7 @@ export {
   generateDeviceKeys,
   generateMlKem768Prekey,
   generateRatchetMasterKey,
+  hashKeyTransparencyRoot,
   hybridPrekeyHash,
   initializeHybridCrypto,
   listDeviceRoads,
@@ -6187,6 +6536,8 @@ export {
   openHybridEstablishment,
   openRoadEnvelope,
   openSealedRoadDelivery,
+  parseKeyTransparencyRootChain,
+  parseKeyTransparencyRootEnvelope,
   parseRelayServerFrame,
   pollDeviceAuthorization,
   randomBase64url,
@@ -6194,6 +6545,7 @@ export {
   randomKemEncapsulation,
   ratchetSafetyNumber,
   replenishDevicePrekeys,
+  resolveKeyTransparencyRootChain,
   roadPeerTrust,
   roadSafetyNumber,
   sealHybridEstablishment,

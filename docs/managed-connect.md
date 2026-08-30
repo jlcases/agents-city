@@ -25,18 +25,27 @@ Explicit city-to-city Roads remain a separate feature.
 ## Pair one computer
 
 ```bash
-agents-city connect --service https://connect.example.com --trust-file trust.json
+agents-city connect --service https://connect.example.com --trust-file roots.json
 agents-city connect --city product
 agents-city connect --all
 agents-city connect status
 agents-city connect roads
 ```
 
-The first call needs the service origin and its pinned operator/witness trust
-profile. It prints a one-use PASCO and opens the approval page. Later calls
-reuse the service and trust profile stored on this computer. `--city` chooses a
-local hub that can keep the owner-level reception bridge alive; it does not
-choose the recipient of a person message and is never revealed to the peer.
+The first call needs the service origin and a signed root chain obtained out of
+band. It prints a one-use PASCO and opens the approval page. The client stores
+the last root it has accepted, not just the current online operator key. Later
+calls reuse that local root and may advance it from a newer `--trust-file` or
+from the service's public root endpoint. `--city` chooses a local hub that can
+keep the owner-level reception bridge alive; it does not choose the recipient
+of a person message and is never revealed to the peer.
+
+The npm package ships the public sandbox root at
+`plugin/channel/trust/agents-city-sandbox-roots.json` and selects it only for
+the exact `https://agents-city-connect-sandbox.pages.dev` origin. That removes
+one file argument from a sandbox trial without trusting a root downloaded from
+the service. Self-hosted origins still require `--trust-file`; an explicit file
+always takes precedence.
 
 The CLI creates locally:
 
@@ -54,7 +63,7 @@ long-lived bearer token.
 
 ```text
 ~/.agents-city/.runtime/connect/
-├── device.json                 # 0600; assignment, service and trust metadata only
+├── device.json                 # 0600; assignment and last accepted signed root
 └── vault/                      # 0700; AES-256-GCM ciphertext records only
 ~/.agents-city/.runtime/reception/
 └── reception.sqlite3           # 0600; local human inbox, rules and durable outbox
@@ -81,6 +90,28 @@ Exactly one live hub on a computer holds the reception lease and one outbound
 session. Another hub may take over after a clean or stale release. The client
 opens HTTPS/WSS connections out; it publishes no port on the owner's computer.
 
+## Root updates and recovery
+
+The root delegates one active online operator key and the required witness
+keys. Production roots require at least two signatures from three offline root
+keys. A root at version N+1 names the hash of version N and must satisfy both
+the old and the new root thresholds. The client rejects a skipped version,
+rollback, changed history, partial signatures, a different environment or
+service, a relay mismatch, and an expired final root.
+
+On reconnect, the client requests
+`/api/key-transparency/roots?from=<local-version>`. That response is untrusted:
+it must contain the exact root already stored on the computer before any later
+root is considered. A network or HTTP failure may use the cached root only
+until its signed expiry. An invalid returned chain fails closed. Passing a
+reviewed newer chain through `--trust-file` follows the same transition checks.
+
+If the offline root threshold itself is compromised, an online response cannot
+repair trust. Recovery requires an out-of-band package or application release
+with a newly reviewed pin. This is a root-update mechanism inspired by TUF's
+old-and-new threshold rule; it is not a claim that Agents City implements the
+complete TUF specification.
+
 ## Protocol v4
 
 The wire constant is `agents-city-relay/4`.
@@ -89,7 +120,8 @@ The wire constant is `agents-city-relay/4`.
    Olm plus ML-KEM one-time prekeys to one exact Road revision.
 2. Before accepting a peer directory entry, the client verifies the signed
    device record, sparse-map proof, append-only consistency proof, operator
-   head and required witness signatures against the pinned trust profile.
+   head and required witness signatures against the online keys delegated by
+   the last accepted root.
 3. The initiator combines ephemeral X25519 and ML-KEM-768 secrets with
    domain-separated HKDF-SHA-256. AES-256-GCM protects the first Olm prekey
    message and authenticates the complete routing/key transcript.
@@ -200,6 +232,6 @@ npm --prefix plugin/channel run build
 ```
 
 These tests cover the public integration boundary. Production still requires
-an independently operated witness, privacy/legal acceptance for append-only key
-history, an independent integration audit, remediation and signed release
-evidence.
+an independently operated witness, a reviewed offline-root ceremony and
+compromise-recovery drill, privacy/legal acceptance for append-only key history,
+an independent integration audit, remediation and signed release evidence.

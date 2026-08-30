@@ -198,7 +198,11 @@ control plane receives only signed public material; a one-use PASCO binds that
 material to the human's browser approval, and later requests carry a short-lived
 signed proof instead of a bearer token.
 
-Protocol v4 verifies the peer through a pinned, witnessed key-transparency log.
+Protocol v4 verifies the peer through a witnessed key-transparency log whose
+online operator and witness keys are delegated by the last signed root stored
+on the computer. Root updates are sequential, hash-linked and require the old
+and new offline thresholds; rollback, gaps, expiry and relay substitution fail
+closed.
 The first Olm message is protected by transcript-bound hybrid X25519 +
 ML-KEM-768 establishment; later messages advance the classical Olm Double
 Ratchet. After the identified bootstrap, normal submissions use one-use sealed

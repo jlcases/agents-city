@@ -691,7 +691,7 @@ city catalogue. The public client implements protocol v4; the hosted service is
 outside this repository and is not production-enabled or independently audited.
 
 ```bash
-agents-city connect --service https://connect.example.com --trust-file trust.json
+agents-city connect --service https://connect.example.com --trust-file roots.json
 agents-city connect --city product
 agents-city connect --all
 agents-city connect status
@@ -706,13 +706,20 @@ stays in macOS Keychain, Windows Credential Manager or Linux Secret Service.
 The client fails closed if that keyring is unavailable. The vault is sealed from
 repo-agent windows on macOS and Linux.
 
-The pinned operator/witness profile supplied through `--trust-file` is mandatory
-for a non-development service. Protocol v4 verifies the peer through key
-transparency, protects the first Olm message with hybrid X25519 + ML-KEM-768,
-then uses the Olm Double Ratchet. After the identified bootstrap, normal
-submissions use one-use sealed-delivery capabilities and omit sender, device,
-city and Road identity from the outer request. This does not hide IP address,
-timing or padded size from Cloudflare, and later ratchet steps are classical.
+The signed root chain supplied through `--trust-file` is mandatory for first
+pairing with a non-development service. The client persists its last accepted
+version. A later root must continue from that exact local root and carry enough
+signatures from both the old and new offline authorities; skipped versions,
+rollback, expiry and silent operator/witness replacement are rejected. Protocol
+v4 then verifies the peer through key transparency, protects the first Olm
+message with hybrid X25519 + ML-KEM-768, and uses the Olm Double Ratchet. Normal
+sealed submissions omit sender, device, city and Road identity from the outer
+request. This does not hide IP address, timing or padded size from Cloudflare,
+and later ratchet steps are classical.
+
+The package includes a public root only for the exact managed sandbox origin;
+self-hosted services still require their reviewed `--trust-file`. A root
+returned by the service is never accepted as a first pin.
 
 `--city` chooses a local hub that can keep the computer's reception bridge
 alive; it is not a recipient selector and is never disclosed to the other
@@ -1607,8 +1614,8 @@ local hub that will start the owner-level reception bridge; it does not reveal
 that city or give the other person direct access to it:
 
 ```bash
-agents-city connect --city product --service https://connect.example.com --trust-file trust.json
-agents-city connect --city research --service https://connect.example.com --trust-file trust.json
+agents-city connect --city product --service https://connect.example.com --trust-file roots.json
+agents-city connect --city research --service https://connect.example.com --trust-file roots.json
 ```
 
 One person requests the connection in that service and the other accepts it.

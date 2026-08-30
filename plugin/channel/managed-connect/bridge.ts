@@ -2,7 +2,11 @@ import type WebSocket from 'ws';
 import type { CityContext } from '../city-config.js';
 import { BUS_PROTOCOL, isoNow, type BusEnvelope, type Road } from '../protocol.js';
 import type { ManagedRelaySession, UntrustedRoadText } from './relay-session.js';
-import { connectedStateForCity, loadConnectIdentity } from './storage.js';
+import {
+  connectedStateForCity,
+  loadConnectIdentity,
+  refreshStoredTransparency,
+} from './storage.js';
 import { openManagedRelaySession } from './transport.js';
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -82,8 +86,13 @@ export function managedRoadBridge(
     }
     connecting = true;
     try {
+      const refreshed = await refreshStoredTransparency(context.appHome);
+      if (refreshed.state.status !== 'connected') throw new Error('connect_state_not_connected');
+      if (refreshed.refreshWarning && process.env.CITY_BUS_DEBUG === '1') {
+        console.error(`[city-bus] ${refreshed.refreshWarning}; using unexpired cached root`);
+      }
       const opened = await openManagedRelaySession(
-        await loadConnectIdentity(found.state, context.appHome),
+        await loadConnectIdentity(refreshed.state, context.appHome),
         found.binding.remoteAddress,
         {
           onText: async (message) => {
@@ -95,7 +104,7 @@ export function managedRoadBridge(
               status: result.inserted ? 'inserted' : 'duplicate',
             };
           },
-          keyTransparency: found.state.keyTransparency,
+          keyTransparency: refreshed.runtime,
           onSecurityError: (error) => {
             console.error(`[city-bus] managed Road frame rejected: ${error.message}`);
           },

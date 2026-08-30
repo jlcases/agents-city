@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,7 +11,15 @@ export type LocalCity = {
   name: string;
 };
 
-const citiesScript = fileURLToPath(new URL('../../scripts/cities.py', import.meta.url));
+const locatedCitiesScript = [
+  new URL('../scripts/cities.py', import.meta.url),
+  new URL('../../scripts/cities.py', import.meta.url),
+]
+  .map((url) => fileURLToPath(url))
+  .find(existsSync);
+
+if (!locatedCitiesScript) throw new Error('Agents City city catalogue script is missing');
+const citiesScript: string = locatedCitiesScript;
 
 function scalar(input: string, key: string): string {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

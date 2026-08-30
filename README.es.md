@@ -700,7 +700,7 @@ alojado queda fuera de este repositorio y todavía no está habilitado en
 producción ni auditado de forma independiente.
 
 ```bash
-agents-city connect --service https://connect.example.com --trust-file trust.json
+agents-city connect --service https://connect.example.com --trust-file roots.json
 agents-city connect --city producto
 agents-city connect --all
 agents-city connect status
@@ -716,14 +716,22 @@ Llavero de macOS, Credential Manager de Windows o Secret Service de Linux. El
 cliente falla de forma cerrada si el keyring no está disponible. La jaula sella
 el vault para las ventanas de agentes de repositorio en macOS y Linux.
 
-El perfil fijado de operador y testigos indicado con `--trust-file` es
-obligatorio para un servicio que no sea de desarrollo. El protocolo v4 verifica
-al peer mediante transparencia de claves, protege el primer mensaje Olm con
-X25519 + ML-KEM-768 híbrido y después usa el Double Ratchet de Olm. Tras el
-bootstrap identificado, los envíos normales usan capacidades de entrega de un
-solo uso y omiten remitente, dispositivo, ciudad y Road de la petición exterior.
-Esto no oculta a Cloudflare la IP, el momento o el tamaño rellenado; los pasos
+La cadena de raíces firmada indicada con `--trust-file` es obligatoria en el
+primer emparejamiento con un servicio que no sea de desarrollo. El cliente
+conserva la última versión aceptada. Una raíz posterior debe continuar desde
+esa raíz local exacta y llevar suficientes firmas de las autoridades offline
+anteriores y nuevas; se rechazan saltos, rollback, caducidad y cambios
+silenciosos de operador o testigo. El protocolo v4 verifica después al peer
+mediante transparencia de claves, protege el primer mensaje Olm con X25519 +
+ML-KEM-768 híbrido y usa el Double Ratchet de Olm. Los envíos sellados normales
+omiten remitente, dispositivo, ciudad y Road de la petición exterior. Esto no
+oculta a Cloudflare la IP, el momento o el tamaño rellenado; los pasos
 posteriores del ratchet son clásicos.
+
+El paquete incluye una raíz pública únicamente para el origen exacto del
+sandbox gestionado. Los servicios autoalojados siguen necesitando su
+`--trust-file` revisado. Una raíz devuelta por el propio servicio nunca se
+acepta como primer anclaje.
 
 `--city` elige un hub local que mantiene viva la recepción del propietario; no
 elige un destinatario ni se revela a la otra persona. Un solo hub por ordenador
@@ -1625,8 +1633,8 @@ Con un operador de Roads gestionadas, cada persona empareja su ordenador.
 esa ciudad ni da acceso directo a ella:
 
 ```bash
-agents-city connect --city producto --service https://connect.example.com --trust-file trust.json
-agents-city connect --city research --service https://connect.example.com --trust-file trust.json
+agents-city connect --city producto --service https://connect.example.com --trust-file roots.json
+agents-city connect --city research --service https://connect.example.com --trust-file roots.json
 ```
 
 Una persona solicita la conexión en el servicio y la otra la acepta. Los
