@@ -266,6 +266,56 @@ def informe_entorno():
     return 1 if roto else 0
 
 
+def _diario(empaqueta, resto):
+    """`doctor --log` reads the journal; `doctor --report` bundles it to send.
+
+    The report is the thing that was missing. When this breaks on somebody
+    else's machine, the useful answer is not "tell me what you did" — it is a
+    file they can attach without reading it first. So it carries the journal and
+    the environment report, and nothing else: `diario` redacts credentials on
+    the way in, so what lands here was never a secret to begin with.
+    """
+    import cities  # noqa: PLC0415
+    import diario  # noqa: PLC0415
+
+    datos = cities.actual()
+    try:
+        cuantas = int(resto[0]) if resto else (2000 if empaqueta else 60)
+    except ValueError:
+        cuantas = 60
+    lineas = diario.lee(datos, cuantas)
+    if not empaqueta:
+        print(f'\n  {diario.ruta(datos)}\n')
+        if not lineas:
+            print('  Nothing recorded yet. The Hall writes here as you use it.\n')
+            return 0
+        for l in lineas:
+            resto_l = {k: v for k, v in l.items() if k not in ('t', 'tipo')}
+            detalle = json.dumps(resto_l, ensure_ascii=False)[:160]
+            print(f"  {l.get('t', '')}  {l.get('tipo', ''):8} {detalle}")
+        print()
+        return 0
+
+    import io  # noqa: PLC0415
+    from contextlib import redirect_stdout  # noqa: PLC0415
+
+    entorno = io.StringIO()
+    with redirect_stdout(entorno):
+        informe_entorno()
+    destino = os.path.join(os.path.expanduser('~'), 'agents-city-report.txt')
+    with open(destino, 'w', encoding='utf-8') as f:
+        f.write('# agents-city report\n\n')
+        f.write('## this machine\n')
+        f.write(entorno.getvalue())
+        f.write(f'\n## the journal ({len(lineas)} entries)\n\n')
+        for l in lineas:
+            f.write(json.dumps(l, ensure_ascii=False) + '\n')
+    print(f'\n  Written to {destino}\n')
+    print('  It holds what this machine is and what the town hall did.')
+    print('  Credentials are stripped as they are recorded, so it is safe to attach.\n')
+    return 0
+
+
 def main(argv=None):
     # The arguments are a parameter so this door can be knocked on from a test
     # without a subprocess: `doctor --config` is the command that backs a claim
@@ -290,6 +340,9 @@ def main(argv=None):
     # can be checked instead of believed.
     if argv[1] in ('--config', 'config'):
         return arnes.main(argv[2:])
+    # What happened, and something to attach to an issue.
+    if argv[1] in ('--log', 'log', '--report', 'report'):
+        return _diario(argv[1] in ('--report', 'report'), argv[2:])
     p = argparse.ArgumentParser(description='Detect, explain and migrate an old config shape.')
     p.add_argument('fichero', help='the config JSON file to check')
     p.add_argument('--fix', action='store_true', help='rewrite (default is dry-run report)')

@@ -17,6 +17,7 @@ lost its Chrome fails loudly instead of quietly testing nothing.
 """
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -201,6 +202,14 @@ def main():
             afirma("· the browser checks ran at all", False, texto.strip()[-500:])
         elif salida.returncode != 0:
             afirma("· the browser driver finished cleanly", False, texto.strip()[-300:])
+        # A browser check that fails says what it saw in the page. What the
+        # SERVER saw is in the city's journal, and printing it here is the
+        # difference between "it did nothing" and the refusal that caused it.
+        if salida.returncode != 0:
+            import diario
+
+            for entrada in diario.lee(datos, 25):
+                print("      journal " + json.dumps(entrada, ensure_ascii=False)[:200])
     finally:
         servidor.shutdown()
         servidor.server_close()
