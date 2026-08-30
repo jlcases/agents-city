@@ -1,0 +1,34 @@
+{
+  "protocol": "agents-city-public-connect-client/1",
+  "generatedFrom": "agents-city-web",
+  "sourceFiles": {
+    "packages/connect-client/src/device.ts": "ec53e4833841d14540ec7c82b15268396ef8794d7f2915cf0e6ad80b7b430b65",
+    "packages/connect-client/src/encoding.ts": "79101839d73936e19df58e64c7a4a08c7506849ed62b608160b8aa1473b5c840",
+    "packages/connect-client/src/hybrid-crypto.ts": "88039aab66586ebc82a8ac0ee7cdce0384bb30eba225af13993b7bf784b254e5",
+    "packages/connect-client/src/index.ts": "61e47e4430bb02694712402b4f574d0a3476ee798304c91957838fa9c4358f76",
+    "packages/connect-client/src/keyring-secret.ts": "0bec9531a4fd8dff9239229590ef35e740e686d5a7295380d8edf083b3ee166f",
+    "packages/connect-client/src/node-persistence.ts": "34de5a67a5168907afe9394edbb4b6d5c87dc66b74524a1abac9d4b50618862f",
+    "packages/connect-client/src/node.ts": "0aff832557684758c323ff768753e2da693766df21e35079e2f40cd31fbd1c27",
+    "packages/connect-client/src/ratchet.ts": "f6f900f6c78a1db20f44ae4582c7c3a56236c2342a406bfa3a4c158446890395",
+    "packages/connect-client/src/relay-session.ts": "113fcb5ee9db8ee3a0e9c4778a04367d8e1c5213bcb590dabe4fc73c34ea2259",
+    "packages/connect-client/src/road.ts": "0f6be1e5a7ee29efe7159cfa13d91e42505af454bfb281f5308e65a91fce1f1b",
+    "packages/connect-client/src/sealed-client.ts": "be8a88438548f44be5ec12f6e0c8fa3dcb7abf2739f11ab7da6cfe3e20462877",
+    "packages/service-protocol/src/index.ts": "fbaf268ebba31ca8c84e32410db6b986d60662f9fe0f999c654707a27aa329c5",
+    "packages/service-protocol/src/hybrid-establishment.ts": "4e8edee13cc6f63afeebd6224b9b1978670df901eb521a37d72f3ca6de559024",
+    "packages/service-protocol/src/key-transparency.ts": "0b8b55b26ac8c9ae18a7c286f7fd7cd483a94e804b0c76820368418e98960eea",
+    "packages/service-protocol/src/sealed-sender.ts": "3700bd6175e440a184e39f6754d05533f4c4a8c786e70d3094fcf4a31e0df3fe",
+    "packages/service-protocol/src/validation.ts": "5e98d5ad6a6fd7b966710786eef4c911d687f135a0c716e3f8b9349e6d7f9297",
+    "scripts/templates/managed-connect-client.d.ts": "2b85364e37747634dd9d1361c5cc58d0aa1cf0661fc73cf6e4280a4d1bbe0546"
+  },
+  "exported": {
+    "plugin/channel/managed-connect-client.js": "769998ffb72779e4d5698526a83b1da64cc2ccdfa0274b7535ca0a7dcc0b364f",
+    "plugin/channel/managed-connect-client.d.ts": "2b85364e37747634dd9d1361c5cc58d0aa1cf0661fc73cf6e4280a4d1bbe0546",
+    "plugin/channel/kinsh_vodozemac_wasm_bg.wasm": "b05699476752705a95100a9c54874be89b636bd361497b524b798944b401ba12",
+    "plugin/channel/agents_city_hybrid_crypto_bg.wasm": "bd14542b287c9166d2b6c55f8ad667b67bd8734c991115eb4c3aac50a54474e7",
+    "plugin/channel/licenses/CONNECT_CLIENT_THIRD_PARTY_NOTICES.md": "360aae50a7fdf2029c6ce85eb72cee4f05f3d96b814745c15d41ca5be53281d3",
+    "plugin/channel/licenses/keyring-MIT.txt": "02965ed67e29f871a53f7a7afa593a0ddc8020f86ccce0faaf1aa59215b5269e",
+    "plugin/channel/licenses/vodozemac-Apache-2.0.txt": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "plugin/channel/licenses/hybrid-crypto-Apache-2.0.txt": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "plugin/channel/licenses/HYBRID_CRYPTO_THIRD_PARTY_NOTICES.md": "715ef4eb3be41b6392a467c640869cba2e394ba7313c83f139d6bec5965d2aa8"
+  }
+}

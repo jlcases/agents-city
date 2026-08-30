@@ -9,11 +9,7 @@ import {
   takeRoadInbox,
 } from '../delivery-queue.js';
 import { requireChair } from '../committee/guards.js';
-import {
-  deliverApprovedReception,
-  recordReceptionMessage,
-  recordReceptionMessages,
-} from '../reception.js';
+import { deliverApprovedReception, recordReceptionMessage } from '../reception.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
 import { localRoadOnline, sendLocalRoad } from './local-roads.js';
@@ -91,16 +87,14 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     // and deduplication receipt are durable under one stable envelope id.
     markRoadInboxAccepted(context.runtimeDir, guarded.id);
   };
-  const inboundManagedBatch = (envelopes: BusEnvelope[]): void => {
-    for (const envelope of envelopes) {
-      validateInbound(envelope);
-      if (envelope.payload?.transport !== 'managed-e2ee') {
-        throw new Error('managed batch contains a non-managed envelope');
-      }
+  const inboundManaged = (envelope: BusEnvelope): { inserted: boolean } => {
+    validateInbound(envelope);
+    if (envelope.payload?.transport !== 'managed-e2ee') {
+      throw new Error('managed delivery contains a non-managed envelope');
     }
-    recordReceptionMessages(context, envelopes);
+    return recordReceptionMessage(context, envelope);
   };
-  remote = remoteRoadBridge(context, inbound, inboundManagedBatch);
+  remote = remoteRoadBridge(context, inbound, inboundManaged);
 
   const notifyBacklog = (): void => {
     const status = roadInboxStatus(context.runtimeDir);

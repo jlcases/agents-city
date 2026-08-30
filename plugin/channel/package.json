@@ -7,7 +7,7 @@
     "ws": "^8.21.0"
   },
   "scripts": {
-    "build": "esbuild bus.ts local-hub.ts client.ts adapter.ts runtime-gateway.ts managed-connect-core.ts managed-connect-client.ts managed-connect-cli.ts --bundle --platform=node --target=node22 --format=esm --outdir=. --outbase=. --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); // Generated from TypeScript; do not edit. npm run build\"",
+    "build": "esbuild bus.ts local-hub.ts client.ts adapter.ts runtime-gateway.ts managed-connect-cli.ts --bundle --platform=node --target=node22 --format=esm --outdir=. --outbase=. --external:./managed-connect-client.js --external:@napi-rs/keyring --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url); // Generated from TypeScript; do not edit. npm run build\"",
     "typecheck": "tsc --noEmit --strict --target es2022 --module esnext --moduleResolution bundler --skipLibCheck *.ts committee/*.ts hub/*.ts runtime/*.ts managed-connect/*.ts"
   },
   "devDependencies": {

@@ -16,13 +16,18 @@ import {
   markReceptionOutboxFailed,
   markReceptionOutboxSent,
   pendingReceptionOutbox,
-  recordReceptionMessages,
+  recordReceptionMessage,
   syncReceptionConnections,
 } from '../reception.js';
-import { listDeviceRoads, type DeviceRoad } from './device.js';
+import { listDeviceRoads, type DeviceIdentity, type DeviceRoad } from './device.js';
 import { decodePersonMessage, encodePersonMessage } from './person-message.js';
 import type { ManagedRelaySession, UntrustedRoadText } from './relay-session.js';
-import { readConnectState, connectStateDirectory } from './storage.js';
+import {
+  connectStateDirectory,
+  loadConnectIdentity,
+  readConnectState,
+  type ConnectedConnectState,
+} from './storage.js';
 import { openManagedRelaySession } from './transport.js';
 
 const RETRY_START_MS = 1_000;
@@ -43,6 +48,7 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
   let backoff = RETRY_START_MS;
   let draining = false;
   let metadata = new Map<string, DeviceRoad>();
+  let identity: DeviceIdentity | null = null;
 
   const debug = (message: string) => {
     if (process.env.CITY_BUS_DEBUG === '1') console.error(`[reception] ${message}`);
@@ -66,11 +72,18 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
     connecting = false;
   };
 
+  const identityFor = async (state: ConnectedConnectState) => {
+    if (identity?.deviceId === state.device.deviceId) return identity;
+    identity = await loadConnectIdentity(state, context.appHome);
+    return identity;
+  };
+
   const refreshDirectory = async (): Promise<DeviceRoad[]> => {
     const state = readConnectState(context.appHome);
     if (!state || state.status !== 'connected') return [];
-    const endpoint = receptionEndpoint(state.identity.ownerPrefix, state.identity.deviceId);
-    const directory = await listDeviceRoads(state.serviceUrl, state.identity);
+    const activeIdentity = await identityFor(state);
+    const endpoint = receptionEndpoint(activeIdentity.ownerPrefix, activeIdentity.deviceId);
+    const directory = await listDeviceRoads(state.serviceUrl, activeIdentity);
     const roads = directory.roads.filter(
       (road) =>
         road.kind === 'connection' && Boolean(road.connectionId) && road.localCity === endpoint,
@@ -98,31 +111,34 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
     }
     connecting = true;
     try {
+      const activeIdentity = await identityFor(state);
       const roads = await refreshDirectory();
       if (!roads.length) {
         connecting = false;
         backoff = RETRY_START_MS;
         return schedule(DIRECTORY_REFRESH_MS);
       }
-      const endpoint = receptionEndpoint(state.identity.ownerPrefix, state.identity.deviceId);
-      const opened = await openManagedRelaySession(state.identity, endpoint, {
-        onTextBatch: async (messages) => {
-          const envelopes = messages.map((message) =>
+      const endpoint = receptionEndpoint(activeIdentity.ownerPrefix, activeIdentity.deviceId);
+      const opened = await openManagedRelaySession(activeIdentity, endpoint, {
+        onText: async (message) => {
+          const recorded = recordReceptionMessage(
+            {
+              appHome: context.appHome,
+              city: { id: `device_${activeIdentity.deviceId}`, address: endpoint },
+            },
             receptionEnvelope(
-              state.identity.deviceId,
+              activeIdentity.deviceId,
               endpoint,
               message,
               metadata.get(message.roadId),
             ),
           );
-          recordReceptionMessages(
-            {
-              appHome: context.appHome,
-              city: { id: `device_${state.identity.deviceId}`, address: endpoint },
-            },
-            envelopes,
-          );
+          return {
+            messageId: message.messageId,
+            status: recorded.inserted ? 'inserted' : 'duplicate',
+          };
         },
+        keyTransparency: state.keyTransparency,
         onSecurityError: (error) => debug(`security refusal: ${error.message}`),
         onLocalError: (error) => debug(`local handoff failed: ${error.message}`),
       });
@@ -169,9 +185,13 @@ export function managedReceptionBridge(context: Pick<CityContext, 'appHome'>) {
                 text: row.body,
                 inReplyTo: row.inReplyTo,
               }),
-              { messageId: row.messageId },
+              {
+                messageId: row.messageId,
+                onAccepted: () => {
+                  markReceptionOutboxSent(context.appHome, row.messageId);
+                },
+              },
             );
-            markReceptionOutboxSent(context.appHome, row.messageId);
           } catch (error) {
             markReceptionOutboxFailed(context.appHome, row.messageId, row.attemptCount, error);
           }
@@ -245,7 +265,7 @@ function receptionEnvelope(
     thread: null,
     from: { city: message.from, actor: 'seat', role: 'external-seat' },
     to: { city: endpoint, actor: 'seat' },
-    createdAt: message.createdAt || new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     payload: {
       text: person.text,
       trust: 'information-not-authority',

@@ -1,8 +1,9 @@
-import { textDecoder, textEncoder, utf8Length } from './encoding.js';
-import { UUID_RE } from './protocol.js';
-
 export const PERSON_MESSAGE_PROTOCOL = 'agents-city-person-message/1' as const;
 const MAX_PERSON_TEXT_BYTES = 11_500;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
+const utf8Length = (value: string) => textEncoder.encode(value).byteLength;
 
 export type PersonMessage = {
   kind: 'message' | 'rejection';

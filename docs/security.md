@@ -186,22 +186,35 @@ is defence in depth for the seat, not a promise the model obeys the boundary.
 
 ## Layer 8 — managed Road keys and ciphertext
 
-`agents-city connect` generates Ed25519 signing and X25519 encryption keys on
-the device. Private JWKs are written atomically to a 0600 file inside a 0700
-directory and refused on symlinks or over-broad permissions. That directory is
-in the shared sealed set above, so repo-agent windows cannot read it on either
-supported cage. The control plane receives only public JWKs; a one-use PASCO
-binds those keys to the human's browser approval, and later requests carry a
-short-lived signed proof instead of a bearer token.
+`agents-city connect` generates Ed25519/X25519, Olm and ML-KEM-768 key material
+on the device. Private JWKs, ratchet pickles, ML-KEM seeds, delivery
+capabilities, pending plaintext and retry outboxes are AES-256-GCM encrypted in
+a 0700 vault; its 32-byte wrapping key stays in macOS Keychain, Windows
+Credential Manager or Linux Secret Service. The client has no plaintext
+fallback. `device.json` contains assignment and trust metadata, not private
+keys. Both locations are refused on symlinks or over-broad permissions and are
+in the shared cage seal above, so repo-agent windows cannot read them. The
+control plane receives only signed public material; a one-use PASCO binds that
+material to the human's browser approval, and later requests carry a short-lived
+signed proof instead of a bearer token.
 
-Road plaintext is sealed with RFC 9180 HPKE Base mode and the complete routing
-context is bound as AEAD additional data. The resulting envelope is signed with
-Ed25519. The relay can route and queue ciphertext but cannot decrypt it. The
-recipient verifies the active bilateral Road revision, addresses, expiry, key
-id and signature before decryption, then admits exactly one text field through
-Layer 7. It ACKs only after the local boundary accepts the text, and a revocation
-update removes the Road immediately. The client opens WSS outbound; it does not
-publish a port on the owner's computer. Full contract:
+Protocol v4 verifies the peer through a pinned, witnessed key-transparency log.
+The first Olm message is protected by transcript-bound hybrid X25519 +
+ML-KEM-768 establishment; later messages advance the classical Olm Double
+Ratchet. After the identified bootstrap, normal submissions use one-use sealed
+delivery capabilities and omit sender, device, city and Road identity from the
+outer request. The relay can route and queue ciphertext but cannot decrypt it.
+The recipient authenticates the active Road revision and inner routing fields,
+then admits exactly one text field through Layer 7. It ACKs only after an exact
+idempotent local-inbox receipt, and revocation removes the old revision,
+capabilities and queued ciphertext.
+
+These are precise, limited claims: sealed delivery, key transparency and
+post-quantum session establishment. Cloudflare can still observe IP address,
+service, timing and padded size; the first bootstrap is identified; later
+ratchet steps are classical; and no independent integration audit has been
+completed. The client opens HTTPS/WSS outbound and publishes no port on the
+owner's computer. Full contract:
 [managed-connect.md](managed-connect.md).
 
 ## Host-bound secrets — the broker without handing over the key

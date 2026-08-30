@@ -90,7 +90,7 @@ var require_buffer_util = __commonJS({
         buffer[i] ^= mask[i & 3];
       }
     }
-    function toArrayBuffer2(buf) {
+    function toArrayBuffer(buf) {
       if (buf.length === buf.buffer.byteLength) {
         return buf.buffer;
       }
@@ -113,7 +113,7 @@ var require_buffer_util = __commonJS({
     module.exports = {
       concat,
       mask: _mask,
-      toArrayBuffer: toArrayBuffer2,
+      toArrayBuffer,
       toBuffer,
       unmask: _unmask
     };
@@ -780,7 +780,7 @@ var require_receiver = __commonJS({
       kStatusCode,
       kWebSocket
     } = require_constants();
-    var { concat, toArrayBuffer: toArrayBuffer2, unmask } = require_buffer_util();
+    var { concat, toArrayBuffer, unmask } = require_buffer_util();
     var { isValidStatusCode, isValidUTF8 } = require_validation();
     var FastBuffer = Buffer[Symbol.species];
     var GET_INFO = 0;
@@ -1259,7 +1259,7 @@ var require_receiver = __commonJS({
           if (this._binaryType === "nodebuffer") {
             data = concat(fragments, messageLength);
           } else if (this._binaryType === "arraybuffer") {
-            data = toArrayBuffer2(concat(fragments, messageLength));
+            data = toArrayBuffer(concat(fragments, messageLength));
           } else if (this._binaryType === "blob") {
             data = new Blob(fragments);
           } else {
@@ -2275,7 +2275,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes, createHash } = __require("crypto");
+    var { randomBytes, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2943,7 +2943,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3312,7 +3312,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash } = __require("crypto");
+    var { createHash: createHash2 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3619,7 +3619,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash("sha1").update(key + GUID).digest("base64");
+        const digest = createHash2("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -3711,228 +3711,15 @@ import { spawn as spawn2 } from "node:child_process";
 import { hostname, platform } from "node:os";
 import { existsSync as existsSync4 } from "node:fs";
 
-// managed-connect/protocol.ts
-var DEVICE_PROOF_PROTOCOL = "agents-city-device-proof/1";
-var MAX_MESSAGE_LIFETIME_MS = 60 * 60 * 1e3;
-var CITY_PART = "[a-z0-9][a-z0-9_-]{0,31}";
-var CITY_ADDRESS_RE = new RegExp(`^${CITY_PART}/${CITY_PART}$`);
-var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-var BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
-var base64urlDecodedLength = (value) => {
-  if (!BASE64URL_RE.test(value)) return Number.POSITIVE_INFINITY;
-  return Math.floor(value.length * 3 / 4);
-};
-var canonicalDeviceProof = (fields) => [
-  DEVICE_PROOF_PROTOCOL,
-  fields.method.toUpperCase(),
-  fields.pathname,
-  fields.deviceId,
-  fields.city,
-  String(fields.timestamp),
-  fields.nonce,
-  fields.bodySha256.toLowerCase()
-].join("\n");
-
-// managed-connect/encoding.ts
-var textEncoder = new TextEncoder();
-var textDecoder = new TextDecoder("utf-8", { fatal: true });
-var toArrayBuffer = (value) => {
-  const copy = new Uint8Array(value.byteLength);
-  copy.set(value);
-  return copy.buffer;
-};
-var bytesToBase64url = (value) => {
-  let binary = "";
-  for (const byte of value) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-};
-var bytesToHex = (value) => [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-var randomBase64url = (bytes = 24) => {
-  const value = new Uint8Array(bytes);
-  crypto.getRandomValues(value);
-  return bytesToBase64url(value);
-};
-var sha256Bytes = async (value) => new Uint8Array(
-  await crypto.subtle.digest(
-    "SHA-256",
-    toArrayBuffer(typeof value === "string" ? textEncoder.encode(value) : value)
-  )
-);
-var sha256Hex = async (value) => bytesToHex(await sha256Bytes(value));
-
 // managed-connect/device.ts
-var generateDeviceKeys = async () => {
-  const signing = await crypto.subtle.generateKey({ name: "Ed25519" }, true, [
-    "sign",
-    "verify"
-  ]);
-  const encryption = await crypto.subtle.generateKey({ name: "X25519" }, true, [
-    "deriveBits"
-  ]);
-  return {
-    signingPublicJwk: await crypto.subtle.exportKey("jwk", signing.publicKey),
-    signingPrivateJwk: await crypto.subtle.exportKey("jwk", signing.privateKey),
-    encryptionPublicJwk: await crypto.subtle.exportKey("jwk", encryption.publicKey),
-    encryptionPrivateJwk: await crypto.subtle.exportKey("jwk", encryption.privateKey)
-  };
-};
-var importSigningKey = (jwk) => {
-  if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string" || typeof jwk.d !== "string")
-    throw new Error("invalid_ed25519_private_key");
-  return crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["sign"]);
-};
-var signDeviceProof = async (identity, method, pathname, body = "", city = "") => {
-  const fields = {
-    method: method.toUpperCase(),
-    pathname,
-    deviceId: identity.deviceId,
-    city,
-    timestamp: Date.now(),
-    nonce: randomBase64url(24),
-    bodySha256: await sha256Hex(body)
-  };
-  const signature = new Uint8Array(
-    await crypto.subtle.sign(
-      "Ed25519",
-      await importSigningKey(identity.signingPrivateJwk),
-      textEncoder.encode(canonicalDeviceProof(fields))
-    )
-  );
-  return {
-    "x-agents-device": fields.deviceId,
-    "x-agents-city": fields.city,
-    "x-agents-timestamp": String(fields.timestamp),
-    "x-agents-nonce": fields.nonce,
-    "x-agents-body-sha256": fields.bodySha256,
-    "x-agents-signature": bytesToBase64url(signature)
-  };
-};
-var ConnectApiError = class extends Error {
-  constructor(code, status2, retryAfterMs) {
-    super(code);
-    this.code = code;
-    this.status = status2;
-    this.retryAfterMs = retryAfterMs;
-    this.name = "ConnectApiError";
-  }
-  code;
-  status;
-  retryAfterMs;
-};
-var apiJson = async (request, fetcher) => {
-  const response = await fetcher(request);
-  const value = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const retryAfter = Number(response.headers.get("retry-after"));
-    throw new ConnectApiError(
-      value.error ?? `connect_api_${response.status}`,
-      response.status,
-      Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter * 1e3 : null
-    );
-  }
-  return value;
-};
-var beginDeviceAuthorization = async (controlPlaneUrl, machineName, platform2, keys, fetcher = fetch) => {
-  const authorization = await apiJson(
-    new Request(new URL("/api/device/authorize", controlPlaneUrl), {
-      method: "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(15e3),
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        machine_name: machineName,
-        platform: platform2,
-        signing_public_jwk: keys.signingPublicJwk,
-        encryption_public_jwk: keys.encryptionPublicJwk
-      })
-    }),
-    fetcher
-  );
-  if (new URL(authorization.verification_uri).origin !== new URL(controlPlaneUrl).origin) {
-    throw new Error("verification_origin_mismatch");
-  }
-  return authorization;
-};
-var claimDeviceAuthorization = async (controlPlaneUrl, deviceCode, keys, fetcher = fetch) => {
-  const value = await apiJson(
-    new Request(new URL("/api/device/token", controlPlaneUrl), {
-      method: "POST",
-      redirect: "error",
-      signal: AbortSignal.timeout(15e3),
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ device_code: deviceCode })
-    }),
-    fetcher
-  );
-  return {
-    ...keys,
-    deviceId: value.device_id,
-    ownerPrefix: value.owner_prefix,
-    relayUrl: value.bus_url,
-    keyVersion: value.key_version
-  };
-};
-var abortableWait = (milliseconds, signal) => new Promise((resolve3, reject) => {
-  if (signal?.aborted) return reject(new Error("device_authorization_cancelled"));
-  const finish = () => {
-    signal?.removeEventListener("abort", cancelled);
-    resolve3();
-  };
-  const timer = setTimeout(finish, milliseconds);
-  const cancelled = () => {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", cancelled);
-    reject(new Error("device_authorization_cancelled"));
-  };
-  signal?.addEventListener("abort", cancelled, { once: true });
-});
-var pollDeviceAuthorization = async (controlPlaneUrl, authorization, keys, options = {}) => {
-  const deadline = Date.now() + authorization.expires_in * 1e3;
-  const baseInterval = Math.max(1e3, authorization.interval * 1e3);
-  while (Date.now() < deadline) {
-    try {
-      return await claimDeviceAuthorization(
-        controlPlaneUrl,
-        authorization.device_code,
-        keys,
-        options.fetcher ?? fetch
-      );
-    } catch (error) {
-      if (!(error instanceof ConnectApiError) || !["authorization_pending", "slow_down"].includes(error.code)) {
-        throw error;
-      }
-      options.onPending?.();
-      await abortableWait(Math.max(baseInterval, error.retryAfterMs ?? 0), options.signal);
-    }
-  }
-  throw new Error("device_authorization_expired");
-};
-var signedDeviceRequest = async (controlPlaneUrl, identity, pathname, init = {}) => {
-  const method = init.method ?? "GET";
-  const body = init.body ?? "";
-  const headers = await signDeviceProof(identity, method, pathname, body, init.city ?? "");
-  return new Request(new URL(pathname, controlPlaneUrl), {
-    method,
-    redirect: "error",
-    signal: AbortSignal.timeout(15e3),
-    headers: {
-      ...headers,
-      ...body ? { "content-type": "application/json" } : {}
-    },
-    ...body ? { body } : {}
-  });
-};
-var syncDeviceCities = async (controlPlaneUrl, identity, cities, fetcher = fetch) => {
-  const body = JSON.stringify({ cities });
-  return apiJson(
-    await signedDeviceRequest(controlPlaneUrl, identity, "/api/device/cities", {
-      method: "POST",
-      body
-    }),
-    fetcher
-  );
-};
-var listDeviceRoads = async (controlPlaneUrl, identity, fetcher = fetch) => apiJson(await signedDeviceRequest(controlPlaneUrl, identity, "/api/device/roads"), fetcher);
+import {
+  ConnectApiError,
+  beginDeviceAuthorization,
+  listDeviceRoads,
+  pollDeviceAuthorization,
+  signedRelayHeaders,
+  syncDeviceCities
+} from "./managed-connect-client.js";
 
 // managed-connect/local-cities.ts
 import { spawnSync } from "node:child_process";
@@ -4000,7 +3787,9 @@ function selectLocalCities(cities, selectors, all) {
 }
 
 // managed-connect/storage.ts
+import { createHash } from "node:crypto";
 import {
+  chmodSync,
   closeSync,
   constants,
   existsSync,
@@ -4012,14 +3801,22 @@ import {
   readFileSync as readFileSync2,
   realpathSync as realpathSync2,
   renameSync,
-  chmodSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
 import { join as join2, resolve } from "node:path";
-var CONNECT_STATE_PROTOCOL = "agents-city-connect-state/1";
-var MAX_STATE_BYTES = 64 * 1024;
+import {
+  createOsProtectedDeviceVault,
+  initializeHybridCrypto
+} from "./managed-connect-client.js";
+var CONNECT_STATE_PROTOCOL = "agents-city-connect-state/2";
+var LEGACY_CONNECT_STATE_PROTOCOL = "agents-city-connect-state/1";
+var MAX_STATE_BYTES = 128 * 1024;
+var CITY_ADDRESS_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var OWNER_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+var KEY_ID_RE = /^[A-Za-z0-9._-]{1,80}$/;
 function agentsCityHome(explicit = "") {
   const requested = resolve(
     explicit || process.env.AGENTS_CITY_HOME || join2(homedir(), ".agents-city")
@@ -4033,6 +3830,13 @@ function connectStateDirectory(appHome = "") {
 function connectStatePath(appHome = "") {
   return join2(connectStateDirectory(appHome), "device.json");
 }
+function connectVaultDirectory(appHome = "") {
+  return join2(connectStateDirectory(appHome), "vault");
+}
+var vaultAccount = (appHome = "") => {
+  const digest = createHash("sha256").update(agentsCityHome(appHome)).digest("hex");
+  return `agents-city-connect-${digest}`;
+};
 function privateDirectory(path) {
   if (!existsSync(path)) mkdirSync(path, { mode: 448 });
   const info = lstatSync(path);
@@ -4070,9 +3874,7 @@ function assertPrivateFile(path) {
   if ((info.mode & 63) !== 0) throw new Error("connect_state_permissions_too_open");
   if (info.size < 2 || info.size > MAX_STATE_BYTES) throw new Error("invalid_connect_state_size");
 }
-function noFollowFlag() {
-  return typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
-}
+var noFollowFlag = () => typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
 function writeConnectState(state, appHome = "") {
   const checked = validateConnectState(state);
   const directory = prepareStateDirectory(appHome);
@@ -4084,7 +3886,8 @@ function writeConnectState(state, appHome = "") {
     384
   );
   try {
-    writeFileSync(fd, JSON.stringify(checked, null, 2) + "\n", { encoding: "utf8" });
+    writeFileSync(fd, `${JSON.stringify(checked, null, 2)}
+`, { encoding: "utf8" });
     fsyncSync(fd);
   } finally {
     closeSync(fd);
@@ -4092,11 +3895,11 @@ function writeConnectState(state, appHome = "") {
   renameSync(temporary, destination);
   chmodSync(destination, 384);
   try {
-    const dirFd = openSync(directory, constants.O_RDONLY);
+    const directoryFd = openSync(directory, constants.O_RDONLY);
     try {
-      fsyncSync(dirFd);
+      fsyncSync(directoryFd);
     } finally {
-      closeSync(dirFd);
+      closeSync(directoryFd);
     }
   } catch {
   }
@@ -4109,9 +3912,14 @@ function readConnectState(appHome = "") {
   const fd = openSync(path, constants.O_RDONLY | noFollowFlag());
   try {
     const info = fstatSync(fd);
-    if (!info.isFile() || info.size > MAX_STATE_BYTES)
+    if (!info.isFile() || info.size > MAX_STATE_BYTES) {
       throw new Error("invalid_connect_state_size");
-    return validateConnectState(JSON.parse(readFileSync2(fd, "utf8")));
+    }
+    const value = JSON.parse(readFileSync2(fd, "utf8"));
+    if (value.protocol === LEGACY_CONNECT_STATE_PROTOCOL) {
+      throw new Error("legacy_connect_state_contains_plaintext_keys");
+    }
+    return validateConnectState(value);
   } catch (error) {
     if (error instanceof SyntaxError) throw new Error("invalid_connect_state_json");
     throw error;
@@ -4125,27 +3933,53 @@ function removePendingConnectState(appHome = "") {
   unlinkSync(connectStatePath(appHome));
   return true;
 }
-function secureWebUrl(value) {
+function secureWebOrigin(value) {
   let url;
   try {
     url = new URL(String(value ?? ""));
   } catch {
     throw new Error("invalid_connect_service_url");
   }
-  const local = ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
+  const local = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname);
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
     throw new Error("connect_service_requires_https");
   }
-  if (url.username || url.password || url.search || url.hash)
+  if (url.username || url.password || url.search || url.hash) {
     throw new Error("invalid_connect_service_url");
-  return url;
-}
-function normalizeConnectServiceUrl(value) {
-  const url = secureWebUrl(value);
-  if (url.pathname !== "/" && url.pathname !== "")
+  }
+  if (url.pathname !== "/" && url.pathname !== "") {
     throw new Error("connect_service_must_be_an_origin");
+  }
   url.pathname = "/";
   return url.toString().replace(/\/$/, "");
+}
+var normalizeConnectServiceUrl = (value) => secureWebOrigin(value);
+function loadTransparencyProfile(serviceUrl, explicitPath = "") {
+  const requested = explicitPath || process.env.AGENTS_CITY_CONNECT_TRUST_FILE || "";
+  if (!requested) {
+    throw new Error(
+      "this service has no pinned trust profile; pass --trust-file or AGENTS_CITY_CONNECT_TRUST_FILE"
+    );
+  }
+  const path = resolve(requested);
+  const metadata = lstatSync(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > MAX_STATE_BYTES) {
+    throw new Error("invalid_key_transparency_profile_file");
+  }
+  let value;
+  try {
+    value = JSON.parse(readFileSync2(path, "utf8"));
+  } catch {
+    throw new Error("invalid_key_transparency_profile_file");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_key_transparency_profile_file");
+  }
+  const profile = value;
+  return validateTransparency(
+    { controlPlaneUrl: profile.controlPlaneUrl, trust: profile.trust },
+    normalizeConnectServiceUrl(serviceUrl)
+  );
 }
 function secureRelayUrl(value) {
   let url;
@@ -4154,95 +3988,161 @@ function secureRelayUrl(value) {
   } catch {
     throw new Error("invalid_relay_url");
   }
-  const local = ["127.0.0.1", "localhost", "::1"].includes(url.hostname);
-  if (url.protocol !== "wss:" && !(local && url.protocol === "ws:"))
+  const local = ["127.0.0.1", "localhost", "[::1]", "::1"].includes(url.hostname);
+  if (url.protocol !== "wss:" && !(local && url.protocol === "ws:")) {
     throw new Error("relay_requires_wss");
-  if (url.username || url.password || url.search || url.hash) throw new Error("invalid_relay_url");
-  if (url.pathname !== "/v1/connect") throw new Error("invalid_relay_path");
+  }
+  if (url.username || url.password || url.search || url.hash || url.pathname !== "/v1/connect")
+    throw new Error("invalid_relay_url");
   return url.toString();
 }
-function okp(value, curve, privateKey) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const jwk = value;
-  return jwk.kty === "OKP" && jwk.crv === curve && typeof jwk.x === "string" && base64urlDecodedLength(jwk.x) === 32 && (privateKey ? typeof jwk.d === "string" && base64urlDecodedLength(jwk.d) === 32 : jwk.d === void 0);
+var decodedLength = (value) => {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/.test(value)) return -1;
+  try {
+    return Buffer.from(value, "base64url").byteLength;
+  } catch {
+    return -1;
+  }
+};
+var publicEd25519 = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_transparency_public_key");
+  }
+  const key = value;
+  if (key.kty !== "OKP" || key.crv !== "Ed25519" || decodedLength(key.x) !== 32 || key.d !== void 0)
+    throw new Error("invalid_transparency_public_key");
+  return { kty: "OKP", crv: "Ed25519", x: key.x, ext: true };
+};
+function validateTransparency(value, serviceUrl) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_key_transparency_profile");
+  }
+  const profile = value;
+  if (secureWebOrigin(profile.controlPlaneUrl) !== serviceUrl) {
+    throw new Error("key_transparency_origin_mismatch");
+  }
+  if (!profile.trust || typeof profile.trust !== "object") {
+    throw new Error("invalid_key_transparency_profile");
+  }
+  const trust = profile.trust;
+  if (!KEY_ID_RE.test(String(trust.operatorKeyId ?? "")) || !Number.isSafeInteger(trust.minimumWitnesses) || trust.minimumWitnesses < 1 || trust.minimumWitnesses > 16 || !Number.isSafeInteger(trust.maximumHeadAgeMs) || trust.maximumHeadAgeMs < 1e3 || trust.maximumHeadAgeMs > 864e5 || !Number.isSafeInteger(trust.maximumWitnessLagMs) || trust.maximumWitnessLagMs < 0 || trust.maximumWitnessLagMs > trust.maximumHeadAgeMs || !trust.witnessKeys || typeof trust.witnessKeys !== "object" || Array.isArray(trust.witnessKeys))
+    throw new Error("invalid_key_transparency_profile");
+  const witnessKeys = Object.fromEntries(
+    Object.entries(trust.witnessKeys).map(([id, key]) => {
+      if (!KEY_ID_RE.test(id)) throw new Error("invalid_key_transparency_profile");
+      return [id, publicEd25519(key)];
+    })
+  );
+  if (Object.keys(witnessKeys).length < trust.minimumWitnesses) {
+    throw new Error("insufficient_key_transparency_witnesses");
+  }
+  return {
+    controlPlaneUrl: serviceUrl,
+    trust: {
+      operatorKeyId: trust.operatorKeyId,
+      operatorSigningPublicJwk: publicEd25519(trust.operatorSigningPublicJwk),
+      witnessKeys,
+      minimumWitnesses: trust.minimumWitnesses,
+      maximumHeadAgeMs: trust.maximumHeadAgeMs,
+      maximumWitnessLagMs: trust.maximumWitnessLagMs
+    }
+  };
 }
-function validateKeys(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error("invalid_device_keys");
-  const keys = value;
-  if (!okp(keys.signingPublicJwk, "Ed25519", false) || !okp(keys.signingPrivateJwk, "Ed25519", true) || !okp(keys.encryptionPublicJwk, "X25519", false) || !okp(keys.encryptionPrivateJwk, "X25519", true) || keys.signingPublicJwk.x !== keys.signingPrivateJwk.x || keys.encryptionPublicJwk.x !== keys.encryptionPrivateJwk.x)
-    throw new Error("invalid_device_keys");
-  return keys;
-}
-function validateIdentity(value) {
-  const keys = validateKeys(value);
-  const identity = value;
-  if (typeof identity.deviceId !== "string" || !UUID_RE.test(identity.deviceId) || typeof identity.ownerPrefix !== "string" || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(identity.ownerPrefix) || !Number.isSafeInteger(identity.keyVersion) || identity.keyVersion < 1)
-    throw new Error("invalid_device_identity");
-  return { ...identity, ...keys, relayUrl: secureRelayUrl(identity.relayUrl) };
-}
-function validateAuthorization(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+function validateAuthorization(value, serviceUrl) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("invalid_device_authorization");
-  const auth = value;
-  if (typeof auth.device_code !== "string" || !auth.device_code.startsWith("pasco_") || typeof auth.user_code !== "string" || !/^PASCO-[A-Z0-9-]{8,20}$/.test(auth.user_code) || typeof auth.verification_uri !== "string" || !Number.isSafeInteger(auth.expires_in) || auth.expires_in < 30 || auth.expires_in > 3600 || !Number.isSafeInteger(auth.interval) || auth.interval < 1 || auth.interval > 60 || typeof auth.signing_key_thumbprint !== "string")
+  }
+  const authorization = value;
+  if (typeof authorization.device_code !== "string" || !authorization.device_code.startsWith("pasco_") || typeof authorization.user_code !== "string" || !/^PASCO-[A-Z0-9-]{8,20}$/.test(authorization.user_code) || !Number.isSafeInteger(authorization.expires_in) || authorization.expires_in < 30 || authorization.expires_in > 3600 || !Number.isSafeInteger(authorization.interval) || authorization.interval < 1 || authorization.interval > 60 || typeof authorization.signing_key_thumbprint !== "string" || decodedLength(authorization.signing_key_thumbprint) !== 32)
     throw new Error("invalid_device_authorization");
-  secureWebUrl(auth.verification_uri);
-  return auth;
+  const verification = new URL(authorization.verification_uri);
+  if (verification.origin !== new URL(serviceUrl).origin) {
+    throw new Error("verification_origin_mismatch");
+  }
+  return { ...authorization };
+}
+function validateAssignment(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("invalid_device_assignment");
+  }
+  const assignment = value;
+  if (!UUID_RE.test(String(assignment.deviceId ?? "")) || !OWNER_RE.test(String(assignment.ownerPrefix ?? "")) || !Number.isSafeInteger(assignment.keyVersion) || assignment.keyVersion < 1)
+    throw new Error("invalid_device_assignment");
+  return {
+    deviceId: assignment.deviceId,
+    ownerPrefix: assignment.ownerPrefix,
+    relayUrl: secureRelayUrl(assignment.relayUrl),
+    keyVersion: assignment.keyVersion
+  };
 }
 function validateBinding(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("invalid_connected_city");
+  }
   const city = value;
   const rawDataDir = String(city.dataDir ?? "");
   const dataDir = resolve(rawDataDir);
-  if (typeof city.localCityId !== "string" || !/^[A-Za-z0-9_-]{4,160}$/.test(city.localCityId) || typeof city.slug !== "string" || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(city.slug) || typeof city.name !== "string" || !city.name.trim() || city.name.length > 100 || !CITY_ADDRESS_RE.test(String(city.remoteAddress ?? "")) || typeof city.encryptionKeyId !== "string" || base64urlDecodedLength(city.encryptionKeyId) !== 32 || typeof city.connected !== "boolean" || !rawDataDir.startsWith("/") || !dataDir.startsWith("/"))
+  if (typeof city.localCityId !== "string" || !/^[A-Za-z0-9_-]{4,160}$/.test(city.localCityId) || !OWNER_RE.test(String(city.slug ?? "")) || typeof city.name !== "string" || !city.name.trim() || city.name.length > 100 || !CITY_ADDRESS_RE.test(String(city.remoteAddress ?? "")) || decodedLength(city.encryptionKeyId) !== 32 || typeof city.connected !== "boolean" || !rawDataDir.startsWith("/") || !dataDir.startsWith("/"))
     throw new Error("invalid_connected_city");
   return { ...city, dataDir };
 }
 function validateConnectState(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("invalid_connect_state");
+  }
   const state = value;
   if (state.protocol !== CONNECT_STATE_PROTOCOL) throw new Error("invalid_connect_state_protocol");
   const serviceUrl = normalizeConnectServiceUrl(state.serviceUrl);
+  const keyTransparency = validateTransparency(state.keyTransparency, serviceUrl);
   if (state.status === "pending") {
-    if (typeof state.machineName !== "string" || !state.machineName.trim() || state.machineName.length > 100) {
-      throw new Error("invalid_machine_name");
-    }
-    if (typeof state.createdAt !== "string" || !Number.isFinite(Date.parse(state.createdAt))) {
-      throw new Error("invalid_connect_state_timestamp");
-    }
-    const authorization = validateAuthorization(state.authorization);
-    if (new URL(authorization.verification_uri).origin !== new URL(serviceUrl).origin) {
-      throw new Error("verification_origin_mismatch");
-    }
+    if (typeof state.machineName !== "string" || !state.machineName.trim() || state.machineName.length > 100 || typeof state.createdAt !== "string" || !Number.isFinite(Date.parse(state.createdAt)))
+      throw new Error("invalid_connect_state");
     return {
       protocol: CONNECT_STATE_PROTOCOL,
       status: "pending",
       serviceUrl,
       machineName: state.machineName,
       createdAt: state.createdAt,
-      keys: validateKeys(state.keys),
-      authorization
+      authorization: validateAuthorization(state.authorization, serviceUrl),
+      keyTransparency
     };
   }
-  if (state.status !== "connected") throw new Error("invalid_connect_state_status");
-  if (typeof state.connectedAt !== "string" || !Number.isFinite(Date.parse(state.connectedAt)) || typeof state.updatedAt !== "string" || !Number.isFinite(Date.parse(state.updatedAt)) || !Array.isArray(state.cities) || state.cities.length > 100)
+  if (state.status !== "connected" || typeof state.connectedAt !== "string" || !Number.isFinite(Date.parse(state.connectedAt)) || typeof state.updatedAt !== "string" || !Number.isFinite(Date.parse(state.updatedAt)) || !Array.isArray(state.cities) || state.cities.length > 100)
     throw new Error("invalid_connect_state");
   const cities = state.cities.map(validateBinding);
-  if (new Set(cities.map((city) => city.localCityId)).size !== cities.length) {
+  if (new Set(cities.map((city) => city.localCityId)).size !== cities.length || new Set(cities.map((city) => city.remoteAddress)).size !== cities.length)
     throw new Error("duplicate_connected_city");
-  }
   return {
     protocol: CONNECT_STATE_PROTOCOL,
     status: "connected",
     serviceUrl,
     connectedAt: state.connectedAt,
     updatedAt: state.updatedAt,
-    identity: validateIdentity(state.identity),
+    device: validateAssignment(state.device),
+    keyTransparency,
     cities
   };
+}
+async function openConnectDeviceVault(appHome = "") {
+  prepareStateDirectory(appHome);
+  await initializeHybridCrypto();
+  return createOsProtectedDeviceVault({
+    directory: connectVaultDirectory(appHome),
+    service: "agents-city-private-device",
+    account: vaultAccount(appHome)
+  });
+}
+async function loadOrCreateConnectKeys(appHome = "") {
+  const vault = await openConnectDeviceVault(appHome);
+  return { vault, keys: await vault.loadOrCreateKeys() };
+}
+async function loadConnectIdentity(state, appHome = "") {
+  const vault = await openConnectDeviceVault(appHome);
+  const identity = await vault.loadIdentity();
+  if (!identity) throw new Error("connect_device_identity_missing");
+  if (identity.deviceId !== state.device.deviceId || identity.ownerPrefix !== state.device.ownerPrefix || identity.relayUrl !== state.device.relayUrl || identity.keyVersion !== state.device.keyVersion)
+    throw new Error("connect_device_identity_mismatch");
+  return identity;
 }
 
 // hub-client.ts
@@ -4433,7 +4333,7 @@ var wait = (milliseconds) => new Promise((resolve3) => setTimeout(resolve3, mill
 // managed-connect/cli.ts
 function usage() {
   return `usage:
-  agents-city connect [--city NAME | --all] [--service URL]
+  agents-city connect [--city NAME | --all] [--service URL] [--trust-file FILE]
   agents-city connect status [--json]
   agents-city connect roads [--json]
 
@@ -4443,7 +4343,9 @@ prints a one-use PASCO, opens the service for approval, and starts the owner
 reception bridge from the selected local city hub. A person connection never
 reveals or selects that city. No private key is uploaded. Add --no-open when you
 want to open the URL by hand. Later calls reuse the service recorded in the local
-device state.`;
+device state. A self-hosted service must provide its pinned operator and witness
+profile through --trust-file; the official managed service ships its profile
+with Agents City before production is enabled.`;
 }
 function optionsOf(args) {
   const options = {
@@ -4451,6 +4353,7 @@ function optionsOf(args) {
     selectors: [],
     all: false,
     openBrowser: true,
+    trustFile: "",
     json: false,
     command: "connect"
   };
@@ -4468,6 +4371,10 @@ function optionsOf(args) {
       const value = rest.shift();
       if (!value) throw new Error("--city needs a name, id, or path");
       options.selectors.push(value);
+    } else if (arg === "--trust-file") {
+      const value = rest.shift();
+      if (!value) throw new Error("--trust-file needs a JSON file");
+      options.trustFile = value;
     } else if (arg === "--all") options.all = true;
     else if (arg === "--no-open") options.openBrowser = false;
     else if (arg === "--json") options.json = true;
@@ -4492,7 +4399,7 @@ function remainingAuthorization(state) {
   const seconds = Math.floor(state.authorization.expires_in - elapsed / 1e3);
   return seconds > 0 ? { ...state.authorization, expires_in: seconds } : null;
 }
-async function identityFor(serviceUrl, openBrowser) {
+async function identityFor(serviceUrl, openBrowser, keyTransparency) {
   const current = readConnectState();
   if (current?.serviceUrl !== void 0 && normalizedService(current.serviceUrl) !== normalizedService(serviceUrl)) {
     throw new Error(
@@ -4500,13 +4407,17 @@ async function identityFor(serviceUrl, openBrowser) {
     );
   }
   if (current?.status === "connected") {
-    return { identity: current.identity, connectedAt: current.connectedAt, previous: current };
+    return {
+      identity: await loadConnectIdentity(current),
+      connectedAt: current.connectedAt,
+      previous: current
+    };
   }
   let pending = current?.status === "pending" ? current : null;
   let authorization = pending ? remainingAuthorization(pending) : null;
+  const { vault, keys } = await loadOrCreateConnectKeys();
   if (!authorization) {
     if (pending) removePendingConnectState();
-    const keys = await generateDeviceKeys();
     const machineName = hostname().slice(0, 100) || "Agents City computer";
     authorization = await beginDeviceAuthorization(serviceUrl, machineName, platform(), keys);
     pending = {
@@ -4515,8 +4426,8 @@ async function identityFor(serviceUrl, openBrowser) {
       serviceUrl,
       machineName,
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      keys,
-      authorization
+      authorization,
+      keyTransparency
     };
     writeConnectState(pending);
   }
@@ -4529,10 +4440,11 @@ async function identityFor(serviceUrl, openBrowser) {
   process.stdout.write("  Approve this computer there; waiting for approval\u2026\n\n");
   if (openBrowser) openUrl(authorization.verification_uri);
   try {
-    const identity = await pollDeviceAuthorization(serviceUrl, authorization, pending.keys, {
+    const identity = await pollDeviceAuthorization(serviceUrl, authorization, keys, {
       onPending: () => {
       }
     });
+    await vault.saveIdentity(identity);
     return { identity, connectedAt: (/* @__PURE__ */ new Date()).toISOString(), previous: null };
   } catch (error) {
     if (error instanceof ConnectApiError && ["access_denied", "expired_token", "device_code_consumed"].includes(error.code))
@@ -4601,9 +4513,11 @@ async function connect(options) {
     throw new Error("first pairing needs --service URL or AGENTS_CITY_CONNECT_URL");
   }
   options.serviceUrl = normalizedService(options.serviceUrl || remembered);
+  const existing = readConnectState();
+  const keyTransparency = existing?.keyTransparency ?? loadTransparencyProfile(options.serviceUrl, options.trustFile);
   const catalogue = discoverLocalCities();
   const chosen = selectLocalCities(catalogue, options.selectors, options.all);
-  const paired = await identityFor(options.serviceUrl, options.openBrowser);
+  const paired = await identityFor(options.serviceUrl, options.openBrowser, keyTransparency);
   const cities = mergeCities(chosen, paired.previous);
   if (new Set(cities.map((city) => city.slug)).size !== cities.length) {
     throw new Error(
@@ -4622,14 +4536,20 @@ async function connect(options) {
     serviceUrl: normalizedService(options.serviceUrl),
     connectedAt: paired.connectedAt,
     updatedAt: now,
-    identity: paired.identity,
+    device: {
+      deviceId: paired.identity.deviceId,
+      ownerPrefix: paired.identity.ownerPrefix,
+      relayUrl: paired.identity.relayUrl,
+      keyVersion: paired.identity.keyVersion
+    },
+    keyTransparency,
     cities: bindingsFrom(cities, synced.cities)
   };
   writeConnectState(state);
   for (const city of chosen) await restartHub(city);
   const value = {
     connected: true,
-    deviceId: state.identity.deviceId,
+    deviceId: state.device.deviceId,
     service: state.serviceUrl,
     cities: state.cities.map((city) => ({ local: city.name, address: city.remoteAddress }))
   };
@@ -4660,7 +4580,7 @@ async function status(options) {
   const value = {
     status: "connected",
     service: state.serviceUrl,
-    deviceId: state.identity.deviceId,
+    deviceId: state.device.deviceId,
     cities: state.cities.map((city) => ({
       name: city.name,
       address: city.remoteAddress,
@@ -4677,21 +4597,23 @@ async function status(options) {
 async function roads(options) {
   const state = readConnectState();
   if (!state || state.status !== "connected") throw new Error("this computer is not connected");
-  const directory = await listDeviceRoads(state.serviceUrl, state.identity);
-  const value = directory.roads.map((road) => road.kind === "connection" ? {
-    id: road.id,
-    kind: "connection",
-    connectionId: road.connectionId,
-    person: road.peerName,
-    revision: road.revision
-  } : {
-    id: road.id,
-    kind: "city",
-    from: road.localCity,
-    to: road.peerCity,
-    purpose: road.purpose,
-    revision: road.revision
-  });
+  const directory = await listDeviceRoads(state.serviceUrl, await loadConnectIdentity(state));
+  const value = directory.roads.map(
+    (road) => road.kind === "connection" ? {
+      id: road.id,
+      kind: "connection",
+      connectionId: road.connectionId,
+      person: road.peerName,
+      revision: road.revision
+    } : {
+      id: road.id,
+      kind: "city",
+      from: road.localCity,
+      to: road.peerCity,
+      purpose: road.purpose,
+      revision: road.revision
+    }
+  );
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else if (!value.length) console.log("  No active managed Roads.");
   else

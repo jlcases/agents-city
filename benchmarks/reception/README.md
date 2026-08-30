@@ -1,7 +1,7 @@
 # Local reception ingest
 
 This measures the durable, human-quarantine boundary only: decrypted messages
-committed to private local SQLite in protocol-v2 batches. It uses no network,
+committed to private local SQLite in protocol-v4 batches. It uses no network,
 relay, model, or fake model latency.
 
 Build the public client, then run the 1,000-message/second gate:

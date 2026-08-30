@@ -1,11 +1,15 @@
 import WebSocket, { type RawData } from 'ws';
-import { signedRelayHeaders, type DeviceIdentity } from './device.js';
-import { isCityAddress, MAX_SERVER_FRAME_BYTES } from './protocol.js';
 import {
   ManagedRelaySession,
+  initializeHybridCrypto,
+  signedRelayHeaders,
+  type DeviceIdentity,
   type RelaySessionOptions,
   type RelayTransport,
-} from './relay-session.js';
+} from '../managed-connect-client.js';
+
+const CITY_ADDRESS_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
+const MAX_SERVER_FRAME_BYTES = 262_144;
 
 export type OpenManagedSession = {
   session: ManagedRelaySession;
@@ -17,10 +21,12 @@ export async function openManagedRelaySession(
   city: string,
   options: RelaySessionOptions,
 ): Promise<OpenManagedSession> {
-  if (!isCityAddress(city)) throw new Error('invalid_city_address');
+  if (!CITY_ADDRESS_RE.test(city)) throw new Error('invalid_city_address');
+  if (!options.keyTransparency) throw new Error('key_transparency_required');
+  await initializeHybridCrypto();
   const headers = await signedRelayHeaders(identity, city);
   const url = new URL(identity.relayUrl);
-  const local = ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
+  const local = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname);
   if (
     (url.protocol !== 'wss:' && !(local && url.protocol === 'ws:')) ||
     url.pathname !== '/v1/connect' ||
@@ -45,13 +51,19 @@ export async function openManagedRelaySession(
       socket.send(raw);
     },
     close: (code, reason) => socket.close(code, reason),
-    onMessage: (handler) =>
-      socket.on('message', (raw: RawData, isBinary: boolean) =>
-        handler(isBinary ? '' : String(raw)),
-      ),
-    onClose: (handler) => socket.on('close', handler),
+    onMessage: (handler) => {
+      socket.on('message', (raw: RawData, isBinary: boolean) => {
+        handler(isBinary ? '' : String(raw));
+      });
+    },
+    onClose: (handler) => {
+      socket.on('close', handler);
+    },
   };
-  const session = new ManagedRelaySession(identity, city, transport, options);
+  const session = new ManagedRelaySession(identity, city, transport, {
+    ...options,
+    sealedSender: options.sealedSender ?? {},
+  });
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('relay_connection_timeout')), 10_000);

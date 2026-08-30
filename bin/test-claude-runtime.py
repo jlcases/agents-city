@@ -103,6 +103,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
     pid = os.path.join(runtime_dir, 'gateways', 'claude-agent.pid')
     metrics = os.path.join(runtime_dir, 'runtime-latency.jsonl')
     activity = os.path.join(runtime_dir, 'activity.jsonl')
+    diagnostics = os.path.join(runtime_dir, 'diagnostics.jsonl')
     outbox = os.path.join(runtime_dir, 'outbox', 'claude-agent')
     log = os.path.join(base, 'gateway.log')
     env = dict(
@@ -194,7 +195,13 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                espera(lambda: len(rows(capture)) == 3), text(log)[-1000:])
         afirma('· load: both serialized assignments eventually drain',
                espera(lambda: (not os.path.isdir(outbox) or not os.listdir(outbox))
-                      and len(rows(metrics)) == 3),
+                      and len(rows(metrics)) == 3
+                      and all(any(
+                          row.get('kind') == 'conversation.agent'
+                          and row.get('thread') == expected_thread
+                          and 'Fake Claude answer' in row.get('summary', '')
+                          for row in rows(activity)
+                      ) for expected_thread in (first_slow, second_slow))),
                f'metrics={json.dumps(rows(metrics))}')
 
         # A real person's city can receive dozens of independent requests while
@@ -204,11 +211,6 @@ def main():  # noqa: C901 - this is one complete process lifecycle
         burst_count = 20
         metrics_before = len(rows(metrics))
         captures_before = len(rows(capture))
-        answers_before = len([
-            row for row in rows(activity)
-            if row.get('kind') == 'conversation.agent'
-            and 'Fake Claude answer' in row.get('summary', '')
-        ])
         burst_started = time.monotonic()
         burst_threads = [
             open_committee(env, f'Slow backlog assignment {index + 1}.')
@@ -225,18 +227,35 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                all(burst_threads) and peak_backlog >= 10,
                f'threads={len([item for item in burst_threads if item])} '
                f'peak_backlog={peak_backlog} oldest_age_ms={oldest_age_ms}')
-        afirma('· load: the twenty-request backlog fully drains to final answers',
-               espera(lambda: (
+        drained = espera(lambda: (
                    (not os.path.isdir(outbox) or not os.listdir(outbox))
                    and len(rows(metrics)) == metrics_before + burst_count
-                   and len([
-                       row for row in rows(activity)
+                   and all(sum(
+                       1 for row in rows(activity)
                        if row.get('kind') == 'conversation.agent'
+                       and row.get('thread') == expected_thread
                        and 'Fake Claude answer' in row.get('summary', '')
-                   ]) == answers_before + burst_count
-               ), segundos=25),
+                   ) == 1 for expected_thread in burst_threads)
+               ), segundos=25)
+        answer_counts = {
+            expected_thread: sum(
+                1 for row in rows(activity)
+                if row.get('kind') == 'conversation.agent'
+                and row.get('thread') == expected_thread
+                and 'Fake Claude answer' in row.get('summary', '')
+            )
+            for expected_thread in burst_threads
+        }
+        publish_failures = [
+            row for row in rows(diagnostics)
+            if row.get('event') == 'activity.publish.failed'
+        ]
+        afirma('· load: the twenty-request backlog fully drains to final answers',
+               drained,
                f'outbox={os.listdir(outbox) if os.path.isdir(outbox) else []} '
-               f'metrics={len(rows(metrics))} answers={len(rows(activity))}')
+               f'metrics={len(rows(metrics))} answer_counts={answer_counts} '
+               f'activity_rows={len(rows(activity))} '
+               f'publish_failures={json.dumps(publish_failures[-4:])}')
         drain_seconds = time.monotonic() - burst_started
         burst_records = rows(capture)[captures_before:captures_before + burst_count]
         received = [
@@ -248,11 +267,17 @@ def main():  # noqa: C901 - this is one complete process lifecycle
             for left, right in zip(received, received[1:], strict=False)
         ]
         min_gap_ms = min(gaps) * 1000 if gaps else 0
+        max_gap_ms = max(gaps) * 1000 if gaps else 0
+        sorted_gaps = sorted(gaps)
+        median_gap_ms = (
+            sorted_gaps[len(sorted_gaps) // 2] * 1000 if sorted_gaps else 0
+        )
         afirma('· load: slow provider turns never overlap',
                len(burst_records) == burst_count
                and len(gaps) == burst_count - 1
                and min(gaps) >= .30,
                f'records={len(burst_records)} min_gap_ms={min_gap_ms:.1f} '
+               f'median_gap_ms={median_gap_ms:.1f} max_gap_ms={max_gap_ms:.1f} '
                f'drain_seconds={drain_seconds:.3f}')
         afirma('· load: measured drain time matches bounded sequential capacity',
                6 <= drain_seconds < 25,
@@ -264,9 +289,13 @@ def main():  # noqa: C901 - this is one complete process lifecycle
             'peak_durable_backlog': peak_backlog,
             'oldest_backlog_age_at_measure_ms': oldest_age_ms,
             'minimum_provider_start_gap_ms': round(min_gap_ms, 1),
+            'median_provider_start_gap_ms': round(median_gap_ms, 1),
+            'maximum_provider_start_gap_ms': round(max_gap_ms, 1),
             'drain_seconds': round(drain_seconds, 3),
             'lost': 0,
             'max_model_concurrency': 1,
+            **({'provider_start_gaps_ms': [round(gap * 1000, 1) for gap in gaps]}
+               if drain_seconds >= 25 else {}),
         }))
         expected_metrics = metrics_before + burst_count
         open(behavior, 'w', encoding='utf-8').write('healthy\n')

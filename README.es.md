@@ -692,23 +692,42 @@ aceptarse de forma independiente en cada máquina.
 
 ### `agents-city connect`
 
-Empareja este ordenador con un servicio de Roads gestionadas y conecta ciudades
-locales. No crea una Road de forma unilateral: las dos personas siguen
-aprobando la conexión bilateral en el servicio.
+Empareja este ordenador con un servicio de Roads gestionadas. No crea una
+conexión unilateral: las dos personas la aprueban en el servicio y quien la
+recibe ve a la otra persona en su recepción humana privada, sin exponer un
+catálogo de ciudades. El cliente público implementa el protocolo v4; el servicio
+alojado queda fuera de este repositorio y todavía no está habilitado en
+producción ni auditado de forma independiente.
 
 ```bash
-agents-city connect --service https://connect.example.com
+agents-city connect --service https://connect.example.com --trust-file trust.json
 agents-city connect --city producto
 agents-city connect --all
 agents-city connect status
 agents-city connect roads
 ```
 
-El comando genera claves Ed25519/X25519 en este ordenador, muestra un PASCO de
-un solo uso y abre el navegador para autorizarlo. Las claves privadas permanecen
-en `~/.agents-city/.runtime/connect/` con permisos 0600/0700 y quedan selladas
-para las ventanas de agentes de repositorio en macOS y Linux. Cada ciudad
-conectada mantiene una sesión WSS saliente; el ordenador no abre un puerto
+El comando genera material Ed25519/X25519, Olm y ML-KEM-768 firmado en este
+ordenador, muestra un PASCO de un solo uso y abre el navegador para autorizarlo.
+Sólo sube material público. Las claves privadas, el estado del ratchet, las
+semillas ML-KEM y los reintentos quedan cifrados en
+`~/.agents-city/.runtime/connect/vault/`; la clave de envoltura permanece en el
+Llavero de macOS, Credential Manager de Windows o Secret Service de Linux. El
+cliente falla de forma cerrada si el keyring no está disponible. La jaula sella
+el vault para las ventanas de agentes de repositorio en macOS y Linux.
+
+El perfil fijado de operador y testigos indicado con `--trust-file` es
+obligatorio para un servicio que no sea de desarrollo. El protocolo v4 verifica
+al peer mediante transparencia de claves, protege el primer mensaje Olm con
+X25519 + ML-KEM-768 híbrido y después usa el Double Ratchet de Olm. Tras el
+bootstrap identificado, los envíos normales usan capacidades de entrega de un
+solo uso y omiten remitente, dispositivo, ciudad y Road de la petición exterior.
+Esto no oculta a Cloudflare la IP, el momento o el tamaño rellenado; los pasos
+posteriores del ratchet son clásicos.
+
+`--city` elige un hub local que mantiene viva la recepción del propietario; no
+elige un destinatario ni se revela a la otra persona. Un solo hub por ordenador
+mantiene el lease y una conexión cifrada saliente; no se abre ningún puerto
 público. Usa `--service URL` o `AGENTS_CITY_CONNECT_URL` para un endpoint piloto.
 El servidor alojado no forma parte de este repositorio Apache; el cliente y el
 protocolo auditables sí.
@@ -1599,20 +1618,24 @@ AGENTS_CITY_DATA="$HOME/.agents-city/$CITY_OWNER/producto" \
 En una sesión normal no hace falta establecer `AGENTS_CITY_DATA`: ya está
 inyectado en cada ventana. El ejemplo lo hace explícito para una terminal externa.
 
-### Caso 10: conectar ciudades de dos máquinas o personas
+### Caso 10: conectar dos personas desde ordenadores distintos
 
-Con un operador de Roads gestionadas, cada persona empareja el ordenador y
-elige la ciudad local que puede participar:
+Con un operador de Roads gestionadas, cada persona empareja su ordenador.
+`--city` elige el hub local que inicia la recepción del propietario; no revela
+esa ciudad ni da acceso directo a ella:
 
 ```bash
-agents-city connect --city producto --service https://connect.example.com
-agents-city connect --city research --service https://connect.example.com
+agents-city connect --city producto --service https://connect.example.com --trust-file trust.json
+agents-city connect --city research --service https://connect.example.com --trust-file trust.json
 ```
 
-Una persona crea la invitación de Road en ese servicio y la otra la acepta. Los
-clientes conocen la Road bilateral activa mediante sus sesiones autenticadas
-con el relay; ninguna parte intercambia un token compartido del bus ni expone un
-puerto local. El contrato del cliente público está en
+Una persona solicita la conexión en el servicio y la otra la acepta. Los
+clientes reciben la Road bilateral mediante sus sesiones autenticadas; ninguna
+parte intercambia un token compartido, abre un puerto local ni recibe el catálogo
+de ciudades de la otra. El texto entrante se detiene primero en la recepción
+humana. Quien lo recibe decide qué ciudad o ciudades locales pueden leerlo, o
+activa el router opcional que falla de forma cerrada y sólo actúa cuando una
+regla coincide sin ambigüedad. El contrato del cliente público está en
 [docs/managed-connect.md](docs/managed-connect.md).
 
 Para autoalojar el transporte remoto existente basado en token, intercambia en
@@ -2036,9 +2059,11 @@ del CLI de cada proveedor.
 
 Un bus remoto amplía la superficie de confianza. Para el transporte autoalojado
 con token, despliega HTTPS/WSS, rota tokens, limita los scopes y revisa
-[docs/self-host.md](docs/self-host.md). Managed Connect usa en cambio firmas de
-dispositivo y HPKE de extremo a extremo, y mantiene sus claves privadas en el
-directorio sellado por la jaula `~/.agents-city/.runtime/connect/`; consulta
+[docs/self-host.md](docs/self-host.md). Managed Connect usa firmas de
+dispositivo, transparencia de claves con testigos, establecimiento de sesión
+híbrido X25519 + ML-KEM-768, Double Ratchet de Olm y entrega sellada. Su material
+privado queda cifrado bajo una clave del keyring del sistema operativo en el
+directorio sellado por la jaula `~/.agents-city/.runtime/connect/vault/`; consulta
 [docs/managed-connect.md](docs/managed-connect.md). Una Road gestionada autoriza
 alcance cifrado hasta la recepción humana del propietario, no entrada directa a
 un modelo. Solo la ruta posterior del propietario deja el texto disponible para

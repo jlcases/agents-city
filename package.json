@@ -10,6 +10,7 @@
     "test": "./bin/test"
   },
   "dependencies": {
+    "@napi-rs/keyring": "1.3.0",
     "ws": "^8.21.0"
   },
   "files": [

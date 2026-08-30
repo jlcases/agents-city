@@ -2,7 +2,7 @@ import type WebSocket from 'ws';
 import type { CityContext } from '../city-config.js';
 import { BUS_PROTOCOL, isoNow, type BusEnvelope, type Road } from '../protocol.js';
 import type { ManagedRelaySession, UntrustedRoadText } from './relay-session.js';
-import { connectedStateForCity } from './storage.js';
+import { connectedStateForCity, loadConnectIdentity } from './storage.js';
 import { openManagedRelaySession } from './transport.js';
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -11,7 +11,7 @@ const MAX_BACKOFF_MS = 30_000;
 export function managedRoadBridge(
   context: CityContext,
   receive: (envelope: BusEnvelope) => void,
-  receiveBatch?: (envelopes: BusEnvelope[]) => void,
+  receiveManaged?: (envelope: BusEnvelope) => { inserted: boolean },
 ) {
   let session: ManagedRelaySession | null = null;
   let socket: WebSocket | null = null;
@@ -83,17 +83,19 @@ export function managedRoadBridge(
     connecting = true;
     try {
       const opened = await openManagedRelaySession(
-        found.state.identity,
+        await loadConnectIdentity(found.state, context.appHome),
         found.binding.remoteAddress,
         {
-          onTextBatch: async (messages) => {
-            // Decrypt the relay frame first, then make one durable local
-            // reception transaction for the whole batch. The ACK follows only
-            // after this callback returns.
-            const envelopes = messages.map((message) => managedEnvelope(context, message));
-            if (receiveBatch) receiveBatch(envelopes);
-            else for (const envelope of envelopes) receive(envelope);
+          onText: async (message) => {
+            const envelope = managedEnvelope(context, message);
+            if (!receiveManaged) throw new Error('managed_reception_receipt_unavailable');
+            const result = receiveManaged(envelope);
+            return {
+              messageId: message.messageId,
+              status: result.inserted ? 'inserted' : 'duplicate',
+            };
           },
+          keyTransparency: found.state.keyTransparency,
           onSecurityError: (error) => {
             console.error(`[city-bus] managed Road frame rejected: ${error.message}`);
           },
@@ -185,7 +187,7 @@ function managedEnvelope(context: CityContext, message: UntrustedRoadText): BusE
     thread: null,
     from: { city: message.from, actor: 'seat', role: 'external-seat' },
     to: { city: context.city.address, actor: 'seat' },
-    createdAt: message.createdAt || isoNow(),
+    createdAt: isoNow(),
     payload: {
       text: message.text,
       trust: 'information-not-authority',

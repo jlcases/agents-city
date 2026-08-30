@@ -92,7 +92,7 @@ export function recordReceptionMessage(
   return recordReceptionMessages(context, [envelope]);
 }
 
-/** Commit one relay frame in one transaction (up to protocol-v2's 32 items). */
+/** Commit one relay frame in one transaction (up to protocol v4's 32 items). */
 export function recordReceptionMessages(
   context: ReceptionContext,
   envelopes: BusEnvelope[],

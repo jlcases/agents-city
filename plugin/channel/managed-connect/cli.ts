@@ -4,7 +4,6 @@ import { existsSync } from 'node:fs';
 import {
   beginDeviceAuthorization,
   ConnectApiError,
-  generateDeviceKeys,
   listDeviceRoads,
   pollDeviceAuthorization,
   syncDeviceCities,
@@ -14,6 +13,9 @@ import { discoverLocalCities, selectLocalCities, type LocalCity } from './local-
 import {
   CONNECT_STATE_PROTOCOL,
   agentsCityHome,
+  loadConnectIdentity,
+  loadOrCreateConnectKeys,
+  loadTransparencyProfile,
   normalizeConnectServiceUrl,
   readConnectState,
   removePendingConnectState,
@@ -21,6 +23,7 @@ import {
   type ConnectedConnectState,
   type ConnectedCityBinding,
   type PendingConnectState,
+  type TransparencyProfile,
 } from './storage.js';
 import { ensureHub } from '../hub-client.js';
 import { loadCityContext } from '../city-config.js';
@@ -31,13 +34,14 @@ type CliOptions = {
   selectors: string[];
   all: boolean;
   openBrowser: boolean;
+  trustFile: string;
   json: boolean;
   command: 'connect' | 'status' | 'roads' | 'help';
 };
 
 function usage(): string {
   return `usage:
-  agents-city connect [--city NAME | --all] [--service URL]
+  agents-city connect [--city NAME | --all] [--service URL] [--trust-file FILE]
   agents-city connect status [--json]
   agents-city connect roads [--json]
 
@@ -47,7 +51,9 @@ prints a one-use PASCO, opens the service for approval, and starts the owner
 reception bridge from the selected local city hub. A person connection never
 reveals or selects that city. No private key is uploaded. Add --no-open when you
 want to open the URL by hand. Later calls reuse the service recorded in the local
-device state.`;
+device state. A self-hosted service must provide its pinned operator and witness
+profile through --trust-file; the official managed service ships its profile
+with Agents City before production is enabled.`;
 }
 
 function optionsOf(args: string[]): CliOptions {
@@ -56,6 +62,7 @@ function optionsOf(args: string[]): CliOptions {
     selectors: [],
     all: false,
     openBrowser: true,
+    trustFile: '',
     json: false,
     command: 'connect',
   };
@@ -73,6 +80,10 @@ function optionsOf(args: string[]): CliOptions {
       const value = rest.shift();
       if (!value) throw new Error('--city needs a name, id, or path');
       options.selectors.push(value);
+    } else if (arg === '--trust-file') {
+      const value = rest.shift();
+      if (!value) throw new Error('--trust-file needs a JSON file');
+      options.trustFile = value;
     } else if (arg === '--all') options.all = true;
     else if (arg === '--no-open') options.openBrowser = false;
     else if (arg === '--json') options.json = true;
@@ -105,6 +116,7 @@ function remainingAuthorization(
 async function identityFor(
   serviceUrl: string,
   openBrowser: boolean,
+  keyTransparency: TransparencyProfile,
 ): Promise<{
   identity: DeviceIdentity;
   connectedAt: string;
@@ -120,14 +132,18 @@ async function identityFor(
     );
   }
   if (current?.status === 'connected') {
-    return { identity: current.identity, connectedAt: current.connectedAt, previous: current };
+    return {
+      identity: await loadConnectIdentity(current),
+      connectedAt: current.connectedAt,
+      previous: current,
+    };
   }
 
   let pending = current?.status === 'pending' ? current : null;
   let authorization = pending ? remainingAuthorization(pending) : null;
+  const { vault, keys } = await loadOrCreateConnectKeys();
   if (!authorization) {
     if (pending) removePendingConnectState();
-    const keys = await generateDeviceKeys();
     const machineName = hostname().slice(0, 100) || 'Agents City computer';
     authorization = await beginDeviceAuthorization(serviceUrl, machineName, platform(), keys);
     pending = {
@@ -136,8 +152,8 @@ async function identityFor(
       serviceUrl,
       machineName,
       createdAt: new Date().toISOString(),
-      keys,
       authorization,
+      keyTransparency,
     };
     writeConnectState(pending);
   }
@@ -148,9 +164,10 @@ async function identityFor(
   process.stdout.write('  Approve this computer there; waiting for approval…\n\n');
   if (openBrowser) openUrl(authorization.verification_uri);
   try {
-    const identity = await pollDeviceAuthorization(serviceUrl, authorization, pending.keys, {
+    const identity = await pollDeviceAuthorization(serviceUrl, authorization, keys, {
       onPending: () => {},
     });
+    await vault.saveIdentity(identity);
     return { identity, connectedAt: new Date().toISOString(), previous: null };
   } catch (error) {
     if (
@@ -231,9 +248,12 @@ async function connect(options: CliOptions): Promise<void> {
     throw new Error('first pairing needs --service URL or AGENTS_CITY_CONNECT_URL');
   }
   options.serviceUrl = normalizedService(options.serviceUrl || remembered);
+  const existing = readConnectState();
+  const keyTransparency =
+    existing?.keyTransparency ?? loadTransparencyProfile(options.serviceUrl, options.trustFile);
   const catalogue = discoverLocalCities();
   const chosen = selectLocalCities(catalogue, options.selectors, options.all);
-  const paired = await identityFor(options.serviceUrl, options.openBrowser);
+  const paired = await identityFor(options.serviceUrl, options.openBrowser, keyTransparency);
   const cities = mergeCities(chosen, paired.previous);
   if (new Set(cities.map((city) => city.slug)).size !== cities.length) {
     throw new Error(
@@ -252,14 +272,20 @@ async function connect(options: CliOptions): Promise<void> {
     serviceUrl: normalizedService(options.serviceUrl),
     connectedAt: paired.connectedAt,
     updatedAt: now,
-    identity: paired.identity,
+    device: {
+      deviceId: paired.identity.deviceId,
+      ownerPrefix: paired.identity.ownerPrefix,
+      relayUrl: paired.identity.relayUrl,
+      keyVersion: paired.identity.keyVersion,
+    },
+    keyTransparency,
     cities: bindingsFrom(cities, synced.cities),
   };
   writeConnectState(state);
   for (const city of chosen) await restartHub(city);
   const value = {
     connected: true,
-    deviceId: state.identity.deviceId,
+    deviceId: state.device.deviceId,
     service: state.serviceUrl,
     cities: state.cities.map((city) => ({ local: city.name, address: city.remoteAddress })),
   };
@@ -290,7 +316,7 @@ async function status(options: CliOptions): Promise<void> {
   const value = {
     status: 'connected',
     service: state.serviceUrl,
-    deviceId: state.identity.deviceId,
+    deviceId: state.device.deviceId,
     cities: state.cities.map((city) => ({
       name: city.name,
       address: city.remoteAddress,
@@ -308,7 +334,7 @@ async function status(options: CliOptions): Promise<void> {
 async function roads(options: CliOptions): Promise<void> {
   const state = readConnectState();
   if (!state || state.status !== 'connected') throw new Error('this computer is not connected');
-  const directory = await listDeviceRoads(state.serviceUrl, state.identity);
+  const directory = await listDeviceRoads(state.serviceUrl, await loadConnectIdentity(state));
   type ListedRoad =
     | {
         id: string;

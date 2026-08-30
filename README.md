@@ -685,28 +685,41 @@ other remote invitation.
 ### `agents-city connect`
 
 Pairs this computer with a managed Road service. It does not create a
-connection unilaterally: both people still approve it in the service, and the
-recipient sees the sender in their private human reception rather than exposing
-any city.
+connection unilaterally: both people approve it in the service, and the
+recipient sees the sender in their private human reception without exposing a
+city catalogue. The public client implements protocol v4; the hosted service is
+outside this repository and is not production-enabled or independently audited.
 
 ```bash
-agents-city connect --service https://connect.example.com
+agents-city connect --service https://connect.example.com --trust-file trust.json
 agents-city connect --city product
 agents-city connect --all
 agents-city connect status
 agents-city connect roads
 ```
 
-The command generates Ed25519/X25519 keys on this computer, prints a one-use
-PASCO and opens the browser for approval. Private keys remain under
-`~/.agents-city/.runtime/connect/` with 0600/0700 permissions and are sealed
-from repo-agent windows on macOS and Linux. `--city` chooses a local hub that can
-keep the computer's reception bridge alive; it is not a recipient selector and
-is never disclosed to the other person. Exactly one hub per computer holds the
-lease and one outbound WSS reception session; no public port is opened on the
-computer. Use `--service URL` or `AGENTS_CITY_CONNECT_URL` for a pilot endpoint.
-The hosted server is not part of this Apache repository; the auditable client
-and wire protocol are.
+The command generates Ed25519/X25519, Olm and signed ML-KEM-768 material on this
+computer, prints a one-use PASCO and opens the browser for approval. Only public
+material is uploaded. Private keys, ratchet state, ML-KEM seeds and retry data
+are encrypted in `~/.agents-city/.runtime/connect/vault/`; the wrapping key
+stays in macOS Keychain, Windows Credential Manager or Linux Secret Service.
+The client fails closed if that keyring is unavailable. The vault is sealed from
+repo-agent windows on macOS and Linux.
+
+The pinned operator/witness profile supplied through `--trust-file` is mandatory
+for a non-development service. Protocol v4 verifies the peer through key
+transparency, protects the first Olm message with hybrid X25519 + ML-KEM-768,
+then uses the Olm Double Ratchet. After the identified bootstrap, normal
+submissions use one-use sealed-delivery capabilities and omit sender, device,
+city and Road identity from the outer request. This does not hide IP address,
+timing or padded size from Cloudflare, and later ratchet steps are classical.
+
+`--city` chooses a local hub that can keep the computer's reception bridge
+alive; it is not a recipient selector and is never disclosed to the other
+person. Exactly one hub per computer holds the lease and one outbound encrypted
+session; no public port is opened. Use `--service URL` or
+`AGENTS_CITY_CONNECT_URL` for a pilot endpoint. The hosted server is not part of
+this Apache repository; the auditable client and wire protocol are.
 
 `agents-city connect roads` prints a connected person's name for a person Road,
 not the opaque `rx-*` transport endpoints. In the Hall, every incoming message
@@ -1594,8 +1607,8 @@ local hub that will start the owner-level reception bridge; it does not reveal
 that city or give the other person direct access to it:
 
 ```bash
-agents-city connect --city product --service https://connect.example.com
-agents-city connect --city research --service https://connect.example.com
+agents-city connect --city product --service https://connect.example.com --trust-file trust.json
+agents-city connect --city research --service https://connect.example.com --trust-file trust.json
 ```
 
 One person requests the connection in that service and the other accepts it.
@@ -2018,8 +2031,10 @@ CLI's permission controls.
 A remote bus expands the trust surface. For the self-hosted token transport,
 deploy HTTPS/WSS, rotate tokens, limit scopes, and read
 [docs/self-host.md](docs/self-host.md). Managed Connect instead uses device
-signatures plus end-to-end HPKE and keeps its private keys in the cage-sealed
-`~/.agents-city/.runtime/connect/` directory; see
+signatures, witnessed key transparency, hybrid X25519 + ML-KEM-768 session
+establishment, an Olm Double Ratchet and sealed delivery. Its private material
+is encrypted under an OS-keyring wrapping key in the cage-sealed
+`~/.agents-city/.runtime/connect/vault/` directory; see
 [docs/managed-connect.md](docs/managed-connect.md). A managed Road authorises
 encrypted reachability to the owner's human reception, not direct model input.
 Only the owner's later route makes the text available to selected cities. No
