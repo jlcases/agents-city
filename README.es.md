@@ -106,7 +106,7 @@ Esto es `0.x` a propósito: los comandos ya se usan hoy, pero los formatos de
 fichero y las APIs todavía pueden cambiar entre versiones menores. Aquí nada
 pretende estar congelado.
 
-Necesitas Node.js 22 o superior, Python 3 y tmux; los detalles están en la
+Necesitas Node.js 22.13 o superior, Python 3 y tmux; los detalles están en la
 [tabla de requisitos](#requisitos-base), y `agents-city seat` se ofrece a
 instalar tmux si falta. No se instala nada en el sistema más allá de la carpeta
 global de npm de tu Node activo.
@@ -162,7 +162,7 @@ agents-city --version
 
 | Requisito | Para qué se usa |
 |---|---|
-| Node.js 22 o posterior | paquete npm, bus WebSocket y frontends |
+| Node.js 22.13 o posterior | paquete npm, bus WebSocket, recepción local y frontends |
 | npm | instalación y empaquetado |
 | Python 3 | Hall, onboarding, ciudades, mapas y utilidades |
 | bash | sesiones y launchers |
@@ -491,6 +491,7 @@ agents-city setup
 agents-city seat
 agents-city cities
 agents-city road
+agents-city connect
 agents-city bus
 agents-city committee
 agents-city agents
@@ -689,6 +690,59 @@ agents-city road disconnect producto <city-id-remoto>
 No se puede conectar una ciudad consigo misma. Una invitación remota debe
 aceptarse de forma independiente en cada máquina.
 
+### `agents-city connect`
+
+Empareja este ordenador con un servicio de Roads gestionadas. No crea una
+conexión unilateral: las dos personas la aprueban en el servicio y quien la
+recibe ve a la otra persona en su recepción humana privada, sin exponer un
+catálogo de ciudades. El cliente público implementa el protocolo v4; el servicio
+alojado queda fuera de este repositorio y todavía no está habilitado en
+producción ni auditado de forma independiente.
+
+```bash
+agents-city connect --service https://connect.example.com --trust-file roots.json
+agents-city connect --city producto
+agents-city connect --all
+agents-city connect status
+agents-city connect roads
+```
+
+El comando genera material Ed25519/X25519, Olm y ML-KEM-768 firmado en este
+ordenador, muestra un PASCO de un solo uso y abre el navegador para autorizarlo.
+Sólo sube material público. Las claves privadas, el estado del ratchet, las
+semillas ML-KEM y los reintentos quedan cifrados en
+`~/.agents-city/.runtime/connect/vault/`; la clave de envoltura permanece en el
+Llavero de macOS, Credential Manager de Windows o Secret Service de Linux. El
+cliente falla de forma cerrada si el keyring no está disponible. La jaula sella
+el vault para las ventanas de agentes de repositorio en macOS y Linux.
+
+La cadena de raíces firmada indicada con `--trust-file` es obligatoria en el
+primer emparejamiento con un servicio que no sea de desarrollo. El cliente
+conserva la última versión aceptada. Una raíz posterior debe continuar desde
+esa raíz local exacta y llevar suficientes firmas de las autoridades offline
+anteriores y nuevas; se rechazan saltos, rollback, caducidad y cambios
+silenciosos de operador o testigo. El protocolo v4 verifica después al peer
+mediante transparencia de claves, protege el primer mensaje Olm con X25519 +
+ML-KEM-768 híbrido y usa el Double Ratchet de Olm. Los envíos sellados normales
+omiten remitente, dispositivo, ciudad y Road de la petición exterior. Esto no
+oculta a Cloudflare la IP, el momento o el tamaño rellenado; los pasos
+posteriores del ratchet son clásicos.
+
+El paquete incluye una raíz pública únicamente para el origen exacto del
+sandbox gestionado. Los servicios autoalojados siguen necesitando su
+`--trust-file` revisado. Una raíz devuelta por el propio servicio nunca se
+acepta como primer anclaje.
+
+`--city` elige un hub local que mantiene viva la recepción del propietario; no
+elige un destinatario ni se revela a la otra persona. Un solo hub por ordenador
+mantiene el lease y una conexión cifrada saliente; no se abre ningún puerto
+público. Usa `--service URL` o `AGENTS_CITY_CONNECT_URL` para un endpoint piloto.
+El servidor alojado no forma parte de este repositorio Apache; el cliente y el
+protocolo auditables sí.
+
+[docs/managed-connect.md](docs/managed-connect.md) detalla el contrato de claves,
+sobres, cifrado, ACK, revocación y modelo de amenazas.
+
 ### `agents-city bus`
 
 Opera mensajes entre asientos sobre carreteras ya declaradas.
@@ -703,7 +757,7 @@ agents-city bus send '*' "Aviso para todas mis carreteras"
 | Subcomando | Efecto |
 |---|---|
 | `roster` | devuelve carreteras y presencia online conocida |
-| `inbox` | devuelve y consume el inbox pendiente; el historial append-only permanece |
+| `inbox` | devuelve y consume el siguiente lote aprobado de hasta 20; el texto gestionado no aparece hasta que el propietario lo envía desde el ayuntamiento |
 | `send owner/city TEXTO` | envía a un destino permitido |
 | `send '*' TEXTO` | envía a todas las carreteras; exige al menos una |
 
@@ -1572,9 +1626,28 @@ AGENTS_CITY_DATA="$HOME/.agents-city/$CITY_OWNER/producto" \
 En una sesión normal no hace falta establecer `AGENTS_CITY_DATA`: ya está
 inyectado en cada ventana. El ejemplo lo hace explícito para una terminal externa.
 
-### Caso 10: conectar ciudades de dos máquinas o personas
+### Caso 10: conectar dos personas desde ordenadores distintos
 
-En la máquina A:
+Con un operador de Roads gestionadas, cada persona empareja su ordenador.
+`--city` elige el hub local que inicia la recepción del propietario; no revela
+esa ciudad ni da acceso directo a ella:
+
+```bash
+agents-city connect --city producto --service https://connect.example.com --trust-file roots.json
+agents-city connect --city research --service https://connect.example.com --trust-file roots.json
+```
+
+Una persona solicita la conexión en el servicio y la otra la acepta. Los
+clientes reciben la Road bilateral mediante sus sesiones autenticadas; ninguna
+parte intercambia un token compartido, abre un puerto local ni recibe el catálogo
+de ciudades de la otra. El texto entrante se detiene primero en la recepción
+humana. Quien lo recibe decide qué ciudad o ciudades locales pueden leerlo, o
+activa el router opcional que falla de forma cerrada y sólo actúa cuando una
+regla coincide sin ambigüedad. El contrato del cliente público está en
+[docs/managed-connect.md](docs/managed-connect.md).
+
+Para autoalojar el transporte remoto existente basado en token, intercambia en
+cambio las invitaciones públicas de ciudad. En la máquina A:
 
 ```bash
 agents-city road invite producto > producto.invitation.json
@@ -1803,12 +1876,32 @@ El hub local no mezcla datos efímeros con la configuración legible:
 ├── road-queue/*.json
 ├── road-inbox/*.json
 └── road-history.jsonl
+
+~/.agents-city/.runtime/reception/
+└── reception.sqlite3       # cuarentena del propietario compartida por sus ciudades
 ```
 
 Las credenciales y ficheros de runtime se crean con permisos privados. Los
 outboxes permiten que un actor se reconecte sin perder tareas ya aceptadas; el
-ACK elimina el pendiente. El límite actual es 200 pendientes por cola y 72 horas
-de vida por mensaje. `bus inbox` consume `road-inbox`, no el historial append-only.
+ACK elimina el pendiente. Los outboxes de actores y la cola local de reintentos
+admiten 200 pendientes; el inbox de Roads admite 500 por defecto y devuelve como
+máximo los 20 más antiguos en cada lectura. El texto E2EE gestionado entra
+primero en la recepción separada del propietario: ninguna ciudad ni modelo puede
+consumirlo hasta que una persona lo rechaza o lo envía a una o varias ciudades
+desde el ayuntamiento. Una ráfaga ya enrutada crea una sola activación agrupada
+del asiento, no un turno del modelo por mensaje, y cada runtime nativo ejecuta
+como máximo un turno a la vez. Una cola llena aplica backpressure en vez de
+borrar silenciosamente un elemento anterior. La vida de cada mensaje es de 72
+horas. `bus inbox` consume el `road-inbox` aprobado, no la cuarentena ni el
+historial append-only.
+
+El rendimiento del relay no es el rendimiento de respuestas. Para una ciudad,
+la capacidad semántica segura es aproximadamente las peticiones agrupadas por
+turno divididas por la duración del turno. La regresión local vacía 100 mensajes
+de Road en cinco lotes exactos de 20 tras una sola activación sin contenido; una
+prueba separada con 20 peticiones y runtime lento demuestra que la concurrencia
+del modelo permanece en uno y que el backlog durable se vacía sin pérdidas. El
+resultado `queued` del remitente nunca significa leído ni respondido.
 
 ### Variables configurables
 
@@ -1830,6 +1923,12 @@ de vida por mensaje. `bus inbox` consume `road-inbox`, no el historial append-on
 | `CITY_HOOKS` | `city` | `everywhere` ejecuta los hooks de conciencia en todas las sesiones de Claude, no solo en runtimes de ciudad |
 | `CITY_DESKTOP` | `~/Desktop`, o el escritorio de Windows bajo WSL | dónde escribe `agents-city shortcut` |
 | `CITY_CAGE` | `1` | `0` arranca todas las ventanas sin jaula |
+| `CITY_ROAD_INBOX_MAX_PENDING` | `500` | capacidad local del inbox de Roads, entre 20 y 10.000; al llenarse aplica backpressure |
+| `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | intervalo mínimo entre activaciones agrupadas del backlog, de 30 segundos a 1 hora |
+| `CITY_RECEPTION_MAX_PENDING` | `10000` | mensajes remotos pendientes del propietario antes de aplicar contrapresión al relay, de 100 a 100.000 |
+| `CITY_RECEPTION_MAX_BYTES` | `67108864` | bytes totales pendientes en la recepción local privada, de 1 MiB a 512 MiB |
+| `CITY_RECEPTION_PENDING_DAYS` | `30` | retención local de mensajes sin decidir, de 1 a 90 días |
+| `CITY_RECEPTION_DELIVERY_INTERVAL_MS` | `1000` | frecuencia con la que un bus reclama rutas aprobadas por la persona, de 250 ms a 30 segundos |
 | `CITY_CAGE_DENY` | vacío | rutas extra que sellar, separadas por `:` |
 | `CITY_CAGE_ALLOW_WRITE` | vacío | rutas extra que mantener escribibles, separadas por `:` |
 | `CITY_UPDATE_CHECK` | `1` | `0` no pregunta nunca a npm si hay versión más nueva |
@@ -1966,10 +2065,18 @@ tus repos, adjuntarse a tu tmux o leer ficheros privados de tu home. Para códig
 no confiable usa cuentas/VMs/contenedores separados y aplica también los permisos
 del CLI de cada proveedor.
 
-El bus remoto amplía la superficie de confianza. Despliega HTTPS/WSS, rota
-tokens, limita los scopes y revisa [docs/self-host.md](docs/self-host.md). Una
-carretera autoriza intercambio de mensajes entre asientos; no implica confianza
-para ejecutar comandos recibidos ni acceso al filesystem remoto.
+Un bus remoto amplía la superficie de confianza. Para el transporte autoalojado
+con token, despliega HTTPS/WSS, rota tokens, limita los scopes y revisa
+[docs/self-host.md](docs/self-host.md). Managed Connect usa firmas de
+dispositivo, transparencia de claves con testigos, establecimiento de sesión
+híbrido X25519 + ML-KEM-768, Double Ratchet de Olm y entrega sellada. Su material
+privado queda cifrado bajo una clave del keyring del sistema operativo en el
+directorio sellado por la jaula `~/.agents-city/.runtime/connect/vault/`; consulta
+[docs/managed-connect.md](docs/managed-connect.md). Una Road gestionada autoriza
+alcance cifrado hasta la recepción humana del propietario, no entrada directa a
+un modelo. Solo la ruta posterior del propietario deja el texto disponible para
+las ciudades elegidas. Ninguna Road autoriza ejecutar comandos recibidos ni
+acceder al filesystem remoto.
 
 ## Resolución de problemas
 

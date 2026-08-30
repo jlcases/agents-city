@@ -66,6 +66,8 @@ def texto_del_perfil():
                "channels" in p and "\\.env" in p)
         afirma("the broker state dir is sealed",
                os.path.join(casa, ".agents-city", ".runtime", "broker") in p)
+        afirma("managed device keys are sealed",
+               os.path.join(casa, ".agents-city", ".runtime", "connect") in p)
         afirma("~/.npmrc stays readable on purpose (a broken npm protects nobody)",
                os.path.join(casa, ".npmrc") not in p)
     finally:
@@ -129,6 +131,8 @@ def excepciones_y_errores():
             p = cage.perfil(repo, casa=casa)
             afirma("the broker seal follows a relocated AGENTS_CITY_HOME",
                    os.path.join(os.path.realpath(relocado), ".runtime", "broker") in p)
+            afirma("the managed-key seal follows a relocated AGENTS_CITY_HOME",
+                   os.path.join(os.path.realpath(relocado), ".runtime", "connect") in p)
             afirma("and the relocated home stays writable",
                    f'(subpath "{os.path.realpath(relocado)}")' in p)
         finally:
@@ -234,6 +238,11 @@ def argv_de_linux():
                i_repo < i_ssh, f"repo at {i_repo}, sealed .ssh at {i_ssh}")
         afirma("a sealed directory becomes an empty tmpfs, not a refusal",
                f"--tmpfs {real(os.path.join(casa, '.ssh'))}" in texto, texto[-400:])
+        connect = real(os.path.join(casa, '.agents-city', '.runtime', 'connect'))
+        os.makedirs(connect, exist_ok=True)
+        con_connect = " ".join(cage.argv_bwrap(repo, casa=casa))
+        afirma("the Linux cage masks managed device keys with an empty filesystem",
+               f"--tmpfs {connect}" in con_connect, con_connect[-500:])
         afirma("a sealed FILE reads as nothing instead",
                f"--ro-bind-try /dev/null {real(os.path.join(casa, '.git-credentials'))}" in texto,
                texto[-400:])

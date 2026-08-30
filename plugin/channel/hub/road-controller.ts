@@ -1,15 +1,48 @@
 import { ActorRole, BUS_PROTOCOL, BusEnvelope, isoNow, randomId, text } from '../protocol.js';
 import { CityContext } from '../city-config.js';
-import { recordRoadInbox, takeRoadInbox } from '../delivery-queue.js';
+import {
+  ROAD_INBOX_BATCH_SIZE,
+  markRoadInboxAccepted,
+  markRoadInboxNotified,
+  recordRoadInbox,
+  roadInboxStatus,
+  takeRoadInbox,
+} from '../delivery-queue.js';
 import { requireChair } from '../committee/guards.js';
+import { deliverApprovedReception, recordReceptionMessage } from '../reception.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
 import { localRoadOnline, sendLocalRoad } from './local-roads.js';
 import { remoteRoadBridge } from './remote-roads.js';
+import { managedReceptionBridge } from '../managed-connect/reception-bridge.js';
 
 export function roadController(context: CityContext, router: EnvelopeRouter) {
-  const inbound = (envelope: BusEnvelope): void => {
-    const road = context.roads.find((candidate) => candidate.address === envelope.from.city);
+  const wakeIntervalMs = duration(
+    process.env.CITY_ROAD_INBOX_WAKE_INTERVAL_MS,
+    5 * 60_000,
+    30_000,
+    60 * 60_000,
+  );
+  const wakeCheckMs = Math.min(30_000, wakeIntervalMs);
+  const receptionCheckMs = duration(
+    process.env.CITY_RECEPTION_DELIVERY_INTERVAL_MS,
+    1_000,
+    250,
+    30_000,
+  );
+  let wakeTimer: ReturnType<typeof setInterval> | null = null;
+  let receptionTimer: ReturnType<typeof setInterval> | null = null;
+  let remote: ReturnType<typeof remoteRoadBridge>;
+  const reception = managedReceptionBridge(context);
+  const roads = () => {
+    const merged = [...context.roads, ...(remote?.roads() ?? [])];
+    return merged.filter(
+      (road, index) =>
+        merged.findIndex((candidate) => candidate.address === road.address) === index,
+    );
+  };
+  const validateInbound = (envelope: BusEnvelope): void => {
+    const road = roads().find((candidate) => candidate.address === envelope.from.city);
     if (!road) throw new Error(`there is no road from ${envelope.from.city}`);
     if (
       envelope.protocol !== BUS_PROTOCOL ||
@@ -19,6 +52,16 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
       envelope.to.actor !== 'seat'
     ) {
       throw new Error('invalid road envelope');
+    }
+  };
+  const inbound = (envelope: BusEnvelope): void => {
+    validateInbound(envelope);
+    // Managed traffic crosses a human boundary first. The raw text is durable
+    // in the owner-level local reception, but neither this city nor any model
+    // can read it through road.inbox until the Hall routes it explicitly.
+    if (envelope.payload?.transport === 'managed-e2ee') {
+      recordReceptionMessage(context, envelope);
+      return;
     }
     // The body is untrusted text from another city: wrap it in an unforgeable
     // boundary and defang chat-template tokens before it can reach the seat's
@@ -37,19 +80,35 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
             },
           }
         : envelope;
-    recordRoadInbox(context.runtimeDir, guarded);
-    router.roadInbound(guarded);
+    const newlyRecorded = recordRoadInbox(context.runtimeDir, guarded);
+    notifyBacklog();
+    if (!newlyRecorded) return;
+    // The local/self-hosted transport may now return success: the inbox record
+    // and deduplication receipt are durable under one stable envelope id.
+    markRoadInboxAccepted(context.runtimeDir, guarded.id);
   };
-  const remote = remoteRoadBridge(context, (envelope) => {
-    try {
-      inbound(envelope);
-    } catch (error) {
-      console.error(`[city-bus] dropped remote envelope: ${(error as Error).message}`);
+  const inboundManaged = (envelope: BusEnvelope): { inserted: boolean } => {
+    validateInbound(envelope);
+    if (envelope.payload?.transport !== 'managed-e2ee') {
+      throw new Error('managed delivery contains a non-managed envelope');
     }
-  });
+    return recordReceptionMessage(context, envelope);
+  };
+  remote = remoteRoadBridge(context, inbound, inboundManaged);
+
+  const notifyBacklog = (): void => {
+    const status = roadInboxStatus(context.runtimeDir);
+    if (!status.pending || Date.now() - status.notifiedAt < wakeIntervalMs) return;
+    router.internal('road.inbox.ready', 'seat', 'chair', 'seat', null, {
+      pending: status.pending,
+      oldestAt: status.oldestAt,
+      batchSize: ROAD_INBOX_BATCH_SIZE,
+    });
+    markRoadInboxNotified(context.runtimeDir);
+  };
 
   const sendOne = async (to: string, body: string): Promise<string> => {
-    const road = context.roads.find((candidate) => candidate.address === to);
+    const road = roads().find((candidate) => candidate.address === to);
     if (!road) throw new Error(`no road from ${context.city.address} to ${to}`);
     const envelope: BusEnvelope = {
       protocol: BUS_PROTOCOL,
@@ -73,7 +132,7 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
   ): Promise<unknown> => {
     if (name === 'road.roster') {
       requireChair(actor, role);
-      return context.roads.map((road) => ({
+      return roads().map((road) => ({
         ...road,
         online: road.local ? localRoadOnline(context, road) : remote.online(road.address),
       }));
@@ -87,13 +146,54 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
     const to = text(payload.to, 'to');
     const body = text(payload.text, 'text');
     if (to !== '*') return { results: [await sendOne(to, body)] };
-    if (!context.roads.length) throw new Error('this city has no roads');
+    const currentRoads = roads();
+    if (!currentRoads.length) throw new Error('this city has no roads');
     const results: string[] = [];
-    for (const road of context.roads) results.push(await sendOne(road.address, body));
+    for (const road of currentRoads) results.push(await sendOne(road.address, body));
     return { results };
   };
 
-  return { command, inbound, start: remote.start, close: remote.close };
+  const start = (): void => {
+    remote.start();
+    reception.start();
+    deliverReception();
+    notifyBacklog();
+    receptionTimer = setInterval(deliverReception, receptionCheckMs);
+    receptionTimer.unref();
+    wakeTimer = setInterval(() => {
+      try {
+        notifyBacklog();
+      } catch (error) {
+        console.error(`[city-bus] Road inbox wake-up failed: ${(error as Error).message}`);
+      }
+    }, wakeCheckMs);
+    wakeTimer.unref();
+  };
+
+  const close = (): void => {
+    if (wakeTimer) clearInterval(wakeTimer);
+    if (receptionTimer) clearInterval(receptionTimer);
+    wakeTimer = null;
+    receptionTimer = null;
+    remote.close();
+    reception.close();
+  };
+
+  return { command, inbound, start, close };
+
+  function deliverReception(): void {
+    try {
+      const result = deliverApprovedReception(context);
+      if (result.delivered) notifyBacklog();
+    } catch (error) {
+      console.error(`[city-bus] Reception delivery failed: ${(error as Error).message}`);
+    }
+  }
 }
 
 export type RoadController = ReturnType<typeof roadController>;
+
+function duration(raw: string | undefined, fallback: number, minimum: number, maximum: number) {
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : fallback;
+}

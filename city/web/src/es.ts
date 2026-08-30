@@ -16,6 +16,7 @@ anota({
   'My seat': 'Mi asiento',
   Districts: 'Distritos',
   Roads: 'Carreteras',
+  Reception: 'Recepción',
   Committee: 'Comité',
   Houses: 'Casas',
   'All cities': 'Todas las ciudades',
@@ -23,6 +24,83 @@ anota({
   '{n} house': '{n} casa',
   '{n} houses': '{n} casas',
   'Create another city →': 'Crear otra ciudad →',
+
+  // ── reception ────────────────────────────────────────────────────────────
+  reception: 'recepción',
+  'Messages wait for you, not your agents': 'Los mensajes te esperan a ti, no a tus agentes',
+  'Remote text stops here as inert text. Read it, reject it with a reason, or choose the cities that should receive it. Until then no model can read it.':
+    'El texto remoto se detiene aquí como texto inerte. Léelo, recházalo con un motivo o elige qué ciudades deben recibirlo. Hasta entonces ningún modelo puede leerlo.',
+  'routing mode': 'modo de enrutado',
+  'Manual review': 'Revisión manual',
+  'Every message needs a person before it reaches a city.':
+    'Cada mensaje necesita a una persona antes de llegar a una ciudad.',
+  'Auto router not configured': 'Router automático sin configurar',
+  'Configure Auto': 'Configurar Auto',
+  'Automatic routing': 'Enrutado automático',
+  'Only one clear, low-risk rule match can leave the human queue automatically.':
+    'Solo una coincidencia clara y de bajo riesgo puede salir automáticamente de la cola humana.',
+  'Routing policy': 'Política de enrutado',
+  'Keep human review': 'Mantener la revisión humana',
+  'Use the local rule router': 'Usar el router local de reglas',
+  'Write comma-separated words or phrases for each destination. Empty cities are never selected.':
+    'Escribe palabras o frases separadas por comas para cada destino. Las ciudades vacías nunca se eligen.',
+  'e.g. contract, privacy, legal review': 'p. ej. contrato, privacidad, revisión legal',
+  'Suspicious, unmatched, or ambiguous text always waits for you. Auto never executes, answers, or opens links.':
+    'El texto sospechoso, sin coincidencia o ambiguo siempre te espera. Auto nunca ejecuta, responde ni abre enlaces.',
+  'Save routing policy': 'Guardar política de enrutado',
+  'Could not save the routing policy': 'No se pudo guardar la política de enrutado',
+  'Routing policy saved.': 'Política de enrutado guardada.',
+  'Reading your reception…': 'Leyendo tu recepción…',
+  'Could not read your reception': 'No se ha podido leer tu recepción',
+  'Reception clear': 'Recepción despejada',
+  'No remote message is waiting for a decision.': 'No hay mensajes remotos esperando una decisión.',
+  'message waiting': '{n} mensaje en espera',
+  'messages waiting': '{n} mensajes en espera',
+  'local only': 'solo local',
+  'No agent has read this': 'Ningún agente ha leído esto',
+  'Send to': 'Dirigir a',
+  'Route to selected cities': 'Dirigir a las ciudades elegidas',
+  'Reject and reply with a reason': 'Rechazar y responder con un motivo',
+  'Reason sent back securely': 'Motivo que se devolverá cifrado',
+  'Reason for rejecting this message': 'Motivo para rechazar este mensaje',
+  'Reject and send reason': 'Rechazar y enviar el motivo',
+  'Could not route the message': 'No se pudo dirigir el mensaje',
+  'Message routed. Only the selected cities can now read it.':
+    'Mensaje dirigido. Solo las ciudades elegidas pueden leerlo ahora.',
+  'Could not reject the message': 'No se pudo rechazar el mensaje',
+  'Message rejected. Your reason is queued for encrypted delivery.':
+    'Mensaje rechazado. Tu motivo ha quedado en cola para enviarse cifrado.',
+  'New encrypted message': 'Nuevo mensaje cifrado',
+  'Messages leave from this computer with end-to-end encryption.':
+    'Los mensajes salen de este ordenador con cifrado de extremo a extremo.',
+  'message queued': '{n} mensaje en cola',
+  'messages queued': '{n} mensajes en cola',
+  'Write to': 'Escribir a',
+  Message: 'Mensaje',
+  'Your message will stop in their private reception.':
+    'Tu mensaje se detendrá en su recepción privada.',
+  'Send securely': 'Enviar de forma segura',
+  'Reply to a rejected message': 'Respuesta a un mensaje rechazado',
+  Dismiss: 'Descartar',
+  'Could not queue the message': 'No se pudo poner el mensaje en cola',
+  'Message queued on this computer.': 'Mensaje puesto en cola en este ordenador.',
+  'Could not dismiss the response': 'No se pudo descartar la respuesta',
+
+  // ── live activity rail ──────────────────────────────────────────────────
+  'City live': 'Ciudad en directo',
+  waiting: 'esperando',
+  'A moderated conversation over the WebSocket bus. The seat routes each turn; private model reasoning is never shown or stored.':
+    'Una conversación moderada sobre el bus WebSocket. El asiento dirige cada turno; el razonamiento privado de los modelos no se muestra ni se guarda.',
+  'all conversations': 'todas las conversaciones',
+  'show work': 'mostrar trabajo',
+  'hide work': 'ocultar trabajo',
+  'websocket live': 'websocket activo',
+  reconnecting: 'reconectando',
+  'session offline': 'sesión desconectada',
+  'The bus is live. Questions, positions and moderated replies will appear here.':
+    'El bus está activo. Aquí aparecerán preguntas, posiciones y respuestas moderadas.',
+  'Start the city session. Its visible conversation will appear here as it happens.':
+    'Inicia la sesión de la ciudad. Su conversación visible aparecerá aquí mientras sucede.',
 
   // ── the guide ─────────────────────────────────────────────────────────────
   Welcome: 'Bienvenida',

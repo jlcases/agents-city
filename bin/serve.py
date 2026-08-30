@@ -23,6 +23,7 @@ import re
 import secrets
 import shutil
 import signal
+import sqlite3
 import socketserver
 import stat
 import subprocess
@@ -45,6 +46,7 @@ import busca  # noqa: E402  the disk scanner, and the one list of where work liv
 import cities  # noqa: E402
 import demos  # noqa: E402  the recorded demos the Hall plays back
 import roads  # noqa: E402
+import reception  # noqa: E402
 import capabilities  # noqa: E402
 import deliberations  # noqa: E402
 import avatar  # noqa: E402
@@ -187,6 +189,22 @@ def estado_seguro_agentes(datos):
         return workspace.agentes(texto, datos)
     except (OSError, ValueError):
         return []
+
+
+def resumen_recepcion_segura():
+    """A damaged optional inbox must not make the whole local Hall disappear."""
+    try:
+        return reception.resumen()
+    except (OSError, sqlite3.Error, reception.ReceptionError) as e:
+        return {
+            "pending": 0,
+            "pendingBytes": 0,
+            "routingMode": "manual",
+            "reviewPolicy": "every_message",
+            "routerProfile": None,
+            "autoAvailable": False,
+            "error": str(e),
+        }
 
 
 def olvida_skills():
@@ -675,6 +693,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         "/api/demos": "g_demos",
         "/api/domains": "g_domains",
         "/api/roles": "g_roles",
+        "/api/reception": "g_reception",
     }
     POSTS = {
         "/api/ficha": "p_ficha",
@@ -686,6 +705,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         "/api/ciudad-archiva": "p_archiva_ciudad",
         "/api/ciudad-reinicia": "p_reinicia_ciudad",
         "/api/roads": "p_roads",
+        "/api/reception": "p_reception",
         "/api/agente": "p_agente",
         "/api/agentes": "p_agentes",
         "/api/montaje": "p_montaje",
@@ -807,6 +827,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 # Registration is earned by writing to one, never by looking.
                 "ciudades": lista_con(datos),
                 "roads": roads.lee(datos),
+                "reception": resumen_recepcion_segura(),
                 "invitation": roads.invitacion(datos, owner),
                 "skills": habilidades,
                 "deliberations": deliberations.lista(datos),
@@ -824,6 +845,13 @@ class Manejador(http.server.BaseHTTPRequestHandler):
 
     def g_live(self, q):
         return self.responde(actividad_viva(self.ciudad(q)))
+
+    def g_reception(self, q):
+        """Owner-level remote quarantine; it is deliberately not city-scoped."""
+        try:
+            return self.responde(reception.estado(seat.quien_soy(), actual=self.ciudad(q)))
+        except (OSError, sqlite3.Error, reception.ReceptionError) as e:
+            return self.responde({"error": str(e)}, codigo=503)
 
     def g_demos(self, q):
         """The recorded demos, and one of them in full when asked by name.
@@ -1172,6 +1200,51 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         except (OSError, ValueError) as e:
             return self.responde({"error": str(e)}, codigo=400)
         return self.responde({"ok": True, "roads": roads.lee(origen)})
+
+    def p_reception(self, q, cuerpo):
+        """One human decision, committed before any city can consume the text."""
+        if cuerpo.get("action") == "configure":
+            try:
+                return self.responde(
+                    reception.configura(
+                        seat.quien_soy(),
+                        cuerpo.get("routing_mode"),
+                        cuerpo.get("rules"),
+                        self.ciudad(q),
+                    )
+                )
+            except reception.ReceptionError as e:
+                return self.responde({"error": str(e)}, codigo=400)
+            except (OSError, sqlite3.Error) as e:
+                return self.responde({"error": f"reception unavailable: {e}"}, codigo=503)
+        if cuerpo.get("action") == "send":
+            try:
+                return self.responde(
+                    reception.envia(cuerpo.get("connection_id"), cuerpo.get("text")),
+                    codigo=202,
+                )
+            except reception.ReceptionError as e:
+                return self.responde({"error": str(e)}, codigo=400)
+            except (OSError, sqlite3.Error) as e:
+                return self.responde({"error": f"reception unavailable: {e}"}, codigo=503)
+        destinos = cuerpo.get("destinations") or []
+        if not isinstance(destinos, list):
+            return self.responde({"error": "destinations must be a list"}, codigo=400)
+        try:
+            resultado = reception.decide(
+                seat.quien_soy(),
+                cuerpo.get("message_id"),
+                cuerpo.get("action"),
+                destinos,
+                cuerpo.get("reason"),
+                self.ciudad(q),
+            )
+        except reception.ReceptionError as e:
+            codigo = 409 if "already" in str(e) or "conflict" in str(e) else 400
+            return self.responde({"error": str(e)}, codigo=codigo)
+        except (OSError, sqlite3.Error) as e:
+            return self.responde({"error": f"reception unavailable: {e}"}, codigo=503)
+        return self.responde(resultado)
 
     def p_mapa(self, q, cuerpo):
         # Bake and serve the map, detached. First run builds the front end and

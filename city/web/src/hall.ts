@@ -90,6 +90,44 @@ interface Road {
   domain?: string;
   role?: string;
 }
+interface ReceptionSummary {
+  pending: number;
+  pendingBytes: number;
+  routingMode: 'manual' | 'auto';
+  reviewPolicy: 'every_message' | 'new_thread';
+  routerProfile: string | null;
+  autoAvailable: boolean;
+  error?: string;
+}
+interface ReceptionState {
+  protocol: 'agents-city-reception/1';
+  error?: string;
+  settings: {
+    routingMode: 'manual' | 'auto';
+    reviewPolicy: 'every_message' | 'new_thread';
+    routerProfile: string | null;
+    autoAvailable: boolean;
+    autoRules: Array<{ cityId: string; address: string; keywords: string[] }>;
+  };
+  summary: { pending: number; pendingBytes: number; shown: number };
+  messages: Array<{
+    id: string;
+    from: string;
+    fromName: string;
+    kind: 'message' | 'rejection';
+    inReplyTo: string | null;
+    createdAt: string;
+    receivedAt: string;
+    receivedVia: string;
+    text: string;
+    connectionId: string | null;
+    roadId: string | null;
+    agentExposure: false;
+  }>;
+  cities: Array<{ id: string; name: string; address: string }>;
+  connections: Array<{ id: string; roadId: string; name: string; connected: boolean }>;
+  outbox: { queued: number };
+}
 interface SkillInfo {
   name: string;
   description: string;
@@ -179,6 +217,7 @@ interface Estado {
   sesion: string;
   ciudades: Ciudad[];
   roads: Road[];
+  reception: ReceptionSummary;
   invitation: Invitation;
   skills: Record<string, AgentCapabilities>;
   deliberations: Deliberation[];
@@ -291,6 +330,7 @@ const SECCIONES: Array<[string, string]> = [
   ['mapa', 'The map'],
   ['puesto', 'My seat'],
   ['barrios', 'Districts'],
+  ['recepcion', 'Reception'],
   ['red', 'Roads'],
   ['committee', 'Committee'],
   ['gente', 'Houses'],
@@ -496,10 +536,10 @@ function pintaActividad(seguir = false): void {
   if (!dot || !state || !list || !filter || !context || !workToggle) return;
   dot.classList.toggle('on', liveConnected);
   state.textContent = liveConnected
-    ? 'websocket live'
+    ? _('websocket live')
     : liveUrl
-      ? 'reconnecting'
-      : 'session offline';
+      ? _('reconnecting')
+      : _('session offline');
 
   const opened = new Map<string, string>();
   for (const event of liveEvents) {
@@ -513,7 +553,7 @@ function pintaActividad(seguir = false): void {
     }
   }
   filter.innerHTML =
-    '<option value="">all conversations</option>' +
+    `<option value="">${_('all conversations')}</option>` +
     [...opened.entries()]
       .reverse()
       .map(
@@ -530,7 +570,7 @@ function pintaActividad(seguir = false): void {
   };
   workToggle.classList.toggle('on', liveShowWork);
   workToggle.setAttribute('aria-pressed', String(liveShowWork));
-  workToggle.textContent = liveShowWork ? 'hide work' : 'show work';
+  workToggle.textContent = liveShowWork ? _('hide work') : _('show work');
   workToggle.onclick = () => {
     liveShowWork = !liveShowWork;
     pintaActividad(true);
@@ -548,8 +588,8 @@ function pintaActividad(seguir = false): void {
   if (!visible.length) {
     list.innerHTML = `<li class="liveEmpty">${
       liveConnected
-        ? 'The bus is live. Questions, positions and moderated replies will appear here.'
-        : 'Start the city session. Its visible conversation will appear here as it happens.'
+        ? _('The bus is live. Questions, positions and moderated replies will appear here.')
+        : _('Start the city session. Its visible conversation will appear here as it happens.')
     }</li>`;
     return;
   }
@@ -770,29 +810,40 @@ function rail(): void {
             ? String(Object.keys(E.skills).length)
             : id === 'committee'
               ? String(E.deliberations.length)
-              : id === 'red'
-                ? String(E.roads.length)
-                : id === 'barrios'
-                  ? String(E.parcelas.length)
-                  : '';
-      return `<li class="${id === SECCION ? 'aqui' : ''}" data-s="${id}">
+              : id === 'recepcion'
+                ? String(E.reception?.pending ?? 0)
+                : id === 'red'
+                  ? String(E.roads.length)
+                  : id === 'barrios'
+                    ? String(E.parcelas.length)
+                    : '';
+      return `<li class="${id === SECCION ? 'aqui' : ''}" data-s="${id}" role="button"
+        tabindex="0" ${id === SECCION ? 'aria-current="page"' : ''}>
       <span>${esc(_(et))}</span>${n ? `<span class="n">${n}</span>` : ''}</li>`;
     })
     .join('');
   q('#railOtras').innerHTML =
-    `<li class="${SECCION === 'ciudades' ? 'aqui' : ''}" data-s="ciudades">
+    `<li class="${SECCION === 'ciudades' ? 'aqui' : ''}" data-s="ciudades" role="button"
+      tabindex="0" ${SECCION === 'ciudades' ? 'aria-current="page"' : ''}>
       <span>${_('All cities')}</span><span class="n">${E.ciudades.length}</span></li>`;
   todos<HTMLElement>('#rail li,#railOtras li').forEach((li) => {
-    li.onclick = () => {
+    const abre = () => {
       document.body.classList.remove('enGuia');
       SECCION = li.dataset.s ?? 'mapa';
       pinta();
+    };
+    li.onclick = abre;
+    li.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      abre();
     };
   });
   q('#dondeDatos').textContent = corto(E.datos);
   const cs = q<HTMLElement>('#ciudades');
   if (E.ciudades.length > 1) {
-    cs.innerHTML = `<select id="cambiaCiudad" title="which city this hall manages">
+    cs.innerHTML = `<select id="cambiaCiudad" aria-label="which city this hall manages"
+      title="which city this hall manages">
       ${E.ciudades
         .map(
           (c) => `<option value="${esc(c.ruta)}" ${c.actual ? 'selected' : ''}>
@@ -1614,6 +1665,295 @@ VISTAS.red = () => {
     };
   });
 };
+
+// ── owner reception ─────────────────────────────────────────────────────────
+VISTAS.recepcion = () => {
+  q('#lienzo').innerHTML = `<div><span class="sub">${_('reception')}</span>
+    <h1 style="margin-top:6px">${_('Messages wait for you, not your agents')}</h1>
+    <p class="prosa" style="margin-top:8px">${_(
+      'Remote text stops here as inert text. Read it, reject it with a reason, or choose the cities that should receive it. Until then no model can read it.',
+    )}</p></div>
+    <div class="recModo" id="recModo">
+      <div><span class="et2">${_('routing mode')}</span><b>${_('Manual review')}</b>
+        <p>${_('Every message needs a person before it reaches a city.')}</p></div>
+      <button class="bt mini" type="button" data-rec-open-config>${_('Configure Auto')}</button>
+    </div>
+    <div id="recConfig" hidden></div>
+    <div id="recLista"><p class="prosa">${_('Reading your reception…')}</p></div>`;
+  void cargaRecepcion();
+};
+
+async function cargaRecepcion(): Promise<void> {
+  const hueco = q<HTMLElement>('#recLista');
+  let estado: ReceptionState;
+  try {
+    estado = await api<ReceptionState>('/api/reception');
+  } catch {
+    hueco.innerHTML = `<div class="recError">${_('Could not read your reception')}</div>`;
+    return;
+  }
+  if (estado.error) {
+    hueco.innerHTML = `<div class="recError">${esc(estado.error)}</div>`;
+    return;
+  }
+  E.reception = {
+    pending: estado.summary.pending,
+    pendingBytes: estado.summary.pendingBytes,
+    routingMode: estado.settings.routingMode,
+    reviewPolicy: estado.settings.reviewPolicy,
+    routerProfile: estado.settings.routerProfile,
+    autoAvailable: estado.settings.autoAvailable,
+  };
+  const reglas = new Map(estado.settings.autoRules.map((rule) => [rule.cityId, rule.keywords]));
+  const modo = q<HTMLElement>('#recModo');
+  modo.innerHTML = `<div><span class="et2">${_('routing mode')}</span>
+    <b>${estado.settings.routingMode === 'auto' ? _('Automatic routing') : _('Manual review')}</b>
+    <p>${
+      estado.settings.routingMode === 'auto'
+        ? _('Only one clear, low-risk rule match can leave the human queue automatically.')
+        : _('Every message needs a person before it reaches a city.')
+    }</p></div>
+    <button class="bt mini" type="button" data-rec-open-config>${_('Configure Auto')}</button>`;
+  const configuracion = q<HTMLElement>('#recConfig');
+  configuracion.innerHTML = `<form class="recAutoConfig" data-rec-config>
+    <fieldset><legend>${_('Routing policy')}</legend>
+      <label><input type="radio" name="routing_mode" value="manual"
+        ${estado.settings.routingMode === 'manual' ? 'checked' : ''}> ${_('Keep human review')}</label>
+      <label><input type="radio" name="routing_mode" value="auto"
+        ${estado.settings.routingMode === 'auto' ? 'checked' : ''}> ${_('Use the local rule router')}</label>
+    </fieldset>
+    <div class="recReglas"><p>${_('Write comma-separated words or phrases for each destination. Empty cities are never selected.')}</p>
+      ${estado.cities
+        .map(
+          (city) => `<label><span><b>${esc(city.name)}</b><small>${esc(city.address)}</small></span>
+        <input type="text" name="rule-${esc(city.id)}" maxlength="1200"
+          data-rule-city="${esc(city.id)}" value="${esc((reglas.get(city.id) ?? []).join(', '))}"
+          placeholder="${_('e.g. contract, privacy, legal review')}"></label>`,
+        )
+        .join('')}</div>
+    <p class="recAutoAviso">${_('Suspicious, unmatched, or ambiguous text always waits for you. Auto never executes, answers, or opens links.')}</p>
+    <button class="bt ppal" type="submit">${_('Save routing policy')}</button>
+  </form>`;
+  q<HTMLButtonElement>('[data-rec-open-config]', modo).onclick = () => {
+    configuracion.hidden = !configuracion.hidden;
+  };
+  rail();
+  const conexiones = estado.connections.length
+    ? `<section class="recConexiones"><div class="recSeccion"><b>${_('New encrypted message')}</b>
+        <span>${estado.outbox.queued ? plural(estado.outbox.queued, 'message queued', 'messages queued') : _('Messages leave from this computer with end-to-end encryption.')}</span></div>
+      <form class="recCompose" data-rec-send>
+        <label class="recComposePersona" for="rec-send-connection"><span>${_('Write to')}</span>
+          <select id="rec-send-connection" name="connection" required>
+            ${estado.connections
+              .map(
+                (conexion) => `<option value="${esc(conexion.id)}">${esc(conexion.name)}</option>`,
+              )
+              .join('')}
+          </select>
+        </label>
+        <label class="recComposeTexto" for="rec-send-text"><span>${_('Message')}</span>
+          <textarea id="rec-send-text" name="text" rows="3" maxlength="11500" required
+            placeholder="${_('Your message will stop in their private reception.')}"></textarea>
+        </label>
+        <button class="bt ppal" type="submit">${_('Send securely')}</button>
+      </form></section>`
+    : '';
+  const vacia = !estado.messages.length
+    ? `<div class="recVacia"><b>${_('Reception clear')}</b>
+        <p>${_('No remote message is waiting for a decision.')}</p></div>`
+    : '';
+  const ciudades = estado.cities
+    .map(
+      (ciudad) => `<label class="recDestino"><input type="checkbox" name="destination"
+        value="${esc(ciudad.id)}"><span><b>${esc(ciudad.name)}</b>
+        <small>${esc(ciudad.address)}</small></span></label>`,
+    )
+    .join('');
+  const pendientes = estado.messages.length
+    ? `<div class="recResumen"><b>${estado.summary.pending}</b>
+      <span>${plural(estado.summary.pending, 'message waiting', 'messages waiting')}</span>
+      <small>${formateaBytes(estado.summary.pendingBytes)} · ${_('local only')}</small></div>
+    <div class="recMensajes">${estado.messages
+      .map(
+        (mensaje) => `<article class="recMensaje">
+          <header><div><span class="recOrigen">${esc(mensaje.fromName)}</span>
+            <span>${esc(fechaRecepcion(mensaje.receivedAt))}</span></div>
+            <span class="recSeguro">${mensaje.kind === 'rejection' ? _('Reply to a rejected message') : _('No agent has read this')}</span></header>
+          <pre class="recTexto">${esc(mensaje.text)}</pre>
+          ${
+            mensaje.kind === 'rejection'
+              ? `<div class="recAvisoAccion">
+            <button class="bt mini" type="button" data-rec-dismiss="${esc(mensaje.id)}">${_('Dismiss')}</button>
+          </div>`
+              : `<div class="recAcciones">
+            <form data-rec-route="${esc(mensaje.id)}">
+              <fieldset><legend>${_('Send to')}</legend><div class="recDestinos">${ciudades}</div></fieldset>
+              <button class="bt ppal" type="submit" disabled>${_('Route to selected cities')}</button>
+            </form>
+            <details><summary>${_('Reject and reply with a reason')}</summary>
+              <form data-rec-reject="${esc(mensaje.id)}">
+                <label for="rec-reason-${esc(mensaje.id)}">${_('Reason sent back securely')}</label>
+                <input id="rec-reason-${esc(mensaje.id)}" type="text" name="reason"
+                  maxlength="500" required
+                  placeholder="${_('Reason for rejecting this message')}">
+                <button class="bt malo" type="submit">${_('Reject and send reason')}</button>
+              </form>
+            </details>
+          </div>`
+          }
+        </article>`,
+      )
+      .join('')}</div>`
+    : '';
+  hueco.innerHTML = `${vacia}${pendientes}${conexiones}`;
+  enlazaRecepcion();
+}
+
+function enlazaRecepcion(): void {
+  q<HTMLFormElement>('[data-rec-config]').onsubmit = async (evento) => {
+    evento.preventDefault();
+    const formulario = evento.currentTarget as HTMLFormElement;
+    const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+    const routingMode = q<HTMLInputElement>('input[name=routing_mode]:checked', formulario).value;
+    const rules = todos<HTMLInputElement>('[data-rule-city]', formulario)
+      .map((campo) => ({
+        city_id: campo.dataset.ruleCity,
+        keywords: campo.value
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+      }))
+      .filter((rule) => rule.keywords.length);
+    boton.disabled = true;
+    const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'configure', routing_mode: routingMode, rules }),
+    });
+    if (!respuesta.ok) {
+      boton.disabled = false;
+      toast(respuesta.error ?? _('Could not save the routing policy'), true);
+      return;
+    }
+    toast(_('Routing policy saved.'));
+    await cargaRecepcion();
+  };
+  todos<HTMLFormElement>('[data-rec-send]').forEach((formulario) => {
+    formulario.onsubmit = async (evento) => {
+      evento.preventDefault();
+      const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+      const campo = q<HTMLTextAreaElement>('textarea[name=text]', formulario);
+      const connectionId = q<HTMLSelectElement>('select[name=connection]', formulario).value;
+      if (!connectionId || !campo.value.trim()) return;
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'send',
+          connection_id: connectionId,
+          text: campo.value,
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not queue the message'), true);
+        return;
+      }
+      campo.value = '';
+      toast(_('Message queued on this computer.'));
+      await cargaRecepcion();
+    };
+  });
+  todos<HTMLButtonElement>('[data-rec-dismiss]').forEach((boton) => {
+    boton.onclick = async () => {
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'reject',
+          message_id: boton.dataset.recDismiss,
+          reason: 'Dismissed response',
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not dismiss the response'), true);
+        return;
+      }
+      await cargaRecepcion();
+    };
+  });
+  todos<HTMLFormElement>('[data-rec-route]').forEach((formulario) => {
+    const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+    const actualiza = () => {
+      boton.disabled = !formulario.querySelector<HTMLInputElement>('input:checked');
+    };
+    formulario.onchange = actualiza;
+    formulario.onsubmit = async (evento) => {
+      evento.preventDefault();
+      const destinations = todos<HTMLInputElement>(
+        'input[name=destination]:checked',
+        formulario,
+      ).map((campo) => campo.value);
+      if (!destinations.length) return;
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'route',
+          message_id: formulario.dataset.recRoute,
+          destinations,
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not route the message'), true);
+        return;
+      }
+      toast(_('Message routed. Only the selected cities can now read it.'));
+      await cargaRecepcion();
+    };
+  });
+  todos<HTMLFormElement>('[data-rec-reject]').forEach((formulario) => {
+    formulario.onsubmit = async (evento) => {
+      evento.preventDefault();
+      const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
+      const reason = q<HTMLInputElement>('input[name=reason]', formulario).value.trim();
+      if (!reason) return;
+      boton.disabled = true;
+      const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'reject',
+          message_id: formulario.dataset.recReject,
+          reason,
+        }),
+      });
+      if (!respuesta.ok) {
+        boton.disabled = false;
+        toast(respuesta.error ?? _('Could not reject the message'), true);
+        return;
+      }
+      toast(_('Message rejected. Your reason is queued for encrypted delivery.'));
+      await cargaRecepcion();
+    };
+  });
+}
+
+function fechaRecepcion(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString(idioma() === 'es' ? 'es-ES' : 'en-GB', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+}
+
+function formateaBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // ── committee acts ───────────────────────────────────────────────────────────
 VISTAS.committee = () => {

@@ -33,6 +33,8 @@ def la_jaula_sella_los_secretos():
                any(rutas.dentro_de(objetivo, s) or objetivo == s for s in sellados))
     afirma("the broker state is sealed from repo windows",
            any("broker" in s for s in sellados))
+    afirma("managed signing and decryption keys are sealed from repo windows",
+           any(s.endswith(os.path.join(".runtime", "connect")) for s in sellados))
     afirma("~/.npmrc is NOT sealed by default (a broken npm protects nobody)",
            rutas.canonicaliza(os.path.join(casa, ".npmrc")) not in sellados)
 

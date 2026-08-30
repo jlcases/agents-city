@@ -16,6 +16,7 @@ machine it says so and passes; CI sets CITY_BROWSER_REQUIRED=1 so a runner that
 lost its Chrome fails loudly instead of quietly testing nothing.
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -61,6 +62,56 @@ def ciudad_de_prueba(datos):
             "user: navtest\nname: Nav Test\nrole: cpto\nagent: navtest/seat\n"
             "agents: [notas]\nkind.notas: knowledge\nrole.notas: apuntes\n"
             "goals_defined: false\n---\n\n# navtest\n"
+        )
+
+
+def recepcion_de_prueba(datos):
+    """Thirty people and one pending message expose the real scaling failure.
+
+    One card per connection looks harmless with a two-person fixture.  It puts
+    the human queue several screens below the fold for the actual use case, so
+    this browser fixture deliberately exercises the crowded case.
+    """
+    city_id = serve.cities.identidad(datos)
+    city_address = "navtest/browser"
+    now = "2026-08-30T02:30:00.000Z"
+    first_connection = "41000000-0000-4000-8000-000000000001"
+    first_road = "42000000-0000-4000-8000-000000000001"
+    body = "Can product and legal review the Friday pricing release?"
+    with serve.reception._conecta() as db:
+        for index in range(1, 31):
+            db.execute(
+                """INSERT INTO reception_connections (
+                     road_id, connection_id, peer_name, peer_endpoint, status, updated_at
+                   ) VALUES (?, ?, ?, ?, 'active', ?)""",
+                (
+                    f"42000000-0000-4000-8000-{index:012d}",
+                    f"41000000-0000-4000-8000-{index:012d}",
+                    f"Colleague {index:02d}",
+                    f"remote/rx-{index:012d}",
+                    now,
+                ),
+            )
+        db.execute(
+            """INSERT INTO reception_messages (
+                 message_id, protocol, state, source_city, source_name,
+                 source_created_at, received_city_id, received_city_address,
+                 body, body_sha256, connection_id, road_id, remote_message_id,
+                 received_at
+               ) VALUES ('browser_pending_message', ?, 'pending',
+                 'remote/rx-000000000001', 'Colleague 01', ?, ?, ?, ?, ?, ?, ?,
+                 '43000000-0000-4000-8000-000000000001', ?)""",
+            (
+                serve.reception.PROTOCOL,
+                now,
+                city_id,
+                city_address,
+                body,
+                hashlib.sha256(body.encode()).hexdigest(),
+                first_connection,
+                first_road,
+                now,
+            ),
         )
 
 
@@ -111,6 +162,7 @@ def main():
         XDG_CACHE_HOME=tempfile.mkdtemp(),
     )
     ciudad_de_prueba(datos)
+    recepcion_de_prueba(datos)
 
     # A SECOND city, deliberately empty: the guide only appears where there is
     # nothing yet, and the first fixture has an agent so the sheets can render.

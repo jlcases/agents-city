@@ -30,6 +30,10 @@ export interface Road {
   owner: string;
   address: string;
   local?: boolean;
+  /** A bilateral Road learned from the managed relay directory. */
+  managed?: boolean;
+  /** Monotonic managed grant revision; absent on local/self-hosted Roads. */
+  revision?: number;
   domain?: string;
   role?: string;
 }

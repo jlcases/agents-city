@@ -13,6 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: 22}
+      # The packaged Connect client deliberately resolves the OS keyring from
+      # the root package, exactly as an installed `agents-city` copy does.
+      - name: install package runtime dependencies
+        run: npm ci --silent
       # tmux for the seat's options suite; bubblewrap because the Linux cage IS
       # bubblewrap, and a cage suite that skips proves nothing.
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq tmux bubblewrap

@@ -104,7 +104,7 @@ This is `0.x` on purpose: the commands are usable today, and the file formats
 and APIs can still change between minor versions. Nothing here pretends to be
 frozen yet.
 
-You need Node.js 22+, Python 3 and tmux; the
+You need Node.js 22.13+, Python 3 and tmux; the
 [requirements table](#base-requirements) has the details, and `agents-city seat`
 offers to install tmux when it is missing. Nothing is installed system-wide
 beyond the npm global folder of your active Node installation.
@@ -160,7 +160,7 @@ agents-city --version
 
 | Requirement | Used for |
 |---|---|
-| Node.js 22 or later | npm package, WebSocket bus, and frontends |
+| Node.js 22.13 or later | npm package, WebSocket bus, local reception, and frontends |
 | npm | installation and packaging |
 | Python 3 | Hall, onboarding, cities, maps, and utilities |
 | bash | sessions and launchers |
@@ -486,6 +486,7 @@ agents-city setup
 agents-city seat
 agents-city cities
 agents-city road
+agents-city connect
 agents-city bus
 agents-city committee
 agents-city agents
@@ -681,6 +682,62 @@ agents-city road disconnect product <remote-city-id>
 A city cannot connect to itself. Each machine must independently accept the
 other remote invitation.
 
+### `agents-city connect`
+
+Pairs this computer with a managed Road service. It does not create a
+connection unilaterally: both people approve it in the service, and the
+recipient sees the sender in their private human reception without exposing a
+city catalogue. The public client implements protocol v4; the hosted service is
+outside this repository and is not production-enabled or independently audited.
+
+```bash
+agents-city connect --service https://connect.example.com --trust-file roots.json
+agents-city connect --city product
+agents-city connect --all
+agents-city connect status
+agents-city connect roads
+```
+
+The command generates Ed25519/X25519, Olm and signed ML-KEM-768 material on this
+computer, prints a one-use PASCO and opens the browser for approval. Only public
+material is uploaded. Private keys, ratchet state, ML-KEM seeds and retry data
+are encrypted in `~/.agents-city/.runtime/connect/vault/`; the wrapping key
+stays in macOS Keychain, Windows Credential Manager or Linux Secret Service.
+The client fails closed if that keyring is unavailable. The vault is sealed from
+repo-agent windows on macOS and Linux.
+
+The signed root chain supplied through `--trust-file` is mandatory for first
+pairing with a non-development service. The client persists its last accepted
+version. A later root must continue from that exact local root and carry enough
+signatures from both the old and new offline authorities; skipped versions,
+rollback, expiry and silent operator/witness replacement are rejected. Protocol
+v4 then verifies the peer through key transparency, protects the first Olm
+message with hybrid X25519 + ML-KEM-768, and uses the Olm Double Ratchet. Normal
+sealed submissions omit sender, device, city and Road identity from the outer
+request. This does not hide IP address, timing or padded size from Cloudflare,
+and later ratchet steps are classical.
+
+The package includes a public root only for the exact managed sandbox origin;
+self-hosted services still require their reviewed `--trust-file`. A root
+returned by the service is never accepted as a first pin.
+
+`--city` chooses a local hub that can keep the computer's reception bridge
+alive; it is not a recipient selector and is never disclosed to the other
+person. Exactly one hub per computer holds the lease and one outbound encrypted
+session; no public port is opened. Use `--service URL` or
+`AGENTS_CITY_CONNECT_URL` for a pilot endpoint. The hosted server is not part of
+this Apache repository; the auditable client and wire protocol are.
+
+`agents-city connect roads` prints a connected person's name for a person Road,
+not the opaque `rx-*` transport endpoints. In the Hall, every incoming message
+waits for manual review by default. The owner may route it to one or more local
+cities, reject it with a reason, or explicitly enable the deterministic Auto
+router. Auto routes only one unique low-risk rule match; ambiguous, unmatched,
+prompt-like, secret-seeking, or command-like text remains in the human queue.
+
+See [docs/managed-connect.md](docs/managed-connect.md) for the exact key,
+envelope, encryption, ACK, revocation and threat-model contract.
+
 ### `agents-city bus`
 
 Operates messages between seats over declared roads.
@@ -695,7 +752,7 @@ agents-city bus send '*' "Notice for every connected city"
 | Subcommand | Effect |
 |---|---|
 | `roster` | return roads and known online presence |
-| `inbox` | return and consume pending inbox; append-only history remains |
+| `inbox` | return and consume the next approved batch of up to 20; managed text is unavailable until the owner routes it in the Hall |
 | `send owner/city TEXT` | send to one allowed destination |
 | `send '*' TEXT` | send to all roads; requires at least one |
 
@@ -1550,9 +1607,28 @@ AGENTS_CITY_DATA="$HOME/.agents-city/$CITY_OWNER/product" \
 Inside a normal session, you do not need to set `AGENTS_CITY_DATA`; it is already
 injected into each window. The example makes it explicit for an outside terminal.
 
-### Case 10: connect cities belonging to different machines or people
+### Case 10: connect two people on different machines
 
-On machine A:
+With a managed Road operator, each person pairs a computer. `--city` chooses the
+local hub that will start the owner-level reception bridge; it does not reveal
+that city or give the other person direct access to it:
+
+```bash
+agents-city connect --city product --service https://connect.example.com --trust-file roots.json
+agents-city connect --city research --service https://connect.example.com --trust-file roots.json
+```
+
+One person requests the connection in that service and the other accepts it.
+The clients learn the active bilateral person Road over their authenticated
+relay sessions; neither side exchanges a shared bus token, exposes a local
+port, or receives the other person's city catalogue. Incoming text first stops
+in the human reception. The recipient decides which local city or cities may
+read it, or lets the optional fail-closed rule router decide when one match is
+unambiguous. The public client contract is documented in
+[docs/managed-connect.md](docs/managed-connect.md).
+
+To self-host the existing token-based remote transport instead, exchange the
+public city invitations manually. On machine A:
 
 ```bash
 agents-city road invite product > product.invitation.json
@@ -1780,12 +1856,29 @@ The local hub keeps ephemeral state separate from readable configuration:
 ├── road-queue/*.json
 ├── road-inbox/*.json
 └── road-history.jsonl
+
+~/.agents-city/.runtime/reception/
+└── reception.sqlite3       # owner quarantine shared by local cities
 ```
 
 Credentials and runtime files are created with private permissions. Outboxes let
 an actor reconnect without losing an already accepted task; its ACK removes the
-pending item. Current limits are 200 pending items per queue and a 72-hour
-message lifetime. `bus inbox` consumes `road-inbox`, not append-only history.
+pending item. Actor outboxes and the local retry queue admit 200 pending items;
+the Road inbox admits 500 by default and returns at most 20 oldest items per
+read. Managed E2EE text first enters the separate owner reception: no city or
+model can consume it until a person rejects it or routes it to one or more
+cities in the Hall. A routed burst creates one coalesced seat wake-up rather
+than one model turn per message, and every native runtime runs at most one turn
+at a time. Full queues apply backpressure instead of silently deleting an older
+item. Message lifetime is 72 hours. `bus inbox` consumes approved `road-inbox`,
+not reception quarantine or append-only history.
+
+Relay throughput is not answer throughput. For one city, safe semantic capacity
+is approximately grouped requests per turn divided by turn duration. The local
+regression drains 100 Road messages in five exact batches of 20 after one
+content-free wake-up; a separate 20-request slow-runtime test proves model
+concurrency stays at one and the durable backlog drains without loss. A sender's
+`queued` result never means read or answered.
 
 ### Configurable variables
 
@@ -1807,6 +1900,12 @@ message lifetime. `bus inbox` consumes `road-inbox`, not append-only history.
 | `CITY_HOOKS` | `city` | `everywhere` runs the conscience hooks in every Claude session, not only city runtimes |
 | `CITY_DESKTOP` | `~/Desktop`, or the Windows desktop under WSL | where `agents-city shortcut` writes |
 | `CITY_CAGE` | `1` | `0` launches every window uncaged |
+| `CITY_ROAD_INBOX_MAX_PENDING` | `500` | local Road inbox capacity, from 20 to 10,000; a full inbox applies backpressure |
+| `CITY_ROAD_INBOX_WAKE_INTERVAL_MS` | `300000` | minimum interval between coalesced backlog wake-ups, from 30 seconds to 1 hour |
+| `CITY_RECEPTION_MAX_PENDING` | `10000` | owner-level pending remote messages before relay backpressure, from 100 to 100,000 |
+| `CITY_RECEPTION_MAX_BYTES` | `67108864` | total pending plaintext bytes in private local reception, from 1 MiB to 512 MiB |
+| `CITY_RECEPTION_PENDING_DAYS` | `30` | undecided local-message retention, from 1 to 90 days |
+| `CITY_RECEPTION_DELIVERY_INTERVAL_MS` | `1000` | how often a city bus claims human-approved routes, from 250 ms to 30 seconds |
 | `CITY_CAGE_DENY` | empty | extra colon-separated paths to seal |
 | `CITY_CAGE_ALLOW_WRITE` | empty | extra colon-separated paths to keep writable |
 | `CITY_UPDATE_CHECK` | `1` | `0` never asks npm whether a newer version exists |
@@ -1936,10 +2035,18 @@ read your repos, attach to tmux, or read private files in your home. Use separat
 accounts, VMs, or containers for untrusted code, and also apply each provider
 CLI's permission controls.
 
-A remote bus expands the trust surface. Deploy HTTPS/WSS, rotate tokens, limit
-scopes, and read [docs/self-host.md](docs/self-host.md). A road authorises message
-exchange between seats; it neither authorises execution of received commands nor
-grants remote filesystem access.
+A remote bus expands the trust surface. For the self-hosted token transport,
+deploy HTTPS/WSS, rotate tokens, limit scopes, and read
+[docs/self-host.md](docs/self-host.md). Managed Connect instead uses device
+signatures, witnessed key transparency, hybrid X25519 + ML-KEM-768 session
+establishment, an Olm Double Ratchet and sealed delivery. Its private material
+is encrypted under an OS-keyring wrapping key in the cage-sealed
+`~/.agents-city/.runtime/connect/vault/` directory; see
+[docs/managed-connect.md](docs/managed-connect.md). A managed Road authorises
+encrypted reachability to the owner's human reception, not direct model input.
+Only the owner's later route makes the text available to selected cities. No
+Road authorises execution of received commands or grants remote filesystem
+access.
 
 ## Troubleshooting
 

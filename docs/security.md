@@ -49,8 +49,10 @@ Inside the cage a window **cannot**: read or write `~/.ssh`, `~/.aws`,
 `~/.kube`, `~/.gnupg`, `~/.docker`, `~/.config/gcloud`, `~/.config/gh`,
 `~/.git-credentials`, `~/.netrc`, `~/.pgpass`, cargo credentials,
 `~/.claude/.credentials.json`, any remote road `.env` under
-`~/.claude/channels/`, or the broker's state; nor write anywhere outside its
-repo and the allowed runtime/cache set — other repos on the machine included.
+`~/.claude/channels/`, the managed device-key directory
+`~/.agents-city/.runtime/connect/`, or the broker's state; nor write anywhere
+outside its repo and the allowed runtime/cache set — other repos on the machine
+included.
 
 `~/.claude/.credentials.json` earns its own line because it is the one this
 product created: `~/.claude` stays writable for runtime state, and outside
@@ -181,6 +183,43 @@ the id and cannot smuggle the rest as trusted text. Chat-template role tokens
 (`<|im_start|>`, `[INST]`, `<start_of_turn>`, …) are defanged first, so text
 cannot forge a synthetic system or assistant turn on a self-hosted backend. It
 is defence in depth for the seat, not a promise the model obeys the boundary.
+
+## Layer 8 — managed Road keys and ciphertext
+
+`agents-city connect` generates Ed25519/X25519, Olm and ML-KEM-768 key material
+on the device. Private JWKs, ratchet pickles, ML-KEM seeds, delivery
+capabilities, pending plaintext and retry outboxes are AES-256-GCM encrypted in
+a 0700 vault; its 32-byte wrapping key stays in macOS Keychain, Windows
+Credential Manager or Linux Secret Service. The client has no plaintext
+fallback. `device.json` contains assignment and trust metadata, not private
+keys. Both locations are refused on symlinks or over-broad permissions and are
+in the shared cage seal above, so repo-agent windows cannot read them. The
+control plane receives only signed public material; a one-use PASCO binds that
+material to the human's browser approval, and later requests carry a short-lived
+signed proof instead of a bearer token.
+
+Protocol v4 verifies the peer through a witnessed key-transparency log whose
+online operator and witness keys are delegated by the last signed root stored
+on the computer. Root updates are sequential, hash-linked and require the old
+and new offline thresholds; rollback, gaps, expiry and relay substitution fail
+closed.
+The first Olm message is protected by transcript-bound hybrid X25519 +
+ML-KEM-768 establishment; later messages advance the classical Olm Double
+Ratchet. After the identified bootstrap, normal submissions use one-use sealed
+delivery capabilities and omit sender, device, city and Road identity from the
+outer request. The relay can route and queue ciphertext but cannot decrypt it.
+The recipient authenticates the active Road revision and inner routing fields,
+then admits exactly one text field through Layer 7. It ACKs only after an exact
+idempotent local-inbox receipt, and revocation removes the old revision,
+capabilities and queued ciphertext.
+
+These are precise, limited claims: sealed delivery, key transparency and
+post-quantum session establishment. Cloudflare can still observe IP address,
+service, timing and padded size; the first bootstrap is identified; later
+ratchet steps are classical; and no independent integration audit has been
+completed. The client opens HTTPS/WSS outbound and publishes no port on the
+owner's computer. Full contract:
+[managed-connect.md](managed-connect.md).
 
 ## Host-bound secrets — the broker without handing over the key
 

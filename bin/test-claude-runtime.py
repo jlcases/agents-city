@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(AQUI)
@@ -102,6 +103,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
     pid = os.path.join(runtime_dir, 'gateways', 'claude-agent.pid')
     metrics = os.path.join(runtime_dir, 'runtime-latency.jsonl')
     activity = os.path.join(runtime_dir, 'activity.jsonl')
+    diagnostics = os.path.join(runtime_dir, 'diagnostics.jsonl')
     outbox = os.path.join(runtime_dir, 'outbox', 'claude-agent')
     log = os.path.join(base, 'gateway.log')
     env = dict(
@@ -172,7 +174,131 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                    row.get('kind') == 'conversation.agent'
                    and row.get('thread') == thread
                    and 'Fake Claude answer' in row.get('summary', '')
-                   for row in rows(activity))), json.dumps(rows(activity)[-4:]))
+               for row in rows(activity))), json.dumps(rows(activity)[-4:]))
+
+        # A provider ACK is not turn completion. Two assignments arriving while
+        # Claude is slow must remain serialized: the second stays in the durable
+        # actor outbox until the first result finishes instead of starting a
+        # concurrent model call.
+        open(behavior, 'w', encoding='utf-8').write('slow\n')
+        first_slow = open_committee(env, 'First slow assignment.')
+        second_slow = open_committee(env, 'Second assignment waits behind the first.')
+        afirma('· load: two slow assignments are admitted to the durable city queue',
+               bool(first_slow) and bool(second_slow))
+        afirma('· load: Claude receives the first slow turn',
+               espera(lambda: len(rows(capture)) == 2), text(log)[-800:])
+        time.sleep(.12)
+        afirma('· load: a busy Claude never starts the second model turn concurrently',
+               len(rows(capture)) == 2,
+               json.dumps(rows(capture)[-2:], ensure_ascii=False))
+        afirma('· load: the queued turn starts after the first completes',
+               espera(lambda: len(rows(capture)) == 3), text(log)[-1000:])
+        afirma('· load: both serialized assignments eventually drain',
+               espera(lambda: (not os.path.isdir(outbox) or not os.listdir(outbox))
+                      and len(rows(metrics)) == 3
+                      and all(any(
+                          row.get('kind') == 'conversation.agent'
+                          and row.get('thread') == expected_thread
+                          and 'Fake Claude answer' in row.get('summary', '')
+                          for row in rows(activity)
+                      ) for expected_thread in (first_slow, second_slow))),
+               f'metrics={json.dumps(rows(metrics))}')
+
+        # A real person's city can receive dozens of independent requests while
+        # one model turn is still running. Admit twenty durably, then prove that
+        # provider starts remain separated by the fake turn duration and that
+        # every final answer drains without concurrent model calls.
+        burst_count = 20
+        metrics_before = len(rows(metrics))
+        captures_before = len(rows(capture))
+        burst_started = time.monotonic()
+        burst_threads = [
+            open_committee(env, f'Slow backlog assignment {index + 1}.')
+            for index in range(burst_count)
+        ]
+        pending_files = os.listdir(outbox) if os.path.isdir(outbox) else []
+        peak_backlog = len(pending_files)
+        oldest_age_ms = 0
+        if pending_files:
+            oldest = min(os.path.getmtime(os.path.join(outbox, name))
+                         for name in pending_files)
+            oldest_age_ms = max(0, int((time.time() - oldest) * 1000))
+        afirma('· load: twenty slow requests are admitted while the model stays busy',
+               all(burst_threads) and peak_backlog >= 10,
+               f'threads={len([item for item in burst_threads if item])} '
+               f'peak_backlog={peak_backlog} oldest_age_ms={oldest_age_ms}')
+        drained = espera(lambda: (
+                   (not os.path.isdir(outbox) or not os.listdir(outbox))
+                   and len(rows(metrics)) == metrics_before + burst_count
+                   and all(sum(
+                       1 for row in rows(activity)
+                       if row.get('kind') == 'conversation.agent'
+                       and row.get('thread') == expected_thread
+                       and 'Fake Claude answer' in row.get('summary', '')
+                   ) == 1 for expected_thread in burst_threads)
+               ), segundos=25)
+        answer_counts = {
+            expected_thread: sum(
+                1 for row in rows(activity)
+                if row.get('kind') == 'conversation.agent'
+                and row.get('thread') == expected_thread
+                and 'Fake Claude answer' in row.get('summary', '')
+            )
+            for expected_thread in burst_threads
+        }
+        publish_failures = [
+            row for row in rows(diagnostics)
+            if row.get('event') == 'activity.publish.failed'
+        ]
+        afirma('· load: the twenty-request backlog fully drains to final answers',
+               drained,
+               f'outbox={os.listdir(outbox) if os.path.isdir(outbox) else []} '
+               f'metrics={len(rows(metrics))} answer_counts={answer_counts} '
+               f'activity_rows={len(rows(activity))} '
+               f'publish_failures={json.dumps(publish_failures[-4:])}')
+        drain_seconds = time.monotonic() - burst_started
+        burst_records = rows(capture)[captures_before:captures_before + burst_count]
+        received = [
+            datetime.fromisoformat(row['receivedAt'].replace('Z', '+00:00')).timestamp()
+            for row in burst_records
+        ]
+        gaps = [
+            right - left
+            for left, right in zip(received, received[1:], strict=False)
+        ]
+        min_gap_ms = min(gaps) * 1000 if gaps else 0
+        max_gap_ms = max(gaps) * 1000 if gaps else 0
+        sorted_gaps = sorted(gaps)
+        median_gap_ms = (
+            sorted_gaps[len(sorted_gaps) // 2] * 1000 if sorted_gaps else 0
+        )
+        afirma('· load: slow provider turns never overlap',
+               len(burst_records) == burst_count
+               and len(gaps) == burst_count - 1
+               and min(gaps) >= .30,
+               f'records={len(burst_records)} min_gap_ms={min_gap_ms:.1f} '
+               f'median_gap_ms={median_gap_ms:.1f} max_gap_ms={max_gap_ms:.1f} '
+               f'drain_seconds={drain_seconds:.3f}')
+        afirma('· load: measured drain time matches bounded sequential capacity',
+               6 <= drain_seconds < 25,
+               f'peak_backlog={peak_backlog} oldest_age_ms={oldest_age_ms} '
+               f'drain_seconds={drain_seconds:.3f}')
+        print('  SLOW_BACKLOG_RESULT ' + json.dumps({
+            'requests': burst_count,
+            'fake_turn_delay_ms': 350,
+            'peak_durable_backlog': peak_backlog,
+            'oldest_backlog_age_at_measure_ms': oldest_age_ms,
+            'minimum_provider_start_gap_ms': round(min_gap_ms, 1),
+            'median_provider_start_gap_ms': round(median_gap_ms, 1),
+            'maximum_provider_start_gap_ms': round(max_gap_ms, 1),
+            'drain_seconds': round(drain_seconds, 3),
+            'lost': 0,
+            'max_model_concurrency': 1,
+            **({'provider_start_gaps_ms': [round(gap * 1000, 1) for gap in gaps]}
+               if drain_seconds >= 25 else {}),
+        }))
+        expected_metrics = metrics_before + burst_count
+        open(behavior, 'w', encoding='utf-8').write('healthy\n')
         afirma('· regression: no terminal adapter or managed machine policy is created',
                not os.path.exists(os.path.join(runtime_dir, 'adapters'))
                and not os.path.exists(os.path.join(base, 'Library', 'Application Support',
@@ -190,7 +316,8 @@ def main():  # noqa: C901 - this is one complete process lifecycle
         rejected_thread = open_committee(env, 'Retain a provider-rejected assignment.')
         afirma('· non-happy: Claude rejection is visible in diagnostics',
                espera(lambda: 'fake Claude rejected the prompt' in text(log)), text(log)[-800:])
-        comprueba('· non-happy: rejection writes no false native metric', len(rows(metrics)), 1)
+        comprueba('· non-happy: rejection writes no false native metric',
+                  len(rows(metrics)), expected_metrics)
         afirma('· non-happy: rejected work remains exactly once in the actor outbox',
                espera(lambda: os.path.isdir(outbox) and len(os.listdir(outbox)) == 1),
                str(os.listdir(outbox) if os.path.isdir(outbox) else []))
@@ -206,7 +333,8 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                    for row in rows(capture))), text(log)[-1000:])
         afirma('· recovery: only native acceptance drains retained work',
                espera(lambda: (not os.path.isdir(outbox) or not os.listdir(outbox))
-                      and len(rows(metrics)) == 2), json.dumps(rows(metrics)))
+                      and len(rows(metrics)) == expected_metrics + 1),
+               json.dumps(rows(metrics)))
         stop(recovered)
         espera(lambda: not os.path.exists(status))
 
@@ -224,7 +352,7 @@ def main():  # noqa: C901 - this is one complete process lifecycle
                text(log)[-1000:])
         afirma('· non-happy: timed-out work remains durable and unmeasured',
                os.path.isdir(outbox) and len(os.listdir(outbox)) == 1
-               and len(rows(metrics)) == 2,
+               and len(rows(metrics)) == expected_metrics + 1,
                f'outbox={os.listdir(outbox) if os.path.isdir(outbox) else []} '
                f'metrics={rows(metrics)}')
 

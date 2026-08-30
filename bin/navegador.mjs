@@ -438,6 +438,67 @@ async function main() {
       JSON.stringify(alta),
     );
 
+    // Human reception must scale by people, not by duplicated composers. With
+    // thirty connections the review queue still comes first, then one compact
+    // composer whose recipient is selected explicitly.
+    const reception = await cdp.evalua(`(async () => {
+      const ir = [...document.querySelectorAll('nav li')]
+        .find(l => /reception|recepci[oó]n/i.test(l.textContent));
+      if (!ir) return { falta: 'no reception entry' };
+      ir.click();
+      for (let i = 0; i < 40; i++) {
+        if (document.querySelector('.recMensaje')) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      const message = document.querySelector('.recMensaje');
+      const compose = document.querySelector('.recConexiones');
+      const route = document.querySelector('[data-rec-route] button[type=submit]');
+      const rejection = document.querySelector('.recAcciones details');
+      return {
+        navRole: ir.getAttribute('role'),
+        navTabIndex: ir.getAttribute('tabindex'),
+        messages: document.querySelectorAll('.recMensaje').length,
+        composers: document.querySelectorAll('.recCompose').length,
+        recipients: document.querySelectorAll('.recCompose select[name=connection] option').length,
+        reviewFirst: !!message && !!compose &&
+          !!(message.compareDocumentPosition(compose) & Node.DOCUMENT_POSITION_FOLLOWING),
+        route: route?.textContent?.trim() ?? '',
+        rejection: rejection?.textContent?.trim() ?? '',
+      };
+    })()`);
+    comprueba(
+      'thirty connected people use one recipient picker, not thirty message boxes',
+      reception?.navRole === 'button' && reception?.navTabIndex === '0' &&
+        reception?.composers === 1 && reception?.recipients === 30,
+      JSON.stringify(reception),
+    );
+    comprueba(
+      'pending messages stay above composing and use distinct route/reject language',
+      reception?.messages === 1 && reception?.reviewFirst === true &&
+        /route|dirigir/i.test(reception?.route ?? '') &&
+        /reason|motivo/i.test(reception?.rejection ?? ''),
+      JSON.stringify(reception),
+    );
+    const routed = await cdp.evalua(`(async () => {
+      const form = document.querySelector('[data-rec-route]');
+      const checkbox = form?.querySelector('input[name=destination]');
+      const button = form?.querySelector('button[type=submit]');
+      if (!form || !checkbox || !button) return { falta: true };
+      checkbox.click();
+      if (button.disabled) return { disabled: true };
+      button.click();
+      for (let i = 0; i < 40; i++) {
+        if (!document.querySelector('.recMensaje')) return { removed: true };
+        await new Promise(r => setTimeout(r, 250));
+      }
+      return { removed: false };
+    })()`);
+    comprueba(
+      'choosing a city and routing removes the message from human quarantine',
+      routed?.removed === true,
+      JSON.stringify(routed),
+    );
+
     // The demo shelf: three cards, and a player that actually advances.
     const demo = await cdp.evalua(`(async () => {
       const espera = async (sel, n = 40) => {
@@ -534,7 +595,7 @@ async function main() {
   } finally {
     proceso.kill('SIGKILL');
   }
-  console.log(`\n  ${fallos ? `${fallos} failed` : 'browser ok'} — 16 checks\n`);
+  console.log(`\n  ${fallos ? `${fallos} failed` : 'browser ok'} — 19 checks\n`);
   process.exit(fallos ? 1 : 0);
 }
 

@@ -72,6 +72,7 @@ function runNext() {
   working = true;
   const message = queue.shift();
   const text = userText(message);
+  const delay = behavior() === 'slow' ? 350 : 5;
   setTimeout(() => {
     emit({
       type: 'assistant',
@@ -95,7 +96,7 @@ function runNext() {
       working = false;
       runNext();
     }, 5);
-  }, 5);
+  }, delay);
 }
 
 function userText(message) {

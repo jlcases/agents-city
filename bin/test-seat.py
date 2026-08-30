@@ -415,23 +415,42 @@ def caminos_infelices():
         )
         del os.environ["AGENTS_CITY_DATA"]
 
-    # The plugin's own resolver must land where the seat writes, or /city:team
-    # looks in a folder that does not exist while the city sits one door over.
+    # The plugin's own resolver must follow the selected city, or /city:team
+    # can read a different city from the one opened by the seat. Keep this
+    # contract inside a disposable application root: a developer's real
+    # ~/.agents-city selection must never influence an offline test.
     import city_env
 
     for k in ("AGENTS_CITY_DATA", "CITY_DIR"):
         os.environ.pop(k, None)
-    esperado = os.path.realpath(
-        os.path.join(os.path.expanduser("~/.agents-city"), cities.usuario_actual(), "home")
-    )
-    comprueba(
-        "· with nothing configured, the plugin resolves to user/home", city_env.datos(), esperado
-    )
-    explicito = tempfile.mkdtemp()
-    os.environ["AGENTS_CITY_DATA"] = explicito
-    comprueba("· and an explicit setting beats every default", city_env.datos(), explicito)
-    del os.environ["AGENTS_CITY_DATA"]
-    shutil.rmtree(explicito)
+    resolver_home = tempfile.mkdtemp()
+    anterior_home = os.environ.get("AGENTS_CITY_HOME")
+    anterior_user = os.environ.get("AGENTS_CITY_USER")
+    try:
+        os.environ["AGENTS_CITY_HOME"] = resolver_home
+        os.environ["AGENTS_CITY_USER"] = "resolver-test"
+        cities.crea("resolver-test", "home")
+        esperado = cities.crea("resolver-test", "selected")
+        comprueba(
+            "· with nothing explicit, the plugin follows the selected city",
+            city_env.datos(),
+            esperado,
+        )
+        explicito = tempfile.mkdtemp()
+        os.environ["AGENTS_CITY_DATA"] = explicito
+        comprueba("· and an explicit setting beats every default", city_env.datos(), explicito)
+        del os.environ["AGENTS_CITY_DATA"]
+        shutil.rmtree(explicito)
+    finally:
+        if anterior_home is None:
+            os.environ.pop("AGENTS_CITY_HOME", None)
+        else:
+            os.environ["AGENTS_CITY_HOME"] = anterior_home
+        if anterior_user is None:
+            os.environ.pop("AGENTS_CITY_USER", None)
+        else:
+            os.environ["AGENTS_CITY_USER"] = anterior_user
+        shutil.rmtree(resolver_home)
 
     shutil.rmtree(casa)
 

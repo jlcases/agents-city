@@ -22,7 +22,7 @@ if [ -d .git ] && [ -x .githooks/pre-commit ] \
     && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
 fi
 
-SUITES=(widgets card parcels domains busca arnes serve seat cities channel committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
+SUITES=(widgets card parcels domains busca arnes serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
 [ $# -gt 0 ] && SUITES=("$@")
 
 fallos=0
@@ -96,11 +96,20 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "plugin/scripts/runtime_processes.py",
               "plugin/scripts/runtime_log.py", "plugin/scripts/logs.py",
               "plugin/scripts/launch.py", "plugin/scripts/hook_activity.py",
+              "plugin/scripts/reception.py",
               "plugin/scripts/city-session.sh", "plugin/scripts/city-runtime.sh",
               "plugin/scripts/find-repos.sh",
               "plugin/scripts/busca.py",
               "plugin/channel/bus.js", "plugin/channel/local-hub.js",
               "plugin/channel/client.js", "plugin/channel/adapter.js",
+              "plugin/channel/managed-connect-client.js",
+              "plugin/channel/managed-connect-client.d.ts",
+              "plugin/channel/managed-connect-client.manifest.json",
+              "plugin/channel/trust/agents-city-sandbox-roots.json",
+              "plugin/channel/kinsh_vodozemac_wasm_bg.wasm",
+              "plugin/channel/agents_city_hybrid_crypto_bg.wasm",
+              "plugin/channel/licenses/CONNECT_CLIENT_THIRD_PARTY_NOTICES.md",
+              "plugin/channel/managed-connect-cli.js", "bin/connect",
               "plugin/channel/runtime-gateway.js",
               "plugin/.mcp.json",
               "bin/cities", "bin/road", "bin/bus", "bin/committee", "bin/agents",
@@ -112,6 +121,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "benchmarks/latency/fake-native-server.mjs",
               "benchmarks/latency/fake-claude-cli.mjs",
               "benchmarks/stress/run.py", "benchmarks/stress/README.md",
+              "benchmarks/reception/run.mjs", "benchmarks/reception/README.md",
               "city/web/src/repo-roles.ts",
               "demo/show.py", "demo/city/city.yml", "demo/city/ada.md",
               "city/scripts/seed.py", "city/worker/schema.sql", "demo/parcels.yml"]

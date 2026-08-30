@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Pair this computer and connect one or more local cities to managed Roads.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec node "$ROOT/plugin/channel/managed-connect-cli.js" "$@"

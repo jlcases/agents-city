@@ -1,0 +1,66 @@
+{
+  "protocol": "agents-city-key-transparency-root-chain/1",
+  "roots": [
+    {
+      "signed": {
+        "protocol": "agents-city-key-transparency-root/1",
+        "version": 1,
+        "environment": "sandbox",
+        "controlPlaneUrl": "https://agents-city-connect-sandbox.pages.dev",
+        "relayUrl": "wss://agents-city-relay-sandbox.bluebell.workers.dev/v1/connect",
+        "issuedAt": 1788063673370,
+        "expiresAt": 1819686073370,
+        "previousRootHash": null,
+        "keys": {
+          "agents-city-sandbox-operator-v1": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "ZIEWw4EUQ3qyoKVowZsl4nJuiVom7EwUMctI8NljFF8",
+            "ext": true
+          },
+          "agents-city-sandbox-root-v1": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "S8DifYMze6j2U-tRF_5tkjsXw5cmcFabt8B1X3ON1N8",
+            "ext": true
+          },
+          "agents-city-sandbox-witness-v1": {
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x": "fErzxNY6ZMfwH98E9F7jbn-tw_nOHVN3B3VodL62m68",
+            "ext": true
+          }
+        },
+        "roles": {
+          "root": {
+            "keyIds": [
+              "agents-city-sandbox-root-v1"
+            ],
+            "threshold": 1
+          },
+          "operator": {
+            "keyIds": [
+              "agents-city-sandbox-operator-v1"
+            ],
+            "threshold": 1
+          },
+          "witness": {
+            "keyIds": [
+              "agents-city-sandbox-witness-v1"
+            ],
+            "threshold": 1
+          }
+        },
+        "maximumHeadAgeMs": 300000,
+        "maximumWitnessLagMs": 30000
+      },
+      "signatures": [
+        {
+          "protocol": "agents-city-key-transparency-root-signature/1",
+          "keyId": "agents-city-sandbox-root-v1",
+          "signature": "llGO2Kr236CfD5JCvaMjvtwW4gG98s-p4gowrKNl_fPKJ9ywPI9m6R_DH9uTbLgt6eGyXiTKxB4QVDWHMAloAg"
+        }
+      ]
+    }
+  ]
+}

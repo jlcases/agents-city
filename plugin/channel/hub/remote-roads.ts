@@ -1,8 +1,9 @@
 import WebSocket from 'ws';
 import { CityContext } from '../city-config.js';
 import { BUS_PROTOCOL, BusEnvelope, isoNow, randomId } from '../protocol.js';
+import { managedRoadBridge } from '../managed-connect/bridge.js';
 
-export function remoteRoadBridge(context: CityContext, receive: (envelope: BusEnvelope) => void) {
+function legacyRemoteRoadBridge(context: CityContext, receive: (envelope: BusEnvelope) => void) {
   const base = process.env.CITY_BUS_URL || '';
   const token = process.env.CITY_BUS_TOKEN || '';
   const enabled = Boolean(base && token);
@@ -145,6 +146,36 @@ export function remoteRoadBridge(context: CityContext, receive: (envelope: BusEn
     close,
     enabled: () => enabled,
     online: (address: string) => roster.has(address),
+  };
+}
+
+export function remoteRoadBridge(
+  context: CityContext,
+  receive: (envelope: BusEnvelope) => void,
+  receiveManaged?: (envelope: BusEnvelope) => { inserted: boolean },
+) {
+  const legacy = legacyRemoteRoadBridge(context, (envelope) => {
+    try {
+      receive(envelope);
+    } catch (error) {
+      console.error(`[city-bus] dropped remote envelope: ${(error as Error).message}`);
+    }
+  });
+  const managed = managedRoadBridge(context, receive, receiveManaged);
+  return {
+    start: () => {
+      legacy.start();
+      managed.start();
+    },
+    close: () => {
+      legacy.close();
+      managed.close();
+    },
+    send: (to: string, envelope: BusEnvelope) =>
+      managed.hasRoad(to) ? managed.send(to, envelope) : legacy.send(to, envelope),
+    enabled: () => legacy.enabled() || managed.enabled(),
+    online: (address: string) => managed.online(address) || legacy.online(address),
+    roads: managed.roads,
   };
 }
 
