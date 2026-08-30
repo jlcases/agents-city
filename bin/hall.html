@@ -258,12 +258,12 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
   border-radius:7px}.recSeccion{display:flex;align-items:baseline;justify-content:space-between;
   gap:12px;margin-bottom:10px}.recSeccion b{font:600 13px var(--hud)}
 .recSeccion span{font:10px var(--mono);color:var(--tinta3)}
-.recComposeLista{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
 .recCompose{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px;
   background:var(--suelo3);border:1px solid var(--linea);border-radius:5px}
-.recCompose label,.recCompose textarea{grid-column:1/-1}.recCompose label{display:flex;
-  align-items:baseline;justify-content:space-between;gap:8px}.recCompose label b{font:600 12px var(--hud)}
-.recCompose label span{font:10px var(--mono);color:var(--tinta3)}.recCompose textarea{width:100%;
+.recCompose label{display:grid;gap:5px}.recCompose label span{font:600 9.5px var(--hud);
+  letter-spacing:.09em;text-transform:uppercase;color:var(--tinta3)}
+.recComposePersona{grid-column:1/-1}.recComposePersona select{width:100%;font:12px var(--hud)}
+.recComposeTexto{grid-column:1/-1}.recCompose textarea{width:100%;
   min-height:66px;resize:vertical}.recCompose button{grid-column:2;justify-self:end}
 .recResumen{display:flex;align-items:baseline;gap:9px;padding-bottom:10px;
   border-bottom:1px solid var(--linea)}
@@ -715,19 +715,19 @@ body.enGuia #app{grid-template-columns:250px minmax(0,1fr)}
       aria-label="Resize the live panel" title="Drag to resize · double-click to reset"></div>
     <header>
       <div class="liveTop"><span class="liveDot" id="liveDot"></span>
-        <h2>City live</h2><span id="liveState">waiting</span></div>
-      <p>A moderated conversation over the WebSocket bus. The seat routes each turn;
+        <h2 data-i18n>City live</h2><span id="liveState" data-i18n>waiting</span></div>
+      <p data-i18n>A moderated conversation over the WebSocket bus. The seat routes each turn;
         private model reasoning is never shown or stored.</p>
       <div class="liveControls">
         <select id="liveFilter" aria-label="Filter live activity by conversation">
-          <option value="">all conversations</option>
+          <option value="" data-i18n>all conversations</option>
         </select>
-        <button id="liveWorkToggle" type="button" aria-pressed="false">show work</button>
+        <button id="liveWorkToggle" type="button" aria-pressed="false" data-i18n>show work</button>
       </div>
       <div id="liveContext" hidden></div>
     </header>
     <ol id="liveEvents" aria-live="polite">
-      <li class="liveEmpty">Start the city session. Its visible conversation will appear here as it happens.</li>
+      <li class="liveEmpty" data-i18n>Start the city session. Its visible conversation will appear here as it happens.</li>
     </ol>
   </aside>
 </div>

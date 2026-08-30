@@ -536,10 +536,10 @@ function pintaActividad(seguir = false): void {
   if (!dot || !state || !list || !filter || !context || !workToggle) return;
   dot.classList.toggle('on', liveConnected);
   state.textContent = liveConnected
-    ? 'websocket live'
+    ? _('websocket live')
     : liveUrl
-      ? 'reconnecting'
-      : 'session offline';
+      ? _('reconnecting')
+      : _('session offline');
 
   const opened = new Map<string, string>();
   for (const event of liveEvents) {
@@ -553,7 +553,7 @@ function pintaActividad(seguir = false): void {
     }
   }
   filter.innerHTML =
-    '<option value="">all conversations</option>' +
+    `<option value="">${_('all conversations')}</option>` +
     [...opened.entries()]
       .reverse()
       .map(
@@ -570,7 +570,7 @@ function pintaActividad(seguir = false): void {
   };
   workToggle.classList.toggle('on', liveShowWork);
   workToggle.setAttribute('aria-pressed', String(liveShowWork));
-  workToggle.textContent = liveShowWork ? 'hide work' : 'show work';
+  workToggle.textContent = liveShowWork ? _('hide work') : _('show work');
   workToggle.onclick = () => {
     liveShowWork = !liveShowWork;
     pintaActividad(true);
@@ -588,8 +588,8 @@ function pintaActividad(seguir = false): void {
   if (!visible.length) {
     list.innerHTML = `<li class="liveEmpty">${
       liveConnected
-        ? 'The bus is live. Questions, positions and moderated replies will appear here.'
-        : 'Start the city session. Its visible conversation will appear here as it happens.'
+        ? _('The bus is live. Questions, positions and moderated replies will appear here.')
+        : _('Start the city session. Its visible conversation will appear here as it happens.')
     }</li>`;
     return;
   }
@@ -817,18 +817,26 @@ function rail(): void {
                   : id === 'barrios'
                     ? String(E.parcelas.length)
                     : '';
-      return `<li class="${id === SECCION ? 'aqui' : ''}" data-s="${id}">
+      return `<li class="${id === SECCION ? 'aqui' : ''}" data-s="${id}" role="button"
+        tabindex="0" ${id === SECCION ? 'aria-current="page"' : ''}>
       <span>${esc(_(et))}</span>${n ? `<span class="n">${n}</span>` : ''}</li>`;
     })
     .join('');
   q('#railOtras').innerHTML =
-    `<li class="${SECCION === 'ciudades' ? 'aqui' : ''}" data-s="ciudades">
+    `<li class="${SECCION === 'ciudades' ? 'aqui' : ''}" data-s="ciudades" role="button"
+      tabindex="0" ${SECCION === 'ciudades' ? 'aria-current="page"' : ''}>
       <span>${_('All cities')}</span><span class="n">${E.ciudades.length}</span></li>`;
   todos<HTMLElement>('#rail li,#railOtras li').forEach((li) => {
-    li.onclick = () => {
+    const abre = () => {
       document.body.classList.remove('enGuia');
       SECCION = li.dataset.s ?? 'mapa';
       pinta();
+    };
+    li.onclick = abre;
+    li.onkeydown = (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      abre();
     };
   });
   q('#dondeDatos').textContent = corto(E.datos);
@@ -1731,20 +1739,24 @@ async function cargaRecepcion(): Promise<void> {
   };
   rail();
   const conexiones = estado.connections.length
-    ? `<section class="recConexiones"><div class="recSeccion"><b>${_('Your connections')}</b>
+    ? `<section class="recConexiones"><div class="recSeccion"><b>${_('New encrypted message')}</b>
         <span>${estado.outbox.queued ? plural(estado.outbox.queued, 'message queued', 'messages queued') : _('Messages leave from this computer with end-to-end encryption.')}</span></div>
-      <div class="recComposeLista">${estado.connections
-        .map(
-          (conexion) => `
-        <form class="recCompose" data-rec-send="${esc(conexion.id)}">
-          <label for="rec-send-${esc(conexion.id)}"><b>${esc(conexion.name)}</b>
-            <span>${_('Write to this person')}</span></label>
-          <textarea id="rec-send-${esc(conexion.id)}" name="text" rows="3"
-            maxlength="11500" required placeholder="${_('Your message will stop in their private reception.')}"></textarea>
-          <button class="bt ppal" type="submit">${_('Send securely')}</button>
-        </form>`,
-        )
-        .join('')}</div></section>`
+      <form class="recCompose" data-rec-send>
+        <label class="recComposePersona" for="rec-send-connection"><span>${_('Write to')}</span>
+          <select id="rec-send-connection" name="connection" required>
+            ${estado.connections
+              .map(
+                (conexion) => `<option value="${esc(conexion.id)}">${esc(conexion.name)}</option>`,
+              )
+              .join('')}
+          </select>
+        </label>
+        <label class="recComposeTexto" for="rec-send-text"><span>${_('Message')}</span>
+          <textarea id="rec-send-text" name="text" rows="3" maxlength="11500" required
+            placeholder="${_('Your message will stop in their private reception.')}"></textarea>
+        </label>
+        <button class="bt ppal" type="submit">${_('Send securely')}</button>
+      </form></section>`
     : '';
   const vacia = !estado.messages.length
     ? `<div class="recVacia"><b>${_('Reception clear')}</b>
@@ -1776,15 +1788,15 @@ async function cargaRecepcion(): Promise<void> {
               : `<div class="recAcciones">
             <form data-rec-route="${esc(mensaje.id)}">
               <fieldset><legend>${_('Send to')}</legend><div class="recDestinos">${ciudades}</div></fieldset>
-              <button class="bt ppal" type="submit" disabled>${_('Route message')}</button>
+              <button class="bt ppal" type="submit" disabled>${_('Route to selected cities')}</button>
             </form>
-            <details><summary>${_('Reject with a reason')}</summary>
+            <details><summary>${_('Reject and reply with a reason')}</summary>
               <form data-rec-reject="${esc(mensaje.id)}">
-                <label for="rec-reason-${esc(mensaje.id)}">${_('Reason for your records')}</label>
+                <label for="rec-reason-${esc(mensaje.id)}">${_('Reason sent back securely')}</label>
                 <input id="rec-reason-${esc(mensaje.id)}" type="text" name="reason"
                   maxlength="500" required
                   placeholder="${_('Reason for rejecting this message')}">
-                <button class="bt malo" type="submit">${_('Reject message')}</button>
+                <button class="bt malo" type="submit">${_('Reject and send reason')}</button>
               </form>
             </details>
           </div>`
@@ -1793,7 +1805,7 @@ async function cargaRecepcion(): Promise<void> {
       )
       .join('')}</div>`
     : '';
-  hueco.innerHTML = `${conexiones}${vacia}${pendientes}`;
+  hueco.innerHTML = `${vacia}${pendientes}${conexiones}`;
   enlazaRecepcion();
 }
 
@@ -1830,13 +1842,14 @@ function enlazaRecepcion(): void {
       evento.preventDefault();
       const boton = q<HTMLButtonElement>('button[type=submit]', formulario);
       const campo = q<HTMLTextAreaElement>('textarea[name=text]', formulario);
-      if (!campo.value.trim()) return;
+      const connectionId = q<HTMLSelectElement>('select[name=connection]', formulario).value;
+      if (!connectionId || !campo.value.trim()) return;
       boton.disabled = true;
       const respuesta = await api<{ ok?: boolean; error?: string }>('/api/reception', {
         method: 'POST',
         body: JSON.stringify({
           action: 'send',
-          connection_id: formulario.dataset.recSend,
+          connection_id: connectionId,
           text: campo.value,
         }),
       });
@@ -1920,7 +1933,7 @@ function enlazaRecepcion(): void {
         toast(respuesta.error ?? _('Could not reject the message'), true);
         return;
       }
-      toast(_('Message rejected with your reason.'));
+      toast(_('Message rejected. Your reason is queued for encrypted delivery.'));
       await cargaRecepcion();
     };
   });
@@ -1930,7 +1943,10 @@ function fechaRecepcion(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    : date.toLocaleString(idioma() === 'es' ? 'es-ES' : 'en-GB', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
 }
 
 function formateaBytes(bytes: number): string {

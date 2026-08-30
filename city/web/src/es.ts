@@ -58,23 +58,25 @@ anota({
   'messages waiting': '{n} mensajes en espera',
   'local only': 'solo local',
   'No agent has read this': 'Ningún agente ha leído esto',
-  'Send to': 'Enviar a',
-  'Route message': 'Enviar mensaje',
-  'Reject with a reason': 'Rechazar con un motivo',
-  'Reason for your records': 'Motivo para tus registros',
+  'Send to': 'Dirigir a',
+  'Route to selected cities': 'Dirigir a las ciudades elegidas',
+  'Reject and reply with a reason': 'Rechazar y responder con un motivo',
+  'Reason sent back securely': 'Motivo que se devolverá cifrado',
   'Reason for rejecting this message': 'Motivo para rechazar este mensaje',
-  'Reject message': 'Rechazar mensaje',
-  'Could not route the message': 'No se pudo enviar el mensaje',
+  'Reject and send reason': 'Rechazar y enviar el motivo',
+  'Could not route the message': 'No se pudo dirigir el mensaje',
   'Message routed. Only the selected cities can now read it.':
-    'Mensaje enviado. Solo las ciudades elegidas pueden leerlo ahora.',
+    'Mensaje dirigido. Solo las ciudades elegidas pueden leerlo ahora.',
   'Could not reject the message': 'No se pudo rechazar el mensaje',
-  'Message rejected with your reason.': 'Mensaje rechazado con tu motivo.',
-  'Your connections': 'Tus conexiones',
+  'Message rejected. Your reason is queued for encrypted delivery.':
+    'Mensaje rechazado. Tu motivo ha quedado en cola para enviarse cifrado.',
+  'New encrypted message': 'Nuevo mensaje cifrado',
   'Messages leave from this computer with end-to-end encryption.':
     'Los mensajes salen de este ordenador con cifrado de extremo a extremo.',
   'message queued': '{n} mensaje en cola',
   'messages queued': '{n} mensajes en cola',
-  'Write to this person': 'Escribe a esta persona',
+  'Write to': 'Escribir a',
+  Message: 'Mensaje',
   'Your message will stop in their private reception.':
     'Tu mensaje se detendrá en su recepción privada.',
   'Send securely': 'Enviar de forma segura',
@@ -83,6 +85,22 @@ anota({
   'Could not queue the message': 'No se pudo poner el mensaje en cola',
   'Message queued on this computer.': 'Mensaje puesto en cola en este ordenador.',
   'Could not dismiss the response': 'No se pudo descartar la respuesta',
+
+  // ── live activity rail ──────────────────────────────────────────────────
+  'City live': 'Ciudad en directo',
+  waiting: 'esperando',
+  'A moderated conversation over the WebSocket bus. The seat routes each turn; private model reasoning is never shown or stored.':
+    'Una conversación moderada sobre el bus WebSocket. El asiento dirige cada turno; el razonamiento privado de los modelos no se muestra ni se guarda.',
+  'all conversations': 'todas las conversaciones',
+  'show work': 'mostrar trabajo',
+  'hide work': 'ocultar trabajo',
+  'websocket live': 'websocket activo',
+  reconnecting: 'reconectando',
+  'session offline': 'sesión desconectada',
+  'The bus is live. Questions, positions and moderated replies will appear here.':
+    'El bus está activo. Aquí aparecerán preguntas, posiciones y respuestas moderadas.',
+  'Start the city session. Its visible conversation will appear here as it happens.':
+    'Inicia la sesión de la ciudad. Su conversación visible aparecerá aquí mientras sucede.',
 
   // ── the guide ─────────────────────────────────────────────────────────────
   Welcome: 'Bienvenida',
