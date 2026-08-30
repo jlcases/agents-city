@@ -577,6 +577,18 @@ explicit choice. Translations are keyed by the English sentence, so anything not
 yet translated falls back to readable English rather than to an identifier — new
 strings are never blocked on a translation pass.
 
+Coverage is a test, not a habit. `bin/test-i18n.py` reads the render paths, pulls
+out every English sentence a person will see, and fails when one has no Spanish —
+so a new view cannot quietly ship untranslated, which is how coverage had drifted
+to about 40% before anybody noticed.
+
+The obvious mechanism, sweeping the rendered DOM and translating what matches a
+key, is deliberately **not** what this does. At DOM time there is no way to tell
+a sentence this product wrote from a city or agent name somebody typed, so a
+person whose city is called `Overview` would watch it rename itself. The
+distinction only exists in the source, between a literal and an interpolation,
+and that is where the check is made: anything holding a `${}` is skipped.
+
 ### `agents-city setup`
 
 Creates or selects a city and opens the Hall; `--tui` hands the flow to `seat`.

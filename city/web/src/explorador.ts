@@ -17,6 +17,7 @@
  */
 
 import { plural, t as _ } from './idioma';
+import { Montada } from './vista';
 
 export interface Entrada {
   nombre: string;
@@ -43,12 +44,11 @@ export interface PuertaExp {
 
 const MARCA: Record<string, string> = { repo: 'git', worktree: 'wt' };
 
-export class Explorador {
+export class Explorador extends Montada {
   private aqui = '';
   private listado: Listado | null = null;
   private cargando = false;
   private fallo = '';
-  private host: HTMLElement | null = null;
 
   constructor(
     private readonly p: PuertaExp,
@@ -56,20 +56,15 @@ export class Explorador {
     private readonly elige: (ruta: string) => void,
     /** Which paths are already chosen, so their rows read as chosen. */
     private readonly yaElegidas: () => string[],
-  ) {}
-
-  /** Render into `host` and wire it. Safe to call again: that is the repaint. */
-  monta(host: HTMLElement): void {
-    this.host = host;
-    if (!this.listado && !this.cargando) void this.ve(this.aqui || '~');
-    host.innerHTML = this.html();
-    this.enlaza(host);
+  ) {
+    super();
   }
 
-  private repinta(): void {
-    if (!this.host) return;
-    this.host.innerHTML = this.html();
-    this.enlaza(this.host);
+  override monta(host: HTMLElement): void {
+    super.monta(host);
+    // The first mount is also what sends it walking; every later one is a
+    // repaint of where it already is.
+    if (!this.listado && !this.cargando) void this.ve(this.aqui || '~');
   }
 
   /** Walk to a folder. An unreadable one is said out loud, not swallowed. */
@@ -114,7 +109,7 @@ export class Explorador {
     );
   }
 
-  html(): string {
+  protected html(): string {
     const esc = this.p.esc;
     const l = this.listado;
     const elegidas = new Set(this.yaElegidas());
@@ -197,7 +192,7 @@ export class Explorador {
    * repaint costs. Delegation also survives the repaint, so the handler is
    * attached exactly once for the life of the picker.
    */
-  private enlaza(raiz: HTMLElement): void {
+  protected enlaza(raiz: HTMLElement): void {
     if (raiz.dataset.expEnlazado === '1') return;
     raiz.dataset.expEnlazado = '1';
     raiz.addEventListener('click', (evento) => {

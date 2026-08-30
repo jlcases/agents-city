@@ -363,9 +363,27 @@ def caminos_infelices():
         "· while claude stays the default for windows without it",
         _c2.campo(open(fmix).read(), "runs.etl") == "",
     )
+    # The launcher reads a window's whole card line in one go now, so the key
+    # is spelled where the reading happens rather than in the shell. Follow it
+    # there: what matters is that `runs.<window>` still reaches a launch.
+    sesion = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")).read()
+    lector = open(os.path.join(RAIZ, "plugin", "scripts", "read-card.py")).read()
     afirma(
         "· and the session script wires it in",
-        "runs.$win" in open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")).read(),
+        '"$LEER" --ventana "$FICHA" "$win"' in sesion and "f'runs.{win}'" in lector,
+        "",
+    )
+    # Six lines, in the order the shell slices them out of. A field inserted in
+    # the middle would silently give every window somebody else's engine.
+    seis = subprocess.run(
+        [sys.executable, os.path.join(RAIZ, "plugin", "scripts", "read-card.py"),
+         "--ventana", fmix, "dbt"],
+        capture_output=True, text=True,
+    ).stdout.split("\n")
+    afirma(
+        "· one window's card line is six fields, in the order the shell reads them",
+        len(seis) >= 6 and seis[1] == "echo OTRO_AGENTE && sleep 5",
+        str(seis[:6]),
     )
     shutil.rmtree(mixto)
 

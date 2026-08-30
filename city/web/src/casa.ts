@@ -14,6 +14,7 @@
 import { plural, t as _ } from './idioma';
 import { Explorador } from './explorador';
 import { ESFUERZOS, RUNTIMES, motorDe, opciones } from './motores';
+import { Montada } from './vista';
 
 export interface Rol {
   id: string;
@@ -57,7 +58,7 @@ export const CLASES: Array<[string, string, string]> = [
   ['coordinator', 'It coordinates', 'Its house grows with the decisions it records.'],
 ];
 
-export class FormularioDeCasa {
+export class FormularioDeCasa extends Montada {
   readonly datos: DatosDeCasa = {
     nombre: '',
     clase: 'code',
@@ -69,26 +70,25 @@ export class FormularioDeCasa {
   };
   private roles: Rol[] = [];
   private rolesPedidos = false;
-  private host: HTMLElement | null = null;
-
   constructor(
     private readonly p: Puerta,
     roles: Rol[] = [],
   ) {
+    super();
     this.roles = roles;
   }
 
-  /** Render into `host` and wire it. Safe to call again: that is the repaint. */
-  monta(host: HTMLElement): void {
-    this.host = host;
+  override monta(host: HTMLElement): void {
     void this.aseguraRoles();
-    host.innerHTML = this.html();
-    this.enlaza(host);
+    super.monta(host);
+    // The picker is a view of its own, living in a hole this one leaves for it.
     const hueco = host.querySelector<HTMLElement>('.casaExp');
     if (hueco) this.explora().monta(hueco);
   }
 
-  private repinta(): void {
+  protected override repinta(): void {
+    // A repaint here rebuilds the hole too, so the picker has to be remounted
+    // into the new one — which is what `monta` does.
     if (this.host) this.monta(this.host);
   }
 
@@ -128,7 +128,7 @@ export class FormularioDeCasa {
     return this.explorador;
   }
 
-  html(): string {
+  protected html(): string {
     const a = this.datos;
     const esc = this.p.esc;
     const clases = CLASES.map(
@@ -214,7 +214,7 @@ export class FormularioDeCasa {
     this.enlaza(hueco);
   }
 
-  private enlaza(raiz: HTMLElement): void {
+  protected enlaza(raiz: HTMLElement): void {
     raiz.querySelectorAll<HTMLElement>('[data-bv]').forEach((el) => {
       el.onclick = (evento) => {
         evento.preventDefault();
