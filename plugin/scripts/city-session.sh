@@ -208,11 +208,17 @@ jaula_de() {  # window, cwd, [broker token file], [colon-joined mount targets] -
 # lands in, and one of them used to give it nothing at all.
 motor_de() {  # $1 = window name, $2 = runtime (default claude) -> extra flags
   local ventana="$1" cual="${2:-claude}" modelo esfuerzo salida="" cuatro
-  # Four fields, one interpreter. This used to be four `python3` starts each
-  # re-parsing the same small card, per window — a city with eighteen agents
+  # Four fields, one interpreter — and none at all when the window loop has
+  # already read this window's card line. This used to be four `python3` starts
+  # each re-parsing the same small card, per window; a city with eighteen agents
   # paid seventy-two of them before tmux attached.
-  cuatro="$(python3 "$LEER" --varios "$FICHA" \
-    "model.$ventana" model "effort.$ventana" effort)"
+  if [ "$ventana" = "${CARTA_VENTANA:-}" ]; then
+    # Already read, by the loop that is launching this very window.
+    cuatro="$(printf '%s' "$CARTA_DATOS" | sed -n '3,6p')"
+  else
+    cuatro="$(python3 "$LEER" --varios "$FICHA" \
+      "model.$ventana" model "effort.$ventana" effort)"
+  fi
   modelo="${CITY_MODEL:-$(printf '%s' "$cuatro" | sed -n 1p)}"
   [ -z "$modelo" ] && modelo="$(printf '%s' "$cuatro" | sed -n 2p)"
   esfuerzo="${CITY_EFFORT:-$(printf '%s' "$cuatro" | sed -n 3p)}"
@@ -511,6 +517,7 @@ lanza_asiento_claude() {  # $1 = the full claude command
 # the repo windows use, and it makes a city with no Claude in it possible at all:
 # what that seat gives up is the `/city:` commands, which are Claude's, and what it
 # keeps is the folder, the identity, and everything the terminal does.
+CARTA_VENTANA=""   # set by the window loop below; the seat is not in it
 SEAT_OTRO="$(python3 "$LEER" "$FICHA" "runs.seat")"
 turno=0
 [ -n "$SEAT_OTRO" ] && [ "$(runtime_de "$SEAT_OTRO")" != claude ] && turno=-1
@@ -568,7 +575,11 @@ for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
   # Professional specialty is separate from bus authority. Every repo actor is
   # still a member; only `seat` is chair. A malformed or legacy value resolves
   # to the explicit blank role in read-card.py.
-  ROL_REPO="$(python3 "$LEER" --actor-role "$FICHA" "$win")"
+  # One read for this whole window: its role, what runs there, and the engine.
+  # Three interpreters per window used to re-parse the same card three times.
+  CARTA_VENTANA="$win"
+  CARTA_DATOS="$(python3 "$LEER" --ventana "$FICHA" "$win")"
+  ROL_REPO="$(printf '%s' "$CARTA_DATOS" | sed -n 1p)"
   # This window's cage and, when the broker runs, its own single-repo token.
   # The token travels as a file path, never on the command line, and the cage
   # profile re-allows reading exactly that file and nothing else in the broker.
@@ -584,7 +595,7 @@ for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
   [ -n "$JAULA" ] && CAGE_RUNTIME_ENV="env CITY_OUTER_CAGE=1 "
   tmux new-window -t "$SESSION" -n "$win" -c "$path"
   if [ "$RUN_CLAUDE" -eq 1 ]; then
-    OTRO="$(python3 "$LEER" "$FICHA" "runs.$win")"
+    OTRO="$(printf '%s' "$CARTA_DATOS" | sed -n 2p)"
     if [ -n "$OTRO" ]; then
       KIND="$(runtime_de "$OTRO")"
       if [ "$KIND" = claude ]; then

@@ -19,6 +19,7 @@
 
 import type { ActivityEvent } from './activity';
 import { t as _ } from './idioma';
+import { Montada } from './vista';
 
 export interface Ficha {
   id: string;
@@ -50,7 +51,7 @@ const VELOCIDADES: Array<[string, number]> = [
   ['4×', 350],
 ];
 
-export class Demos {
+export class Demos extends Montada {
   private catalogo: Ficha[] = [];
   private cargando = false;
   private elegida: Grabacion | null = null;
@@ -58,19 +59,19 @@ export class Demos {
   private corriendo = false;
   private velocidad = 1450;
   private reloj: number | null = null;
-  private host: HTMLElement | null = null;
 
-  constructor(private readonly p: PuertaDemo) {}
-
-  monta(host: HTMLElement): void {
-    this.host = host;
-    if (!this.catalogo.length && !this.cargando) void this.lee();
-    this.repinta();
+  constructor(private readonly p: PuertaDemo) {
+    super();
   }
 
-  /** Stop the clock. Called when the section is left, or the page repaints
-   * elsewhere: a timer still firing into a detached node is a leak with a view. */
-  para(): void {
+  override monta(host: HTMLElement): void {
+    if (!this.catalogo.length && !this.cargando) void this.lee();
+    super.monta(host);
+  }
+
+  /** Stop the clock. The router calls this when the section is left: a timer
+   * still firing into a detached node is a leak with a soundtrack. */
+  desmonta(): void {
     this.corriendo = false;
     if (this.reloj !== null) {
       clearTimeout(this.reloj);
@@ -78,14 +79,10 @@ export class Demos {
     }
   }
 
-  private repinta(): void {
-    if (!this.host) return;
-    this.host.innerHTML = this.html();
-    this.enlaza(this.host);
-    if (this.elegida) {
-      const lista = this.host.querySelector<HTMLElement>('#demoLista');
-      if (lista) lista.scrollTop = lista.scrollHeight;
-    }
+  protected override repinta(): void {
+    super.repinta();
+    const lista = this.elegida ? this.host?.querySelector<HTMLElement>('#demoLista') : null;
+    if (lista) lista.scrollTop = lista.scrollHeight;
   }
 
   private async lee(): Promise<void> {
@@ -102,7 +99,7 @@ export class Demos {
   }
 
   private async abre(id: string): Promise<void> {
-    this.para();
+    this.desmonta();
     this.hasta = 0;
     this.elegida = null;
     this.repinta();
@@ -128,19 +125,47 @@ export class Demos {
     if (this.reloj !== null) clearTimeout(this.reloj);
     this.reloj = window.setTimeout(() => {
       if (!this.corriendo || !this.elegida) return;
+      const evento = this.elegida.eventos[this.hasta];
       this.hasta += 1;
-      if (this.hasta >= this.elegida.eventos.length) {
+      const final = this.hasta >= this.elegida.eventos.length;
+      if (final) {
         this.hasta = this.elegida.eventos.length;
         this.corriendo = false;
-        this.repinta();
-        return;
       }
-      this.repinta();
-      this.siguiente();
+      // A turn arriving is one more turn on the list. Repainting the player
+      // rebuilt every turn so far from zero, rebound the four speed buttons and
+      // forced a layout — twenty-two times, to append twenty-two lines. The
+      // full repaint is kept for the transitions that actually change the
+      // controls: play, pause, replay, and the end.
+      if (evento && !final) this.anade(evento);
+      else this.repinta();
+      if (!final) this.siguiente();
     }, this.velocidad);
   }
 
-  private html(): string {
+  /** One more turn on screen, without taking the screen down. */
+  private anade(evento: ActivityEvent): void {
+    const lista = this.host?.querySelector<HTMLElement>('#demoLista');
+    if (!lista || !this.elegida) return this.repinta();
+    const vacia = lista.querySelector('.liveEmpty');
+    if (vacia) lista.innerHTML = '';
+    lista.insertAdjacentHTML('beforeend', this.p.pinta(evento));
+    lista.scrollTop = lista.scrollHeight;
+    this.marcador();
+  }
+
+  /** The counter and the bar, which are the only other things a turn moves. */
+  private marcador(): void {
+    if (!this.host || !this.elegida) return;
+    const total = this.elegida.eventos.length;
+    const hecho = Math.min(this.hasta, total);
+    const cuenta = this.host.querySelector<HTMLElement>('.demoCuenta');
+    if (cuenta) cuenta.textContent = _('{done} of {total}', { done: hecho, total });
+    const barra = this.host.querySelector<HTMLElement>('.demoBarra i');
+    if (barra) barra.style.width = `${total ? (hecho / total) * 100 : 0}%`;
+  }
+
+  protected html(): string {
     if (this.elegida) return this.reproductor(this.elegida);
     if (this.cargando) return `<p class="cargando">${_('reading the demo shelf')}</p>`;
     if (!this.catalogo.length)
@@ -210,7 +235,7 @@ export class Demos {
     </div>`;
   }
 
-  private enlaza(raiz: HTMLElement): void {
+  protected enlaza(raiz: HTMLElement): void {
     raiz.querySelectorAll<HTMLElement>('[data-demo]').forEach((el) => {
       el.onclick = (evento) => {
         evento.preventDefault();
@@ -219,7 +244,7 @@ export class Demos {
             void this.abre(el.dataset.id ?? '');
             break;
           case 'atras':
-            this.para();
+            this.desmonta();
             this.elegida = null;
             this.hasta = 0;
             this.repinta();
@@ -228,11 +253,11 @@ export class Demos {
             this.arranca();
             break;
           case 'pausa':
-            this.para();
+            this.desmonta();
             this.repinta();
             break;
           case 'replay':
-            this.para();
+            this.desmonta();
             this.hasta = 0;
             this.arranca();
             break;

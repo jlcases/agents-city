@@ -22,7 +22,7 @@ if [ -d .git ] && [ -x .githooks/pre-commit ] \
     && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
 fi
 
-SUITES=(widgets card parcels domains busca arnes serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
+SUITES=(widgets card parcels domains busca arnes i18n serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
 [ $# -gt 0 ] && SUITES=("$@")
 
 fallos=0
@@ -122,7 +122,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "benchmarks/latency/fake-claude-cli.mjs",
               "benchmarks/stress/run.py", "benchmarks/stress/README.md",
               "benchmarks/reception/run.mjs", "benchmarks/reception/README.md",
-              "city/web/src/repo-roles.ts",
+              "city/web/src/repo-roles.ts", "city/web/src/vista.ts",
               "demo/show.py", "demo/city/city.yml", "demo/city/ada.md",
               "city/scripts/seed.py", "city/worker/schema.sql", "demo/parcels.yml"]
 problemas = [f"missing: {n}" for n in necesarios if n not in dentro]

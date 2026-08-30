@@ -584,6 +584,19 @@ traducciones se indexan por la frase en inglés, así que lo que aún no esté
 traducido cae en un inglés legible y no en un identificador — un texto nuevo
 nunca se queda bloqueado esperando a la traducción.
 
+La cobertura es una prueba, no una costumbre. `bin/test-i18n.py` lee las rutas de
+renderizado, saca cada frase en inglés que una persona va a ver, y falla cuando
+alguna no tiene español — así una vista nueva no puede colarse sin traducir, que
+es como la cobertura había caído al 40% sin que nadie se diera cuenta.
+
+El mecanismo evidente — barrer el DOM renderizado y traducir lo que coincida con
+una clave — es a propósito lo que **no** se hace. En el DOM no hay forma de
+distinguir una frase que escribió este producto de un nombre de ciudad o de
+agente que escribió alguien, así que a quien tenga una ciudad llamada `Overview`
+se le renombraría sola. Esa distinción sólo existe en el fuente, entre un literal
+y una interpolación, y ahí es donde se comprueba: lo que lleve un `${}` se
+salta.
+
 ### `agents-city setup`
 
 Crea o selecciona una ciudad y abre el Hall; con `--tui` entrega el flujo a

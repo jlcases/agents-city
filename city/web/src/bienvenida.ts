@@ -46,7 +46,7 @@ const PASOS = ['Welcome', 'The work', 'Your chair', 'The houses', 'Ready'];
 /** A house, drawn rather than shipped: the same isometric shape the map and the
  * desktop icon use, so the first thing somebody sees is already the product. */
 function casita(color: string): string {
-  return `<svg viewBox="0 0 120 108" role="img" aria-label="an isometric house" class="bvCasa">
+  return `<svg viewBox="0 0 120 108" role="img" aria-label="${_('an isometric house')}" class="bvCasa">
     <polygon points="60,10 112,40 60,70 8,40" fill="${color}" opacity=".95"/>
     <polygon points="8,40 60,70 60,100 8,70" fill="${color}" opacity=".62"/>
     <polygon points="112,40 60,70 60,100 112,70" fill="${color}" opacity=".40"/>
@@ -67,7 +67,18 @@ export class Bienvenida {
 
   constructor(private readonly p: Puerta) {}
 
-  /** Draw the current step into `lienzo`. The only entry point. */
+  /**
+   * The view contract, so the Hall's dispatcher treats every section the same.
+   *
+   * The painting itself is async — the first one asks the server for the domain
+   * packs — and a router cannot wait on a view. It does not need to: the guide
+   * draws a loading line first and fills itself in.
+   */
+  monta(host: HTMLElement): void {
+    void this.pinta(host);
+  }
+
+  /** Draw the current step into `lienzo`. */
   async pinta(lienzo: HTMLElement): Promise<void> {
     this.lienzo = lienzo;
     if (!this.dominios.length) {

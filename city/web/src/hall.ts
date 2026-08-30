@@ -15,6 +15,7 @@ import './es'; // the Spanish dictionary registers itself on import
 import { FormularioDeCasa } from './casa';
 import { confirma, pregunta } from './dialogo';
 import { Demos } from './demo';
+import type { Vista } from './vista';
 import { Explorador } from './explorador';
 import { idioma, plural, ponIdioma, t as _ } from './idioma';
 import {
@@ -391,9 +392,9 @@ function pintaDemoControles(): void {
   const caja = document.createElement('div');
   caja.id = 'demoControles';
   caja.innerHTML =
-    `<span>guided committee</span>` +
-    `<button id="demoReplay" type="button" title="Play the guided committee from the top">⟳ replay</button>` +
-    `<button id="demoPausa" type="button" title="Pause or resume mid-scene">⏸ pause</button>`;
+    `<span>${_('guided committee')}</span>` +
+    `<button id="demoReplay" type="button" title="${_('Play the guided committee from the top')}">${_('⟳ replay')}</button>` +
+    `<button id="demoPausa" type="button" title="${_('Pause or resume mid-scene')}">${_('⏸ pause')}</button>`;
   header.appendChild(caja);
   const pausa = q<HTMLButtonElement>('#demoPausa', caja);
   const manda = (action: string) =>
@@ -620,7 +621,7 @@ function renderActividad(event: ActivityEvent): string {
       }</summary><ul>${event.details.map((detail) => `<li>${esc(detail)}</li>`).join('')}</ul></details>`
     : '';
   const full = long
-    ? `<details class="liveFull"><summary>read full message</summary><p>${esc(summary)}</p></details>`
+    ? `<details class="liveFull"><summary>${_('read full message')}</summary><p>${esc(summary)}</p></details>`
     : '';
   return `<li class="liveTurn ${side} ${esc(event.tone)}">
     <div class="liveAvatar${E?.avatars?.[event.actor] ? ' conCara' : ''}"
@@ -685,7 +686,7 @@ function pintaContexto(thread: string, container: HTMLElement): void {
           actor === 'seat' ? 'seat · chair' : `${actor} · ${rolOperativo(actor) || 'member'}`,
         )}" style="--actor-hue:${tonoActor(actor)}">${cara(actor, actor === 'seat')}</span>`,
     )
-    .join('')}</div><span class="liveContextText"><b>seat moderates</b> · ${esc(
+    .join('')}</div><span class="liveContextText"><b>${_('seat moderates')}</b> · ${esc(
     received,
   )}/${esc(total)} positions · ${esc(status)}</span>`;
 }
@@ -842,8 +843,8 @@ function rail(): void {
   q('#dondeDatos').textContent = corto(E.datos);
   const cs = q<HTMLElement>('#ciudades');
   if (E.ciudades.length > 1) {
-    cs.innerHTML = `<select id="cambiaCiudad" aria-label="which city this hall manages"
-      title="which city this hall manages">
+    cs.innerHTML = `<select id="cambiaCiudad" aria-label="${_('which city this hall manages')}"
+      title="${_('which city this hall manages')}">
       ${E.ciudades
         .map(
           (c) => `<option value="${esc(c.ruta)}" ${c.actual ? 'selected' : ''}>
@@ -888,10 +889,15 @@ function rail(): void {
   };
 }
 
+/** The view on screen, if it is one that has anything to stop. */
+let montada: Vista | null = null;
+
 function pinta(): void {
-  // A playing demo left running in a section nobody is looking at is a timer
-  // firing into a detached node — and a soundtrack to the wrong screen.
-  if (SECCION !== 'demos') demos?.para();
+  // Whatever was here is being left. The dispatcher used to name one view and
+  // one of its teardown methods by hand, which is a line it would have grown
+  // again for the next view that owned a timer or a socket.
+  montada?.desmonta?.();
+  montada = null;
   rail();
   q<HTMLElement>('.cuerpo').style.padding = '';
   q<HTMLElement>('#lienzo').style.maxWidth = '';
@@ -922,7 +928,8 @@ VISTAS.bienvenida = () => {
     yo: E.yo,
     datos: corto(E.datos),
   });
-  void guia.pinta(q<HTMLElement>('#lienzo'));
+  guia.monta(q<HTMLElement>('#lienzo'));
+  montada = guia;
 };
 
 VISTAS.ciudades = () => {
@@ -947,23 +954,24 @@ VISTAS.ciudades = () => {
     .join('');
   q('#lienzo').innerHTML = `<div><span class="sub">cities</span>
     <h1 style="margin-top:6px">${_('Your cities')}</h1>
-    <p class="prosa" style="margin-top:8px">One person, several autonomous cities: each has
+    <p class="prosa" style="margin-top:8px">${_(`One person, several autonomous cities: each has
     its own identity, domain, chair, <b>its own houses</b> and its own roads. A house is not
     shared — it stands inside the city that owns it, with its workspace and mounts under that
     city's folder — so two cities can each have a <code class="mono">docs</code> house and
     they are two different workers. They share nothing unless you build a road between
-    them.</p></div>
+    them.`)}</p></div>
     <div class="lista"><div class="filas">${filas}</div></div>
     <div class="campos" style="max-width:420px">
       <div class="campo"><label>${_('Start another city')}</label>
-        <input type="text" id="nuevaCiudad" placeholder="client-a, research, the book…"></div>
+        <input type="text" id="nuevaCiudad" placeholder="${_('client-a, research, the book…')}"></div>
       <button class="bt ppal" id="creaCiudad">Create it</button>
     </div>
     <div class="peligro">
       <h3>${_('Start this city over')}</h3>
-      <p class="prosa">Takes <b>${esc(E.city_name)}</b> back to its first day: no seat, no
-      agents, no committee history, no map. Your repositories and document folders are
-      <b>never touched</b> — only the city that points at them.</p>
+      <p class="prosa">${_(
+        'Takes {city} back to its first day: no seat, no agents, no committee history, no map. Your repositories and document folders are <b>never touched</b> — only the city that points at them.',
+        { city: `<b>${esc(E.city_name)}</b>` },
+      )}</p>
       <button class="bt malo" id="reiniciaCiudad">${_('Start over…')}</button>
     </div>
     <p class="pista">Archiving <b>moves</b> a city into
@@ -1060,9 +1068,10 @@ VISTAS.ciudades = () => {
 let demos: Demos | null = null;
 
 VISTAS.demos = () => {
-  if (!demos) demos = new Demos({ api, esc, pinta: renderActividad });
+  demos ??= new Demos({ api, esc, pinta: renderActividad });
   q('#lienzo').innerHTML = '<div id="demoHueco"></div>';
   demos.monta(q<HTMLElement>('#demoHueco'));
+  montada = demos;
 };
 
 VISTAS.resumen = () => {
@@ -1135,19 +1144,19 @@ VISTAS.resumen = () => {
              counted with <code class="mono">${esc(E.grow || 'nothing yet')}</code>.</p>`
       }</div>
     <div class="cifras">
-      <div class="cifra"><b>${Object.keys(E.skills).length}</b><span>repo agents</span></div>
+      <div class="cifra"><b>${Object.keys(E.skills).length}</b><span>${_('repo agents')}</span></div>
       <div class="cifra"><b>${E.parcelas.length}</b><span>houses</span></div>
       <div class="cifra"><b>${E.roads.length}</b><span>roads</span></div>
-      <div class="cifra"><b>${E.deliberations.length}</b><span>committee acts</span></div>
-      <div class="cifra"><b>${Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0)}</b><span>skills recognised</span></div>
+      <div class="cifra"><b>${E.deliberations.length}</b><span>${_('committee acts')}</span></div>
+      <div class="cifra"><b>${Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0)}</b><span>${_('skills recognised')}</span></div>
     </div>
     <div class="luces">
-      <span class="luz ${E.tarjetas.length ? 'on' : ''}">data repo</span>
+      <span class="luz ${E.tarjetas.length ? 'on' : ''}">${_('data repo')}</span>
       <span class="luz ${E.gh ? 'on' : 'neutra'}">github${E.gh ? '' : ' — optional'}</span>
-      <span class="luz ${E.plugin ? 'on' : ''}">plugin installed</span>
+      <span class="luz ${E.plugin ? 'on' : ''}">${_('plugin installed')}</span>
       <span class="luz ${sesionArriba ? 'on' : 'neutra'}">tmux session${sesionArriba ? ' up' : ''}</span>
     </div>
-    <div><span class="sub">what is left</span>
+    <div><span class="sub">${_('what is left')}</span>
       <div class="tareas" style="margin-top:9px">${tareas
         .map(
           (t) => `
@@ -1158,7 +1167,7 @@ VISTAS.resumen = () => {
       </div></div>
     <div><span class="sub">work</span>
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:9px">
-        <div class="orden"><span class="et2">your day</span>
+        <div class="orden"><span class="et2">${_('your day')}</span>
           <code>${
             sesionArriba
               ? 'tmux attach -t ' + esc(E.sesion)
@@ -1167,7 +1176,7 @@ VISTAS.resumen = () => {
           ${
             sesionArriba
               ? `<button class="bt mini" data-copia="tmux attach -t ${esc(E.sesion)}">copy</button>`
-              : '<button class="bt mini ppal" id="abreSesion">open my session</button>'
+              : `<button class="bt mini ppal" id="abreSesion">${_('open my session')}</button>`
           }
         </div>
         <div class="orden"><span class="et2">the map</span>
@@ -1281,26 +1290,26 @@ VISTAS.puesto = () => {
 
 async function puesto(): Promise<void> {
   const mia = E.tarjetas.find((t) => t.user === E.yo);
-  q('#lienzo').innerHTML = `<div><span class="sub">my seat</span>
+  q('#lienzo').innerHTML = `<div><span class="sub">${_('my seat')}</span>
     <h1 style="margin-top:6px">${esc(E.yo)}</h1>
     <p class="prosa" style="margin-top:8px">This is your chair: the work domain, your
     role inside it, and one goal. The seat stays the boss even when its
     professional role is blank. Saving writes your card —
     <code class="mono">${esc(corto(E.datos))}/${esc(E.yo)}.md</code> — the same file
     every other door writes, and it never touches your roster.</p></div>
-    <div><span class="sub">work domain</span><div class="rolejilla" id="domains" style="margin-top:9px">
-      <p class="cargando">reading the domain packs</p></div></div>
+    <div><span class="sub">${_('work domain')}</span><div class="rolejilla" id="domains" style="margin-top:9px">
+      <p class="cargando">${_('reading the domain packs')}</p></div></div>
     <div><span class="sub">role</span><div class="rolejilla" id="roles" style="margin-top:9px">
-      <p class="cargando">reading the role files</p></div></div>
-    <div><span class="sub">the agents</span>
+      <p class="cargando">${_('reading the role files')}</p></div></div>
+    <div><span class="sub">${_('the agents')}</span>
       <p class="prosa" style="margin-top:8px">Who works in this city — and what each
-      one works on — lives in <b>Agents &amp; skills</b>, where an agent is asked for
+      one works on — lives in <b>${_('Agents &amp; skills')}</b>, where an agent is asked for
       whole: its kind, its role, its repositories and document folders, its engine
       and its skills. One place, so the terminal and this page cannot disagree.
-      <button class="bt" type="button" data-ir="gente" style="margin-left:8px">Open the roster</button></p></div>
-    <div><span class="sub">one goal — optional</span><div class="campos" id="meta" style="margin-top:9px"></div></div>
+      <button class="bt" type="button" data-ir="gente" style="margin-left:8px">${_('Open the roster')}</button></p></div>
+    <div><span class="sub">${_('one goal — optional')}</span><div class="campos" id="meta" style="margin-top:9px"></div></div>
     <div style="display:flex;gap:10px;align-items:center">
-      <button class="bt ppal" id="guardaPuesto">Save my seat</button>
+      <button class="bt ppal" id="guardaPuesto">${_('Save my seat')}</button>
       <span class="cargando" id="puestoEstado" style="display:none">writing</span></div>`;
 
   // Domain first, then only the roles relevant inside it. Both are copied into
@@ -1358,28 +1367,28 @@ async function puesto(): Promise<void> {
   // goal
   const o: Partial<Objetivo> = (mia && mia.objetivo) || {};
   q('#meta').innerHTML = `
-    <div class="campo"><label>The goal, in one line</label>
-      <input type="text" id="g_title" value="${esc(o.title)}" placeholder="Concrete enough to argue with — empty skips it">
+    <div class="campo"><label>${_('The goal, in one line')}</label>
+      <input type="text" id="g_title" value="${esc(o.title)}" placeholder="${_('Concrete enough to argue with — empty skips it')}">
     </div>
     <div class="dos">
-      <div class="campo"><label>How it is measured</label>
+      <div class="campo"><label>${_('How it is measured')}</label>
         <input type="text" id="g_signal" value="${esc(o.signal)}"></div>
-      <div class="campo"><label>The command that returns it, if a command can</label>
+      <div class="campo"><label>${_('The command that returns it, if a command can')}</label>
         <input type="text" class="mono" id="g_command" value="${esc(o.command)}"
-          placeholder="empty for a qualitative goal"></div>
+          placeholder="${_('empty for a qualitative goal')}"></div>
     </div>
-    <div class="campo"><label>…or who judges it, and how often</label>
+    <div class="campo"><label>${_('…or who judges it, and how often')}</label>
       <input type="text" id="g_manual" value="${esc(o.manual)}"
-        placeholder="in prose: the architect reads the AGENTS.md files on Fridays">
+        placeholder="${_('in prose: the architect reads the AGENTS.md files on Fridays')}">
       <p class="pista">A goal judged by a person is a real goal — plenty of quality
         is prose, not a number. Used when the command is empty.</p></div>
     <div class="dos">
-      <div class="campo"><label>What it returns today</label>
+      <div class="campo"><label>${_('What it returns today')}</label>
         <input type="text" class="mono" id="g_baseline" value="${esc(o.baseline)}"></div>
-      <div class="campo"><label>Where it has to get to</label>
+      <div class="campo"><label>${_('Where it has to get to')}</label>
         <input type="text" class="mono" id="g_target" value="${esc(o.target)}"></div>
     </div>
-    <div class="campo" style="max-width:240px"><label>By when</label>
+    <div class="campo" style="max-width:240px"><label>${_('By when')}</label>
       <input type="text" id="g_by" value="${esc(o.by ?? 'this quarter')}"></div>`;
 
   const val = (id: string): string => q<HTMLInputElement>(id).value.trim();
@@ -1441,23 +1450,23 @@ VISTAS.barrios = () => {
 
   const render = (): void => {
     const idsValidos = new Set([...unidades.map((u) => u.id), 'none']);
-    q('#lienzo').innerHTML = `<div><span class="sub">districts & houses</span>
-      <h1 style="margin-top:6px">The modelling no tool can do for you</h1>
-      <p class="prosa" style="margin-top:8px">A house is <b>not a repo</b> — it is a
+    q('#lienzo').innerHTML = `<div><span class="sub">${_('districts & houses')}</span>
+      <h1 style="margin-top:6px">${_('The modelling no tool can do for you')}</h1>
+      <p class="prosa" style="margin-top:8px">${_(`A house is <b>not a repo</b> — it is a
       parcel, a slice of one serving a single business unit. Split the interesting
       repos, give every house its district, and the map can say
-      “this change touches banking” instead of “this change touches src/lib”.</p></div>
+      “this change touches banking” instead of “this change touches src/lib”.`)}</p></div>
 
       <div><span class="sub">districts</span>
         <div class="tabla" id="unidades" style="margin-top:9px"></div>
         <div style="display:flex;gap:9px;margin-top:9px">
-          <input type="text" id="nuevaU" placeholder="another district…" style="flex:1">
+          <input type="text" id="nuevaU" placeholder="${_('another district…')}" style="flex:1">
           <button class="bt" id="masU">Add</button></div></div>
 
       <div><span class="sub">houses</span><div id="parcelas" style="margin-top:9px"></div></div>
 
       <div style="display:flex;gap:10px;align-items:center">
-        <button class="bt ppal" id="guardaBarrios">Save districts & houses</button>
+        <button class="bt ppal" id="guardaBarrios">${_('Save districts & houses')}</button>
         <span style="font-size:12px;color:var(--tinta3);font-style:italic">
           writes units.yml and parcels.yml — reseed the map to see it drawn</span></div>`;
 
@@ -1613,7 +1622,7 @@ VISTAS.red = () => {
   const locales = E.ciudades.filter((c) => !c.actual && c.id && !conectadas.has(c.id));
   const invitation = JSON.stringify(E.invitation);
   q('#lienzo').innerHTML = `<div><span class="sub">roads</span>
-    <h1 style="margin-top:6px">Cities this one may reach</h1>
+    <h1 style="margin-top:6px">${_('Cities this one may reach')}</h1>
     <p class="prosa" style="margin-top:8px">A road joins city seats. It may stay on
     this machine or continue over the remote bus; the city sees one explicit
     connection either way.</p></div>
@@ -1625,9 +1634,9 @@ VISTAS.red = () => {
           <span class="rp">${r.local ? 'local road' : 'remote road'}</span>
           <button class="bt mini" data-road-close="${esc(r.id)}">close</button></div>`,
         )
-        .join('') || '<p class="prosa">No roads yet. This city is isolated on purpose.</p>'
+        .join('') || `<p class="prosa">${_('No roads yet. This city is isolated on purpose.')}</p>`
     }</div>
-    <div><span class="sub">other cities on this machine</span>
+    <div><span class="sub">${_('other cities on this machine')}</span>
       <div class="gente" style="margin-top:9px">${
         locales
           .map(
@@ -1635,9 +1644,9 @@ VISTAS.red = () => {
               <span class="ag">${esc(c.slug ?? c.ruta)}</span>
               <button class="bt mini ppal" data-road-open="${esc(c.id)}">open road</button></div>`,
           )
-          .join('') || '<p class="prosa">No unconnected local cities.</p>'
+          .join('') || `<p class="prosa">${_('No unconnected local cities.')}</p>`
       }</div></div>
-    <div class="orden"><span class="et2">remote invitation · public, no token</span>
+    <div class="orden"><span class="et2">${_('remote invitation · public, no token')}</span>
       <code>${esc(invitation)}</code>
       <button class="bt mini" data-copia="${esc(invitation)}">copy</button>
     </div>`;
@@ -1958,13 +1967,13 @@ function formateaBytes(bytes: number): string {
 // ── committee acts ───────────────────────────────────────────────────────────
 VISTAS.committee = () => {
   q('#lienzo').innerHTML = `<div><span class="sub">committee</span>
-    <h1 style="margin-top:6px">Decisions with a visible chain of custody</h1>
+    <h1 style="margin-top:6px">${_('Decisions with a visible chain of custody')}</h1>
     <p class="prosa" style="margin-top:8px">The seat selects relevant repo agents,
     gathers isolated positions, controls the floor, decides and assigns an
     independent verification. This view is read-only; the vendor-neutral CLI
     drives the protocol.</p></div>
     <div class="orden"><span class="et2">start</span>
-      <code>agents-city committee schema open</code>
+      <code>${_('agents-city committee schema open')}</code>
       <button class="bt mini" data-copia="agents-city committee schema open">copy</button>
     </div>
     <div class="gente">${
@@ -1982,7 +1991,7 @@ VISTAS.committee = () => {
           </div>`,
         )
         .join('') ||
-      '<p class="prosa">No committee acts yet. Open one only when the seat needs specialised evidence.</p>'
+      `<p class="prosa">${_('No committee acts yet. Open one only when the seat needs specialised evidence.')}</p>`
     }</div>`;
   enlaza();
 };
@@ -2037,11 +2046,11 @@ VISTAS.gente = () => {
           <span class="rpgHogar">${a.legacy ? 'repo' : `workspace · ${montajes.length} ${montajes.length === 1 ? 'mount' : 'mounts'}`}</span></span></div>
           <span class="rpgBotones">
             <button class="rpgMini rpgDado" type="button" data-agente="${esc(a.slug)}"
-              title="Reroll this agent's face — deterministic, persisted on the card">🎲</button>
+              title="${_("Reroll this agent's face — deterministic, persisted on the card")}">🎲</button>
             <button class="rpgMini rpgIns" type="button" data-agente="${esc(a.slug)}"
-              data-file="CLAUDE.md" title="Instructions the Claude runtime reads">CLAUDE.md</button>
+              data-file="CLAUDE.md" title="${_('Instructions the Claude runtime reads')}">CLAUDE.md</button>
             <button class="rpgMini rpgIns" type="button" data-agente="${esc(a.slug)}"
-              data-file="AGENTS.md" title="Instructions Codex, OpenCode and Kimi read">AGENTS.md</button>
+              data-file="AGENTS.md" title="${_('Instructions Codex, OpenCode and Kimi read')}">AGENTS.md</button>
           </span>
         </div>
         <div class="rpgFila"><label>${_('engine')}</label>
@@ -2070,7 +2079,7 @@ VISTAS.gente = () => {
             _(a.cli.connected ? 'connected' : a.cli.installed ? 'idle' : 'missing'),
           )} · ${esc(a.cli.binary)}
           <button class="rpgMini rpgTest" type="button" data-agente="${esc(a.slug)}"
-            title="Run the engine for real: --version, and the login state on Claude">test</button></span>
+            title="${_('Run the engine for real: --version, and the login state on Claude')}">test</button></span>
           <select class="rpgSel" data-agente="${esc(a.slug)}" data-campo="runtime">
             ${opcionesRuntime}</select></div>
         <div class="rpgSkills"><label>${_('works on')} · ${montajes.length}</label>
@@ -2092,7 +2101,7 @@ VISTAS.gente = () => {
           }
           ${
             a.legacy
-              ? '<span class="rpgDato">a legacy repo agent works on its own repo</span>'
+              ? `<span class="rpgDato">${_('a legacy repo agent works on its own repo')}</span>`
               : `<button class="rpgMini rpgMonta" type="button" data-agente="${esc(a.slug)}"
                   title="A repo, a worktree or a folder of documents — this agent works on all of them">+ folder</button>`
           }</div>
@@ -2108,7 +2117,7 @@ VISTAS.gente = () => {
                       `<code class="mono" title="${esc(s.description)}">${esc(s.name)}${
                         s.removable && s.dir
                           ? `<button class="rpgQuitar" type="button" data-agente="${esc(a.slug)}"
-                              data-skill="${esc(s.dir)}" title="Remove this skill from the agent's home">×</button>`
+                              data-skill="${esc(s.dir)}" title="${_("Remove this skill from the agent's home")}">×</button>`
                           : ''
                       }</code>`,
                   )
@@ -2116,21 +2125,21 @@ VISTAS.gente = () => {
               : '<span class="rpgDato">none discovered</span>'
           }
           <label class="rpgMini rpgSubir"
-            title="Install a skill zip into this agent's own home — the Claude runtime reads skills; other engines ignore them">
+            title="${_("Install a skill zip into this agent's own home — the Claude runtime reads skills; other engines ignore them")}">
             + zip<input type="file" accept=".zip" data-agente="${esc(a.slug)}"></label></div>
       </div>`;
   };
 
   q('#lienzo').innerHTML = `<div><span class="sub">the houses of ${esc(E.city_name)}</span>
     <h1 style="margin-top:6px">${_('Who lives in {city}', { city: esc(E.city_name) })}</h1>
-    <p class="prosa" style="margin-top:8px"><b>A house is where an agent lives and works</b>,
+    <p class="prosa" style="margin-top:8px">${_(`<b>A house is where an agent lives and works</b>,
     and many houses are a city — it is the same thing the map draws, growing with what that
     agent actually does. The card and the CLI call them <code class="mono">agents</code>;
-    here you see their houses.</p>
-    <p class="prosa">They belong to <b>this</b> city and only
-    to it: each one's workspace and its mounts live inside
-    <code class="mono">${esc(corto(E.datos))}/agents/</code>, so another city has its own
-    people even if you give them the same names. Every agent is whole here: the kind of work
+    here you see their houses.`)}</p>
+    <p class="prosa">${_(
+      'They belong to <b>this</b> city and only to it: each one’s workspace and its mounts live inside {donde}, so another city has its own people even if you give them the same names.',
+      { donde: `<code class="mono">${esc(corto(E.datos))}/agents/</code>` },
+    )} Every agent is whole here: the kind of work
     it does, its role, everything it works on — any number of repositories and document
     folders at once — the engine and effort that run it, and the skills in its own home.</p>
     <p class="prosa">Every number is real: growth from what the agent actually produced,

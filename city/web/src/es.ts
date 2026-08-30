@@ -347,3 +347,90 @@ anota({
     'OpenCode nombra los modelos proveedor/modelo, como anthropic/claude-sonnet-4.',
   'The model name your Kimi CLI uses.': 'El nombre del modelo que usa tu CLI de Kimi.',
 });
+
+anota({
+  // ── the seat, the goal, the day ───────────────────────────────────────────
+  'my seat': 'mi asiento',
+  'Save my seat': 'Guardar mi asiento',
+  'work domain': 'dominio de trabajo',
+  'your day': 'tu día',
+  'the agents': 'los agentes',
+  'repo agents': 'agentes de repo',
+  'one goal — optional': 'un objetivo — opcional',
+  'The goal, in one line': 'El objetivo, en una línea',
+  'Concrete enough to argue with — empty skips it':
+    'Lo bastante concreto como para discutirlo — vacío lo salta',
+  'How it is measured': 'Cómo se mide',
+  'in prose: the architect reads the AGENTS.md files on Fridays':
+    'en prosa: el arquitecto lee los AGENTS.md los viernes',
+  'The command that returns it, if a command can':
+    'El comando que lo devuelve, si un comando puede',
+  'What it returns today': 'Lo que devuelve hoy',
+  'Where it has to get to': 'A dónde tiene que llegar',
+  'By when': 'Para cuándo',
+  'empty for a qualitative goal': 'vacío para un objetivo cualitativo',
+  '…or who judges it, and how often': '…o quién lo juzga, y cada cuánto',
+  'what is left': 'lo que queda',
+  'open my session': 'abrir mi sesión',
+  'Open the roster': 'Abrir la lista',
+
+  // ── districts, roads, the committee ───────────────────────────────────────
+  'districts & houses': 'distritos y casas',
+  'Save districts & houses': 'Guardar distritos y casas',
+  'another district…': 'otro distrito…',
+  'The modelling no tool can do for you': 'El modelado que ninguna herramienta puede hacer por ti',
+  'A house is <b>not a repo</b> — it is a parcel, a slice of one serving a single business unit. Split the interesting repos, give every house its district, and the map can say “this change touches banking” instead of “this change touches src/lib”.':
+    'Una casa <b>no es un repo</b> — es una parcela, una porción de uno al servicio de una sola unidad de negocio. Parte los repos interesantes, dale a cada casa su distrito, y el mapa podrá decir «este cambio toca banca» en vez de «este cambio toca src/lib».',
+  'Cities this one may reach': 'Ciudades a las que ésta puede llegar',
+  'No roads yet. This city is isolated on purpose.':
+    'Aún no hay carreteras. Esta ciudad está aislada a propósito.',
+  'No unconnected local cities.': 'No hay ciudades locales sin conectar.',
+  'other cities on this machine': 'otras ciudades en esta máquina',
+  'remote invitation · public, no token': 'invitación remota · pública, sin token',
+  'committee acts': 'actas del comité',
+  'Decisions with a visible chain of custody': 'Decisiones con una cadena de custodia visible',
+  'No committee acts yet. Open one only when the seat needs specialised evidence.':
+    'Aún no hay actas. Abre un comité sólo cuando el asiento necesite pruebas especializadas.',
+  'agents-city committee schema open': 'agents-city committee schema open',
+  'guided committee': 'comité guiado',
+  'Play the guided committee from the top': 'Reproducir el comité guiado desde el principio',
+  'Pause or resume mid-scene': 'Pausar o seguir a mitad de escena',
+  '⟳ replay': '⟳ repetir',
+  '⏸ pause': '⏸ pausa',
+  'seat moderates': 'el asiento modera',
+  'read full message': 'leer el mensaje entero',
+
+  // ── the cities view ───────────────────────────────────────────────────────
+  'One person, several autonomous cities: each has its own identity, domain, chair, <b>its own houses</b> and its own roads. A house is not shared — it stands inside the city that owns it, with its workspace and mounts under that city’s folder — so two cities can each have a <code class="mono">docs</code> house and they are two different workers. They share nothing unless you build a road between them.':
+    'Una persona, varias ciudades autónomas: cada una con su identidad, su dominio, su silla, <b>sus propias casas</b> y sus carreteras. Una casa no se comparte — está dentro de la ciudad que la posee, con su espacio de trabajo y sus montajes bajo la carpeta de esa ciudad — así que dos ciudades pueden tener cada una su casa <code class="mono">docs</code> y son dos trabajadores distintos. No comparten nada salvo que construyas una carretera entre ellas.',
+  'client-a, research, the book…': 'cliente-a, investigación, el libro…',
+  'which city this hall manages': 'qué ciudad gobierna este ayuntamiento',
+  'Takes {city} back to its first day: no seat, no agents, no committee history, no map. Your repositories and document folders are <b>never touched</b> — only the city that points at them.':
+    'Devuelve {city} a su primer día: sin asiento, sin agentes, sin historial de comité, sin mapa. Tus repositorios y carpetas de documentos <b>no se tocan</b> — sólo la ciudad que apunta a ellos.',
+
+  // ── the houses ────────────────────────────────────────────────────────────
+  'Agents &amp; skills': 'Agentes y skills',
+  '<b>A house is where an agent lives and works</b>, and many houses are a city — it is the same thing the map draws, growing with what that agent actually does. The card and the CLI call them <code class="mono">agents</code>; here you see their houses.':
+    '<b>Una casa es donde vive y trabaja un agente</b>, y muchas casas son una ciudad — es lo mismo que dibuja el mapa, creciendo con lo que ese agente hace de verdad. La ficha y la CLI los llaman <code class="mono">agents</code>; aquí ves sus casas.',
+  'They belong to <b>this</b> city and only to it: each one’s workspace and its mounts live inside {donde}, so another city has its own people even if you give them the same names.':
+    'Pertenecen a <b>esta</b> ciudad y sólo a ella: el espacio de trabajo de cada una y sus montajes viven dentro de {donde}, así que otra ciudad tiene su propia gente aunque les pongas los mismos nombres.',
+  'a legacy repo agent works on its own repo':
+    'un agente de repo heredado trabaja sobre su propio repo',
+  'data repo': 'repo de datos',
+  'skills recognised': 'skills reconocidas',
+  'plugin installed': 'plugin instalado',
+  'Reroll this agent’s face — deterministic, persisted on the card':
+    'Vuelve a tirar la cara de este agente — determinista, guardada en la ficha',
+  'Instructions the Claude runtime reads': 'Instrucciones que lee el runtime de Claude',
+  'Instructions Codex, OpenCode and Kimi read': 'Instrucciones que leen Codex, OpenCode y Kimi',
+  'Run the engine for real: --version, and the login state on Claude':
+    'Ejecuta el motor de verdad: --version, y el estado de sesión en Claude',
+  'Install a skill zip into this agent’s own home — the Claude runtime reads skills; other engines ignore them':
+    'Instala un zip de skill en la casa de este agente — el runtime de Claude lee skills; los demás motores las ignoran',
+  'Remove this skill from the agent’s home': 'Quitar esta skill de la casa del agente',
+
+  // ── while it is reading ───────────────────────────────────────────────────
+  'reading the domain packs': 'leyendo los paquetes de dominio',
+  'reading the role files': 'leyendo los ficheros de rol',
+  'an isometric house': 'una casa isométrica',
+});
