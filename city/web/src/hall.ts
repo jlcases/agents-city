@@ -279,14 +279,52 @@ declare global {
 const PASE = window.PASE;
 const CIUDAD = new URLSearchParams(location.search).get('city') ?? '';
 
+/**
+ * Tell the city's journal something happened here.
+ *
+ * The page is half of this product and it used to keep its failures to itself:
+ * an error became a toast, the toast went away, and a person reporting it had
+ * only their memory. This writes into the same file the server writes, so one
+ * file answers "what happened" — and `agents-city doctor --report` can hand it
+ * to somebody else without them having to have been watching.
+ *
+ * It never throws and never awaits: a log that can break the thing it is
+ * logging, or slow it down, is worse than no log.
+ */
+function anota(que: string, detalle?: unknown, donde?: string): void {
+  try {
+    let u = '/api/diario?PASE=' + encodeURIComponent(PASE);
+    if (CIUDAD) u += '&city=' + encodeURIComponent(CIUDAD);
+    void fetch(u, {
+      method: 'POST',
+      headers: { 'X-City-Pase': PASE, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ que, detalle, donde: donde ?? location.hash ?? '' }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    /* the journal is a courtesy, never a dependency */
+  }
+}
+
 async function api<T>(ruta: string, opts?: RequestInit): Promise<T> {
   let u = ruta + (ruta.includes('?') ? '&' : '?') + 'PASE=' + encodeURIComponent(PASE);
   if (CIUDAD) u += '&city=' + encodeURIComponent(CIUDAD);
-  const r = await fetch(u, {
-    headers: { 'X-City-Pase': PASE, 'Content-Type': 'application/json' },
-    ...opts,
-  });
-  return r.json() as Promise<T>;
+  let r: Response;
+  try {
+    r = await fetch(u, {
+      headers: { 'X-City-Pase': PASE, 'Content-Type': 'application/json' },
+      ...opts,
+    });
+  } catch (e) {
+    // A request that never came back. This is the one a person cannot report,
+    // because nothing on screen says it happened.
+    if (ruta !== '/api/diario') anota('fetch failed', String(e), ruta);
+    throw e;
+  }
+  const cuerpo = (await r.json()) as T & { error?: string };
+  if (ruta !== '/api/diario' && (!r.ok || cuerpo?.error))
+    anota('api refused', { estado: r.status, error: cuerpo?.error }, ruta);
+  return cuerpo as T;
 }
 
 /** querySelector that refuses to hand back null: a missing element here is a bug
@@ -2683,6 +2721,15 @@ function interruptorDeIdioma(): void {
     void refresca();
   };
 }
+
+// Nothing in a browser reports itself. These two are why a person can say "it
+// just did nothing" and be exactly right.
+window.addEventListener('error', (e) =>
+  anota('uncaught error', { mensaje: e.message, fichero: e.filename, linea: e.lineno }),
+);
+window.addEventListener('unhandledrejection', (e) =>
+  anota('unhandled rejection', String((e as PromiseRejectionEvent).reason)),
+);
 
 arrastreDelRail();
 interruptorDeIdioma();

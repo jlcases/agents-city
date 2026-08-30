@@ -29,6 +29,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import webbrowser
 
@@ -44,6 +45,7 @@ import parcels  # noqa: E402
 import units  # noqa: E402
 import busca  # noqa: E402  the disk scanner, and the one list of where work lives
 import cities  # noqa: E402
+import diario  # noqa: E402  what happened, written down
 import demos  # noqa: E402  the recorded demos the Hall plays back
 import roads  # noqa: E402
 import reception  # noqa: E402
@@ -523,6 +525,15 @@ def actividad_viva(datos):
         return {"online": False, "url": "", "city": "", "started_at": ""}
 
 
+def _resumen_cuerpo(cuerpo):
+    """On success, the shape rather than the content: which fields arrived and
+    how long each was. A log that repeats every goal somebody types is a log
+    they will not send anywhere."""
+    if not isinstance(cuerpo, dict):
+        return {}
+    return {k: (len(v) if isinstance(v, (str, list)) else v) for k, v in cuerpo.items()}
+
+
 def _que_es_git(ruta):
     """`repo`, `worktree`, or nothing. A label on a row, never a filter: the
     picker shows every folder and lets the person decide which one matters."""
@@ -603,7 +614,21 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         if os.environ.get("CITY_SETUP_DEBUG"):
             sys.stderr.write("  %s\n" % (format % args))
 
+    #: What this handler last answered, so the request log can say so without
+    #: every endpoint having to report for itself.
+    _ultimo = None
+    _error = None
+
+    def apunta(self, tipo, **campos):
+        """One journal line for this city. Never raises."""
+        try:
+            diario.apunta(self.ciudad({}), tipo, **campos)
+        except Exception:  # noqa: BLE001  logging must not break the request
+            pass
+
     def responde(self, cuerpo, tipo="application/json", codigo=200):
+        self._ultimo = codigo
+        self._error = cuerpo.get("error") if isinstance(cuerpo, dict) else None
         if not isinstance(cuerpo, bytes):
             cuerpo = json.dumps(cuerpo).encode()
         self.send_response(codigo)
@@ -690,6 +715,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         "/api/instrucciones": "g_instrucciones",
         "/api/live": "g_live",
         "/api/carpeta": "g_carpeta",
+        "/api/diario": "g_diario",
         "/api/demos": "g_demos",
         "/api/domains": "g_domains",
         "/api/roles": "g_roles",
@@ -707,6 +733,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         "/api/roads": "p_roads",
         "/api/reception": "p_reception",
         "/api/agente": "p_agente",
+        "/api/diario": "p_diario",
         "/api/agentes": "p_agentes",
         "/api/montaje": "p_montaje",
         "/api/motor": "p_motor",
@@ -759,9 +786,24 @@ class Manejador(http.server.BaseHTTPRequestHandler):
             cuerpo = json.loads(self.rfile.read(largo) or b"{}")
         except (ValueError, json.JSONDecodeError) as e:
             return self.responde({"error": f"unreadable body: {e}"}, codigo=400)
-        if ruta in self.POSTS:
-            return getattr(self, self.POSTS[ruta])(q, cuerpo)
-        return self.responde({"error": "no such thing"}, codigo=404)
+        if ruta not in self.POSTS:
+            self.apunta("post", ruta=ruta, estado=404, error="no such thing")
+            return self.responde({"error": "no such thing"}, codigo=404)
+        # Every write is recorded before it happens and judged after, so a
+        # request that never came back says so too — a handler that hangs or
+        # dies leaves a line with no verdict, which is itself the finding.
+        empezado = time.monotonic()
+        self._ultimo = None
+        try:
+            salida = getattr(self, self.POSTS[ruta])(q, cuerpo)
+        except Exception as e:  # noqa: BLE001  the log is the point
+            self.apunta("post", ruta=ruta, error=f"{type(e).__name__}: {e}",
+                        cuerpo=cuerpo, ms=int((time.monotonic() - empezado) * 1000))
+            raise
+        self.apunta("post", ruta=ruta, estado=self._ultimo,
+                    cuerpo=cuerpo if self._ultimo != 200 else _resumen_cuerpo(cuerpo),
+                    error=self._error, ms=int((time.monotonic() - empezado) * 1000))
+        return salida
 
     def g_estado(self, q):
         datos = self.ciudad(q)
@@ -870,6 +912,16 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         if not eventos:
             return self.responde({"error": "no such demo"}, codigo=404)
         return self.responde({**(demos.ficha(cual, eventos) or {}), "eventos": eventos})
+
+    def g_diario(self, q):
+        """The journal, for `doctor --log` and for anybody about to send it."""
+        try:
+            cuantas = max(1, min(2000, int(q.get("n", ["200"])[0])))
+        except ValueError:
+            cuantas = 200
+        return self.responde(
+            {"ruta": diario.ruta(self.ciudad(q)), "lineas": diario.lee(self.ciudad(q), cuantas)}
+        )
 
     def g_carpeta(self, q):
         """One folder, listed: what is in it, and what each thing is.
@@ -1323,8 +1375,23 @@ class Manejador(http.server.BaseHTTPRequestHandler):
             return self.responde({"error": "this city has no owner card yet"}, codigo=409)
         nombre = " ".join(str(cuerpo.get("name") or "").split())
         slug = card.ventana(nombre)
-        if not nombre or not card.ventana_valida(slug):
+        # `card.ventana` falls back to the word `repo` when nothing in the name
+        # survives slugging — which is right for a repository whose folder is
+        # punctuation, and wrong here: a house called `///` would be created
+        # with the window `repo`, and the name a person reads would stop being
+        # the thing the city addresses. A name has to carry a letter or a digit.
+        legible = bool(re.search(r"[a-z0-9]", nombre.lower()))
+        if not nombre or not card.ventana_valida(slug) or not legible:
             return self.responde({"error": "an agent needs a plain name"}, codigo=400)
+        # A window slug is cut at 80 characters, so a longer name would be
+        # stored in full on the card and addressed by a truncated one — the
+        # name a person reads and the window it opens quietly stop being the
+        # same thing. Refuse rather than silently rename.
+        if len(nombre) > 80:
+            return self.responde(
+                {"error": "an agent's name has to fit in a window title: 80 characters"},
+                codigo=400,
+            )
         clase = str(cuerpo.get("kind") or workspace.CLASE_DEFECTO).strip().lower()
         if clase not in workspace.CLASES:
             return self.responde(
@@ -1418,6 +1485,24 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 ],
             }
         )
+
+    def p_diario(self, q, cuerpo):
+        """The browser's half of the log.
+
+        Half of what goes wrong here goes wrong in the page — a handler that
+        threw, a fetch that never came back, a button that did nothing. A log
+        that stops at the network boundary tells half the story, so the page
+        writes into the same file the server does, and one file answers "what
+        happened" instead of two that have to be lined up by hand.
+        """
+        diario.apunta(
+            self.ciudad(q),
+            "browser",
+            que=str(cuerpo.get("que") or "")[:120],
+            detalle=cuerpo.get("detalle"),
+            donde=str(cuerpo.get("donde") or "")[:200],
+        )
+        return self.responde({"ok": True})
 
     def p_agente(self, q, cuerpo):
         """Tune one agent from its character sheet: model, effort, runtime and

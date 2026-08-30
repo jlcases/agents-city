@@ -101,10 +101,36 @@ export class FormularioDeCasa extends Montada {
     try {
       const r = await this.p.api<{ roles: Rol[] }>('/api/roles?scope=agent');
       this.roles = r.roles ?? [];
-      if (this.roles.length) this.repinta();
+      // Only the one control that changed. Rebuilding the whole form because a
+      // dropdown filled in is how the name got lost in the first place, and it
+      // also took the folder picker down mid-walk.
+      this.pintaRoles();
     } catch {
       this.roles = []; // the role list is a convenience; blank is always valid
     }
+  }
+
+  /** The role list, once it arrives, without touching anything else. */
+  private pintaRoles(): void {
+    const sel = this.host?.querySelector<HTMLSelectElement>('#bvRol');
+    if (!sel || !this.roles.length) return;
+    sel.innerHTML = this.opcionesDeRol();
+    sel.value = this.datos.rol;
+    // A select that answers to nothing is a select that silently keeps the
+    // first option no matter what the person picks.
+    sel.onchange = () => this.recoge();
+    this.recoge();
+  }
+
+  private opcionesDeRol(): string {
+    return this.roles
+      .map(
+        (r) =>
+          `<option value="${this.p.esc(r.id)}"${
+            r.id === this.datos.rol ? ' selected' : ''
+          }>${this.p.esc(r.name)}</option>`,
+      )
+      .join('');
   }
 
   /** The folder picker, built once so walking survives a repaint. */
@@ -215,6 +241,25 @@ export class FormularioDeCasa extends Montada {
   }
 
   protected enlaza(raiz: HTMLElement): void {
+    // Every field writes through as it is typed.
+    //
+    // `recoge()` used to be the only sync, called at the moments somebody
+    // remembered to call it — and a repaint from anywhere else redrew the
+    // inputs from a state that had never heard of what was in them. The roles
+    // list arrives a few hundred milliseconds after this form opens, which is
+    // exactly while a person is typing the name: the answer landed, the form
+    // repainted, the name was gone, and then "Build it" said to give it one.
+    //
+    // Now nothing can lose it, because there is no window in which the field
+    // and the state disagree.
+    raiz
+      .querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+        '#bvNombre,#bvRol,#bvModelo,#bvEsfuerzo',
+      )
+      .forEach((el) => {
+        el.oninput = () => this.recoge();
+        el.onchange = () => this.recoge();
+      });
     raiz.querySelectorAll<HTMLElement>('[data-bv]').forEach((el) => {
       el.onclick = (evento) => {
         evento.preventDefault();

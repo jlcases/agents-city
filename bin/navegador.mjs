@@ -553,6 +553,114 @@ async function main() {
       JSON.stringify(demo?.dice),
     );
 
+    // Building a house for real: type a name, press the button, get a house.
+    //
+    // The suite used to open this form, check its fields existed and press
+    // Escape — so the one thing it is FOR was never exercised. What that hid:
+    // the roles list arrives a few hundred milliseconds after the form opens,
+    // the form repainted when it did, and the repaint redrew the name field
+    // from a state that had never been told what was typed in it. Typing while
+    // that answer was in flight lost the name, and then the button said to
+    // give it one. Intermittent, which is the worst kind.
+    //
+    // So this types IMMEDIATELY, before the roles can land, which is exactly
+    // what a person does.
+    const construida = await cdp.evalua(`(async () => {
+      const espera = async (sel, n = 40) => {
+        for (let i = 0; i < n; i++) {
+          const el = document.querySelector(sel);
+          if (el) return el;
+          await new Promise(r => setTimeout(r, 250));
+        }
+        return null;
+      };
+      const ir = [...document.querySelectorAll('nav li')].find(l => /houses|casas/i.test(l.textContent));
+      ir?.click();
+      await new Promise(r => setTimeout(r, 600));
+      document.getElementById('altaAgente')?.click();
+      const campo = await espera('.dlgFondo #bvNombre');
+      if (!campo) return { falta: true };
+      // Straight away: the roles request is still in flight right now.
+      campo.value = 'urgencias';
+      campo.dispatchEvent(new Event('input', { bubbles: true }));
+      // Long enough for that answer to land and do whatever it does.
+      await new Promise(r => setTimeout(r, 1500));
+      const sobrevive = (document.querySelector('.dlgFondo #bvNombre') || {}).value;
+      const boton = document.querySelector('.dlgFondo [data-dlg="si"]');
+      boton?.click();
+      const leeNombres = () =>
+        [...document.querySelectorAll('.fichaRPG h3')].map(h => h.textContent.trim());
+      // Wait for the house, not for a guess at how long building takes. A
+      // fixed sleep here made this check itself flaky, which is the one thing
+      // a check for a flaky bug must not be.
+      let nombres = [];
+      for (let i = 0; i < 60; i++) {
+        nombres = leeNombres();
+        if (!document.querySelector('.dlgFondo') && nombres.includes('urgencias')) break;
+        await new Promise(r => setTimeout(r, 250));
+      }
+      return { sobrevive, cerrado: !document.querySelector('.dlgFondo'), nombres };
+    })()`);
+    comprueba(
+      'a name typed while the roles are still loading is still there afterwards',
+      construida?.sobrevive === 'urgencias',
+      JSON.stringify(construida),
+    );
+    comprueba(
+      'and pressing build actually builds the house',
+      !!construida?.cerrado && (construida?.nombres ?? []).includes('urgencias'),
+      JSON.stringify(construida),
+    );
+
+    // And the other half: pressing build with nothing in the name.
+    //
+    // The failure this guards is not "it refuses" — it is refusing SILENTLY, or
+    // refusing while closing the dialog, which loses everything the person had
+    // already chosen. That is the same complaint from the other side: a form
+    // that says no and takes the work with it.
+    const vacia = await cdp.evalua(`(async () => {
+      const espera = async (sel, n = 40) => {
+        for (let i = 0; i < n; i++) {
+          const el = document.querySelector(sel);
+          if (el) return el;
+          await new Promise(r => setTimeout(r, 250));
+        }
+        return null;
+      };
+      const antes = document.querySelectorAll('.fichaRPG h3').length;
+      document.getElementById('altaAgente')?.click();
+      const campo = await espera('.dlgFondo #bvNombre');
+      if (!campo) return { falta: true };
+      // Choose something first: whatever it says, this must not be thrown away.
+      document.querySelector('.dlgFondo [data-bv=\"clase\"][data-id=\"knowledge\"]')?.click();
+      await new Promise(r => setTimeout(r, 300));
+      document.querySelector('.dlgFondo [data-dlg=\"si\"]')?.click();
+      await new Promise(r => setTimeout(r, 1200));
+      const caja = document.querySelector('.dlgFondo');
+      const elegida = !!document.querySelector('.dlgFondo .bvOpcion.elegida[data-id=\"knowledge\"]');
+      const aviso = document.querySelector('#aviso,.aviso,.toast');
+      const fuera = {
+        sigueAbierto: !!caja,
+        elegida,
+        dice: (aviso?.textContent ?? '').trim().slice(0, 80),
+        despues: document.querySelectorAll('.fichaRPG h3').length,
+        antes,
+      };
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise(r => setTimeout(r, 200));
+      return fuera;
+    })()`);
+    comprueba(
+      'building with no name refuses without closing the form',
+      !!vacia && !vacia.falta && vacia.sigueAbierto === true,
+      JSON.stringify(vacia),
+    );
+    comprueba(
+      'and keeps what was already chosen, and builds nothing',
+      !!vacia?.elegida && vacia?.despues === vacia?.antes,
+      JSON.stringify(vacia),
+    );
+
     // Spanish and English, on a switch. The READMEs shipped bilingual and the
     // product did not; a language button that does not actually change the page
     // is worse than none at all.

@@ -115,6 +115,61 @@ def prepara_recepcion(hall_datos):
     return city_id, connection_id, road_id, remote_message_id, injection
 
 
+def la_casa_que_no_debe_construirse(puerto, hallDatos):
+    """Every way a house must not be built, and what it must leave behind.
+
+    "I put the name in and it says I did not" was the report, and the server
+    half of that has to be exact: a refusal refuses, says why, leaves the card
+    as it was — a half-written roster is worse than a rejected one — and lands
+    in the journal, because that is what somebody sends when this happens on
+    their machine and not here.
+    """
+    # ── the house that must not be built ────────────────────────────────
+    # "I put the name in and it says I did not" was the report. The server
+    # half of that has to be exact: a refusal must refuse, must say why, and
+    # must leave the card as it was — a half-written roster is worse than a
+    # rejected one. And each refusal must be IN THE JOURNAL, because that is
+    # what somebody sends when it happens on their machine and not here.
+    print("  the house that must not be built")
+    antes = open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read()
+    for nombre, porque in (
+        ("", "no name at all"),
+        ("   ", "a name that is only spaces"),
+        ("///", "a name that survives slugging as nothing"),
+        ("x" * 200, "a name longer than a window can be called"),
+    ):
+        st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
+                          cuerpo={"name": nombre, "kind": "code", "role": "blank"})
+        comprueba(f"· {porque} is refused", st, 400)
+        afirma(f"· {porque} is refused with a reason a person can read",
+               len(json.loads(cuerpo).get("error", "")) > 12, cuerpo.decode())
+    afirma("· and not one of them changed the card",
+           open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read() == antes,
+           "a refused agent must leave no trace")
+
+    st, _ = pide(puerto, "/api/agentes", metodo="POST",
+                 cuerpo={"name": "dos veces", "kind": "code", "role": "blank"})
+    comprueba("· a good name is accepted once", st, 200)
+    st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
+                      cuerpo={"name": "dos veces", "kind": "code", "role": "blank"})
+    comprueba("· and the same name again is a conflict, not a duplicate", st, 409)
+    st, cuerpo = pide(puerto, "/api/agentes", metodo="POST",
+                      cuerpo={"name": "tercera", "kind": "inventada", "role": "blank"})
+    comprueba("· a kind nobody offers is refused", st, 400)
+
+    import diario as _diario
+
+    anotado = _diario.lee(hallDatos, 200)
+    rechazos = [l for l in anotado
+                if l.get("ruta") == "/api/agentes" and l.get("estado") in (400, 409)]
+    afirma("· every refusal is in the journal, with its reason",
+           len(rechazos) >= 6 and all(r.get("error") for r in rechazos),
+           f"{len(rechazos)} refusals journalled: "
+           + str([r.get('error') for r in rechazos]))
+    afirma("· and the journal says what was asked for, not just that it failed",
+           any("name" in (r.get("cuerpo") or {}) for r in rechazos), str(rechazos[:1]))
+
+
 def main():
     print()
     destino = tempfile.mkdtemp()
@@ -1055,6 +1110,8 @@ def main():
             comprueba(f"· but never a model name a shell would read: {malo!r}", st, 400)
         pide(puerto, "/api/agente", metodo="POST",
              cuerpo={"agent": "notas", "runtime": "", "model": "", "effort": ""})
+
+        la_casa_que_no_debe_construirse(puerto, hallDatos)
 
         # ── the demo shelf ───────────────────────────────────────────────────
         print("  the demos the Hall plays back")
