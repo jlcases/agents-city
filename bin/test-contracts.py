@@ -706,6 +706,15 @@ def publicar_es_verificable():
            'trusted publishing: a secret that does not exist cannot leak')
     afirma('· and it asks for nothing else',
            release.count('write') == 1, 'id-token is the only write permission')
+    # Node 22 bundles npm 10, which cannot exchange an OIDC token and so
+    # publishes UNAUTHENTICATED — the registry answers 404, which reads like a
+    # missing package and is really a missing credential. It cost one release
+    # to find out.
+    afirma('· with an npm new enough to exchange the token at all',
+           'npm install -g npm@^11' in release and '11.5.1' in release,
+           'trusted publishing needs npm >= 11.5.1; setup-node gives 10.x')
+    afirma('· and it refuses to publish with an older one rather than trying',
+           'process.exit(1)' in release, release)
 
 
 def main():
