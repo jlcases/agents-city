@@ -126,6 +126,23 @@ def el_atajo():
         )
         afirma("· --hall makes the same door open the browser instead",
                "agents-city hall --city" in guion_hall, guion_hall)
+        # And without a terminal. The hall detaches itself and opens the
+        # browser, so wrapping it in one puts a black window on screen that does
+        # nothing, stays there, and belongs to somebody who clicked an icon
+        # precisely so they would not have to see one. The seat is the opposite
+        # case and keeps its terminal: a tmux city has nowhere to draw itself
+        # without one.
+        if sys.platform == "darwin":
+            afirma("· non-happy: and without a terminal, which is the whole point of an icon",
+                   "osascript" not in guion_hall and "Terminal" not in guion_hall,
+                   guion_hall)
+            afirma("· while the seat still gets one, because tmux needs somewhere to draw",
+                   "osascript" in guion and "Terminal" in guion, guion)
+        else:
+            afirma("· non-happy: and without a terminal, which is the whole point of an icon",
+                   "Terminal=false" in guion_hall, guion_hall)
+            afirma("· while the seat still gets one, because tmux needs somewhere to draw",
+                   "Terminal=true" in guion, guion)
 
         # Removing it leaves nothing: a shortcut you cannot take back is litter.
         comprueba("· removing it says so", atajos.quita(datos), True)
