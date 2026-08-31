@@ -100,6 +100,29 @@ jobs:
             *) echo "::error::npm already holds a registry credential; trusted publishing will not even be attempted" ; exit 1 ;;
           esac
 
+      # And it has to actually HAVE the identity it is counting on.
+      #
+      # npm only attempts the exchange when GitHub has injected an OIDC request
+      # endpoint into the job; with no endpoint it does not try, it does not
+      # say it is not trying, and it fails at the end with "you need to log in"
+      # — which sounds like a person forgot a password and is really a workflow
+      # that was never given an identity to trade.
+      #
+      # Presence only. The request token is a credential; the point here is
+      # whether it exists, never what it is.
+      - name: this run has an identity to trade
+        run: |
+          node -e '
+            const url = !!process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+            const tok = !!process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+            console.log("OIDC endpoint: " + url + ", request token: " + tok);
+            if (!url || !tok) {
+              console.error("::error::this job has no OIDC identity — check `permissions: id-token: write` and that the repository allows it");
+              process.exit(1);
+            }
+          '
+          echo "registry: $(npm config get registry)"
+
       # A tag that disagrees with the manifests would publish one version under
       # another one's name, in a public registry, permanently. The contracts
       # suite already checks that the three manifests agree with each other;
