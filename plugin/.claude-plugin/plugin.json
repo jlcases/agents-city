@@ -1,7 +1,7 @@
 {
   "name": "city",
   "displayName": "Agents City",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "One autonomous city seat with a work domain, role, goal, repo support agents, recognised skills and explicit roads to other cities.",
   "author": {
     "name": "jlcases",
