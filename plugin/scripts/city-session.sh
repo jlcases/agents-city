@@ -681,7 +681,12 @@ for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
   fi
 done
 
-if [ ${#faltan[@]-0} -gt 0 ]; then
+# `${#a[@]}`, not `${#a[@]-0}`. The second is accepted by the bash 3.2 macOS
+# ships and rejected as a bad substitution by bash 4.4 and up — so on every
+# Linux this message never printed, and nobody saw it because the error goes to
+# stderr and the script does not stop. Declared arrays make the default
+# unnecessary: `a=()` already answers 0 under `set -u`.
+if [ ${#faltan[@]} -gt 0 ]; then
   echo >&2
   echo "I could not find these repos on this machine (window skipped):" >&2
   printf '  %s\n' "${faltan[@]}" >&2
@@ -711,7 +716,7 @@ fi
 # NOT touch.
 DESTACADA="seat"
 if [ "$SESION_YA" -eq 1 ]; then
-  if [ ${#ABIERTAS[@]-0} -gt 0 ]; then
+  if [ ${#ABIERTAS[@]} -gt 0 ]; then
     echo "Session '$SESSION' was already up. New windows opened: ${ABIERTAS[*]}" >&2
     DESTACADA="${ABIERTAS[0]}"
   else
@@ -724,7 +729,7 @@ if [ "$SESION_YA" -eq 1 ]; then
     for n in ${NOMBRES[@]+"${NOMBRES[@]}"}; do [ "$n" = "$w" ] && esta=1 && break; done
     [ "$esta" -eq 0 ] && sobran+=("$w")
   done
-  if [ ${#sobran[@]-0} -gt 0 ]; then
+  if [ ${#sobran[@]} -gt 0 ]; then
     echo >&2
     echo "These windows are no longer on the card: ${sobran[*]}" >&2
     echo "Nothing was closed — one of them may be mid-task. When you are sure:" >&2

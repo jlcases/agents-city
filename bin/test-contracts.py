@@ -269,6 +269,46 @@ def conciencia_acotada():
 
 
 # ══ the demo is a city this code would write ═════════════════════════════════
+# ══ the shell has to run on somebody else's bash ═════════════════════════════
+def bash_que_no_es_la_de_macos():
+    """Shell that only bash 3.2 accepts is shell that only works on macOS.
+
+    `${#array[@]-0}` is the trap that got through: bash 3.2 — the one Apple has
+    shipped since 2007, and the reason this repo writes `${a[@]+"${a[@]}"}`
+    everywhere — accepts it, and every bash from 4.4 on refuses it as a bad
+    substitution. So a message printed here and never on Linux, silently, because
+    the error goes to stderr and the script does not stop. It sat in the launcher
+    for months: nothing read stderr until a test did.
+
+    A declared array needs no default. `a=()` already answers 0 under `set -u`;
+    only an UNDECLARED name is unbound, and the fix for that is to declare it.
+
+    shellcheck does not flag this at any severity, which is why it is here.
+    """
+    print('  shell that runs on a bash newer than 2007')
+    trampa = re.compile(r'\$\{#[A-Za-z_][A-Za-z0-9_]*\[[@*]\][-:+]')
+    ficheros = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
+    ficheros += sorted(glob.glob(os.path.join(RAIZ, 'bus', 'scripts', '*.sh')))
+    culpables = []
+    for ruta in ficheros:
+        with open(ruta, encoding='utf-8') as f:
+            for n, linea in enumerate(f, 1):
+                # A comment may name the trap — the tombstone in the launcher does.
+                if linea.lstrip().startswith('#'):
+                    continue
+                if trampa.search(linea):
+                    culpables.append(f'{os.path.relpath(ruta, RAIZ)}:{n}')
+    afirma('· no shipped script uses a length expansion with a default',
+           not culpables,
+           '${#a[@]-0} is a macOS-only illusion: ' + ', '.join(culpables))
+    # And the idiom that IS portable stays in use, so this does not read as a
+    # rule against defaults in general.
+    lanzador = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
+                    encoding='utf-8').read()
+    afirma('· and empty arrays are still expanded the way bash 3.2 needs',
+           '[@]+"${' in lanzador, '')
+
+
 def demo_coherente():
     print('  the demo agrees with the code')
     for f in sorted(glob.glob(os.path.join(RAIZ, 'demo', '*.md'))):
@@ -790,6 +830,7 @@ def main():
     una_definicion()
     rutas_reales()
     conciencia_acotada()
+    bash_que_no_es_la_de_macos()
     demo_coherente()
     varias_ciudades()
     el_aviso_lee_lo_que_viaja()

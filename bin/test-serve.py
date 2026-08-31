@@ -962,6 +962,27 @@ def main():
             not os.path.exists(fantasma) and isinstance(donde, str),
             f"{fantasma} exists after only asking where to log",
         )
+        # And the same thing through the real server, which is where it actually
+        # bit: the resolver did not create the folder, but it asked `cities.lista`
+        # — and listing HEALS, which does `makedirs` on every managed city before
+        # deciding there is nothing to write. So the journal recreated the city it
+        # was recording the removal of, and raced this very cleanup while doing it.
+        # A 404 is chosen deliberately: its handler touches no city at all, so the
+        # only thing that can bring the folder back is the log line.
+        pide(puerto, "/api/no-such-thing?city=" + otra, metodo="POST", cuerpo={})
+        afirma(
+            "· non-happy: and a request naming a city that is gone leaves it gone",
+            not os.path.exists(otra),
+            f"{otra} came back from a log line",
+        )
+        # The listing itself, which is the part that writes.
+        antes_lista = os.path.exists(otra)
+        cities_mod = serve.cities
+        cities_mod.lista("halltest", tocando=False)
+        afirma(
+            "· non-happy: and listing this user's cities does not raise the dead either",
+            not antes_lista and not os.path.exists(otra),
+        )
 
         # ── the demo's remote control ────────────────────────────────────────
         print("  the demo's remote control")
