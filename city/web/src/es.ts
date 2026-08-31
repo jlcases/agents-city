@@ -436,6 +436,9 @@ anota({
   'reading the role files': 'leyendo los ficheros de rol',
   'an isometric house': 'una casa isométrica',
 
+  'Nothing leaves this machine, there is no account, and everything is a plain file you can edit by hand afterwards.':
+    'Nada sale de este ordenador, no hay cuenta, y todo es un fichero de texto que puedes editar a mano después.',
+  'it will live in {donde}': 'vivirá en {donde}',
   // ── is this city actually running ─────────────────────────────────────────
   open: 'abierta',
   'not open — nothing of this city is running': 'cerrada — no hay nada de esta ciudad corriendo',

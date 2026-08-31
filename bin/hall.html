@@ -89,7 +89,7 @@ nav{background:var(--suelo2);border-right:1px solid var(--linea);padding:20px 0 
   border:1px solid var(--borde-acento);background:var(--burbuja-mia);padding:4px 9px;border-radius:2px}
 .badge::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--lampara)}
 .marca h2{font-size:19px;margin:9px 0 0}
-.marca p{margin:4px 0 0;font-size:12px;color:var(--tinta3);line-height:1.45}
+.marca p{margin:5px 0 0;font-size:11.5px;color:var(--tinta3);line-height:1.5;max-width:30ch}
 .railCiudad{margin:0 18px;padding:10px 12px;border-radius:7px;background:var(--suelo3);
   border:1px solid var(--linea);display:flex;flex-direction:column;gap:2px}
 .railCiudad .railEtiqueta{font:600 9px var(--hud);letter-spacing:.16em;text-transform:uppercase;
@@ -385,7 +385,11 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
 
 /* ── the guided first run ────────────────────────────────────────────────── */
 .bv{display:flex;flex-direction:column;gap:26px;max-width:min(760px,100%)}
-.bv .prosa{max-width:100%}
+/* NOT max-width:100%. `.prosa` sets a 64ch measure and this line was undoing
+   it, so the welcome ran to 110 characters a line — the width at which text
+   stops being read and starts being skimmed, and the reason the first screen
+   read like documentation rather than a product. */
+.bv .prosa{max-width:62ch}
 /* The consequence of a choice, under the button that makes it: quieter than the
    question and still legible, because a warning nobody reads is decoration. */
 .bv .prosa.apunte{font-size:13px;margin-top:10px;opacity:.82}
@@ -417,11 +421,24 @@ input[type=text]:focus,select:focus{outline:none;border-color:var(--lampara)}
    the screen exactly when the guide needs it. */
 body.enGuia #livePanel,body.enGuia #liveResize{display:none}
 body.enGuia #app{grid-template-columns:250px minmax(0,1fr)}
-.bvPasos{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.bvPunto{display:flex;align-items:center;gap:6px;font:10px var(--hud);letter-spacing:.1em;
-  text-transform:uppercase;color:var(--tinta3)}
-.bvPunto i{width:8px;height:8px;border-radius:50%;background:var(--linea2);display:block}
-.bvPunto+.bvPunto{margin-left:10px}
+/* The guide is a screen, not the top of a document. Centred in what is left of
+   the window, with the top padding winning on short ones so nothing is ever cut
+   off above the fold. Before this, four questions sat in the top-left corner of
+   fourteen hundred pixels of nothing. */
+body.enGuia .cuerpo{display:flex;padding-block:clamp(24px,8vh,96px)}
+body.enGuia .cuerpo>.dentro{margin:auto 0;width:100%}
+.bvPasos{display:flex;gap:0;flex-wrap:wrap;align-items:center;margin-bottom:6px}
+/* Bigger and darker than it was. This is the only thing on the screen that says
+   there are four questions and which one you are on, and it was rendered at
+   10px in the lightest ink on the page. */
+.bvPunto{display:flex;align-items:center;gap:7px;font:11px var(--hud);letter-spacing:.11em;
+  text-transform:uppercase;color:var(--tinta2)}
+.bvPunto i{width:7px;height:7px;border-radius:50%;background:var(--linea2);display:block;
+  transition:background .18s ease}
+/* A rule between the dots, so five labels read as one path. */
+.bvPunto+.bvPunto{margin-left:0}
+.bvPunto+.bvPunto::before{content:"";width:22px;height:1px;background:var(--linea);
+  margin:0 12px 0 10px;flex:none}
 .bvPunto.aqui{color:var(--lampara)}.bvPunto.aqui i{background:var(--lampara)}
 .bvPunto.hecho i{background:var(--verde)}
 .bvHola{display:grid;grid-template-columns:auto 1fr;gap:26px;align-items:start}
@@ -430,6 +447,8 @@ body.enGuia #app{grid-template-columns:250px minmax(0,1fr)}
 .bvCasa{width:92px;height:83px;margin-bottom:-26px;filter:drop-shadow(var(--sombra))}
 .bvPaso{display:flex;flex-direction:column;gap:14px}
 .bvPaso h1{font-size:26px;line-height:1.15}
+.bvDato{margin:14px 0 0;font-size:11.5px;color:var(--tinta3);line-height:1.5}
+.bvDato code{font-family:var(--mono);font-size:11px;color:var(--tinta2)}
 .bvEtiqueta{font:600 10px var(--hud);letter-spacing:.14em;text-transform:uppercase;
   color:var(--tinta3)}
 .bvRejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}

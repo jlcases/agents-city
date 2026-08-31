@@ -335,6 +335,23 @@ def la_pagina_no_se_queda_muda():
     afirma('· and it only raises its voice for the state that costs something',
            'E.plugin === false' in hall, '')
 
+    # Typography is a property, not a taste. A 62ch measure is the width at
+    # which text is read rather than skimmed, and `.prosa` had set it for years
+    # while `.bv .prosa{max-width:100%}` threw it away on the one screen a
+    # person meets first — 110 characters a line, which is why the welcome read
+    # like documentation.
+    hoja = texto_de('bin/hall.html')
+    afirma('· the prose keeps a measure somebody can actually read',
+           'max-width:64ch' in hoja and '.bv .prosa{max-width:100%}' not in hoja,
+           'a line over ~75 characters stops being read and starts being skimmed')
+    afirma('· and the first screen is composed rather than left at the top edge',
+           'body.enGuia .cuerpo{display:flex' in hoja, '')
+    # No raw temp path in front of a person on their first screen.
+    bienvenida = texto_de('city/web/src/bienvenida.ts')
+    afirma('· a path is shortened before it is shown, never wrapped mid-path',
+           'function corto' in bienvenida and 'bvDato' in bienvenida,
+           'the middle of a long path is not information; the end is')
+
     # The address it tells people to reopen has to be the one they already have,
     # or "try again" can never work.
     servidor = texto_de('bin/serve.py')

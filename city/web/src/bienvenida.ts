@@ -53,6 +53,15 @@ function casita(color: string): string {
   </svg>`;
 }
 
+/** A path a person can read: their home is `~`, and the middle of a long one is
+ *  not information — the end is. */
+function corto(ruta: string): string {
+  const casa = /^\/(Users|home)\/[^/]+/.exec(ruta);
+  let corta = casa ? '~' + ruta.slice(casa[0].length) : ruta;
+  if (corta.length > 44) corta = '…' + corta.slice(corta.length - 43);
+  return corta;
+}
+
 export class Bienvenida {
   private paso = 0;
   private dominios: Dominio[] = [];
@@ -132,12 +141,20 @@ export class Bienvenida {
           works on. The map draws them as houses that grow with the work done in them, and
           many houses are a city. They never talk to each other behind your back: you chair,
           they answer.`)}</p>
-          <p class="prosa">${_('Everything lives as plain files in {donde}. Nothing leaves this machine, there is no account, and you can edit any of it by hand afterwards.', { donde: `<code class="mono">${this.p.esc(this.p.datos)}</code>` })}</p>
+          <p class="prosa">${_('Nothing leaves this machine, there is no account, and everything is a plain file you can edit by hand afterwards.')}</p>
           <p class="prosa">${_('<b>Four questions and you are working.</b> You can skip any of them and change everything later.')}</p>
           <div class="bvBotones">
             <button class="bt ppal" data-bv="siguiente">${_('Let’s build it')}</button>
             <button class="bt" data-bv="salir">${_('I’ll set it up myself')}</button>
           </div>
+          <!-- The path, quietly, under the decision rather than inside the
+               sentence that has to persuade. It was set mid-paragraph and broke
+               across two lines in the middle of itself, which is the most
+               developer-tool thing a first screen can do — and somebody who
+               wants it wants it once, not woven into prose. -->
+          <p class="bvDato" title="${this.p.esc(this.p.datos)}">${_('it will live in {donde}', {
+            donde: `<code>${this.p.esc(corto(this.p.datos))}</code>`,
+          })}</p>
         </div>
       </div>`;
   }

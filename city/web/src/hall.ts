@@ -352,7 +352,16 @@ function esc(s: unknown): string {
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
 }
-const corto = (p: string): string => p.replace(E.casa, '~');
+/** A path somebody can read at a glance.
+ *
+ * Home becomes `~`, and anything still long loses its MIDDLE rather than its
+ * end: the end is the part that identifies a folder, and a temp path wrapped
+ * across three lines of a sidebar is three lines of noise where one would do.
+ */
+const corto = (p: string): string => {
+  const casa = p.replace(E.casa, '~');
+  return casa.length > 46 ? '…' + casa.slice(casa.length - 45) : casa;
+};
 
 let toastTimer = 0;
 function toast(msg: string, mal = false): void {
