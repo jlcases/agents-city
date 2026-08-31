@@ -4146,7 +4146,11 @@ function schema(verb) {
       unknowns: []
     },
     synthesize: { summary: "", agreements: [], conflicts: [], unknowns: [], proceedWithout: "" },
-    "floor-request": { basis: "new_evidence", reason: "", evidence: [""] },
+    "floor-request": {
+      basis: "new_evidence | contradiction | risk | dependency | misrepresented",
+      reason: "what the committee does not yet know, or what the synthesis got wrong about you",
+      evidence: [""]
+    },
     "floor-grant": { requestId: "" },
     "floor-deny": { requestId: "", reason: "" },
     reply: { claim: "", evidence: [""], consequence: "" },

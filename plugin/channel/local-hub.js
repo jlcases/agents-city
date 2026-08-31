@@ -3981,7 +3981,13 @@ function limpia(bruto) {
 
 // committee/types.ts
 var STANCES = ["support", "oppose", "conditional", "abstain"];
-var FLOOR_BASES = ["new_evidence", "contradiction", "risk", "dependency"];
+var FLOOR_BASES = [
+  "new_evidence",
+  "contradiction",
+  "risk",
+  "dependency",
+  "misrepresented"
+];
 var AUTHORITIES = ["recommend", "decide", "execute"];
 var VERIFY_RESULTS = ["pass", "fail"];
 var TERMINAL_STATUSES = /* @__PURE__ */ new Set(["closed", "cancelled"]);
@@ -4280,20 +4286,34 @@ function requestFloor(state, payload, actor, role) {
   requireMember(state, actor, role);
   if (state.status !== "deliberating")
     throw new Error("the floor opens only after the chair synthesis");
-  const alreadyUsed = state.floor.replies.filter((reply) => reply.actor === actor).length;
+  const basis = oneOf(payload.basis, FLOOR_BASES, "basis");
   const alreadyPending = state.floor.requests.some(
     (request2) => request2.actor === actor && ["pending", "granted"].includes(request2.status)
   );
   if (alreadyPending) throw new Error(`${actor} already has a pending floor request`);
-  if (alreadyUsed >= state.brief.maxRebuttals) {
-    throw new Error(`${actor} reached this deliberation's rebuttal limit`);
+  const mia = basis === "misrepresented" ? state.positions[actor] : void 0;
+  if (basis === "misrepresented") {
+    if (!mia) throw new Error(`${actor} submitted no position, so none can be misrepresented`);
+    if (state.floor.requests.some((r) => r.actor === actor && r.basis === "misrepresented")) {
+      throw new Error(`${actor} already challenged how its position was represented`);
+    }
+  } else {
+    const alreadyUsed = state.floor.replies.filter((reply) => reply.actor === actor).length;
+    if (alreadyUsed >= state.brief.maxRebuttals) {
+      throw new Error(`${actor} reached this deliberation's rebuttal limit`);
+    }
   }
   const request = {
     id: randomId("floor"),
     actor,
-    basis: oneOf(payload.basis, FLOOR_BASES, "basis"),
+    basis,
     reason: text(payload.reason, "reason"),
-    evidence: strings(payload.evidence, "evidence", true),
+    // Every other basis has to bring something from the world. This one is
+    // answered by what the committee already holds — the position below — so
+    // demanding evidence on top would be asking a member to prove its own words
+    // with something other than its own words.
+    evidence: strings(payload.evidence, "evidence", basis !== "misrepresented"),
+    ...mia ? { position: mia } : {},
     status: "pending",
     requestedAt: isoNow()
   };

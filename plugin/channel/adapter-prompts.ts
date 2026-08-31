@@ -26,8 +26,9 @@ export function promptFor(envelope: BusEnvelope, operatingRole = 'blank'): strin
       `${HEADER} The chair published the synthesis for ${thread}.`,
       RULES,
       pretty(envelope.payload.synthesis),
-      `Stay silent unless you have new evidence, a contradiction, a material risk or a dependency. If so, request—not take—the floor:`,
+      `Stay silent unless you have new evidence, a contradiction, a material risk or a dependency. Wanting to add something is not one of those: your turn to contribute was your isolated position, and a floor taken for an opinion is how a committee becomes a chat room. If you do have one of the four, request—not take—the floor:`,
       `  agents-city committee floor-request ${thread} --input <request.json>`,
+      `There is a fifth basis and it is about this text rather than the world: \`misrepresented\`, for when the synthesis does not say what you said. Not "I disagree with the summary" — that it puts words in your mouth, drops your condition, or reports a stance you did not take. You get one, it does not spend your rebuttals even where the chair allowed none, and your own position is attached automatically so the chair is shown what it summarised rather than your memory of it.`,
       `Use: agents-city committee schema floor-request`,
     ].join('\n\n');
   }
