@@ -9,7 +9,7 @@
     {
       "name": "city",
       "source": "./plugin",
-      "version": "0.5.8",
+      "version": "0.5.9",
       "description": "Operate one autonomous city seat, its domain, role, repo support agents, goal, recognised skills and explicit roads to other cities."
     }
   ]
