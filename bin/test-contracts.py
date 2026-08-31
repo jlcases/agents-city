@@ -792,8 +792,11 @@ def publicar_es_verificable():
            'id-token: write' in release
            and 'NPM_TOKEN' not in release and 'secrets.' not in release,
            'trusted publishing: a secret that does not exist cannot leak')
+    # A whole line that grants a write permission, not the word anywhere: this
+    # file names `id-token: write` inside an error message telling somebody what
+    # to go and check, and a permissions audit that counts English is not one.
     afirma('· and it asks for nothing else',
-           len(re.findall(r':\s*write\b', codigo)) == 1,
+           len(re.findall(r'(?m)^\s*[a-z-]+:\s*write\s*$', codigo)) == 1,
            'id-token is the only write permission')
     # Node 22 bundles npm 10, which cannot exchange an OIDC token and so
     # publishes UNAUTHENTICATED — the registry answers 404, which reads like a
@@ -818,6 +821,15 @@ def publicar_es_verificable():
            '_authToken' in codigo
            and codigo.index('_authToken') < codigo.rindex('run: npm publish'),
            'the registry says "not found" when it means "not allowed"')
+    # Having no credential is only half of it: npm has to be able to GET one,
+    # and it only tries when GitHub has injected an OIDC endpoint into the job.
+    # Without one npm does not try, does not say it is not trying, and fails at
+    # the end with "you need to log in" — which sounds like a forgotten password
+    # and is a job that was never given an identity to trade.
+    afirma('· and the identity it means to trade is proved to exist first',
+           'ACTIONS_ID_TOKEN_REQUEST_URL' in codigo
+           and codigo.index('ACTIONS_ID_TOKEN_REQUEST_URL') < codigo.rindex('run: npm publish'),
+           'a missing OIDC endpoint must fail by name, not as ENEEDAUTH ten steps later')
     # prepublishOnly rebuilds and re-runs the whole suite. By hand that is the
     # only safety net; here the suite has already run on three platforms and
     # byte-compared the artifacts, so a fourth run verifies nothing and can
