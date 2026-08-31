@@ -145,9 +145,43 @@ def bundle_al_dia():
     return "rebuilt from src/hall.ts"
 
 
+def un_chrome_que_no_arranca():
+    """What the driver says when the browser never answers.
+
+    This suite has exactly one way to fail without telling anybody anything, and
+    CI found it: `chrome never announced its port` names what we stopped waiting
+    for and drops the only evidence of why — a missing library, a sandbox
+    refusal, a profile it could not write. A stub browser that talks and never
+    announces proves the message carries what it heard.
+
+    CHROME_PATH is the first candidate the driver considers, which is what makes
+    this testable without a browser at all.
+    """
+    print("  and a browser that never starts says why")
+    casa = tempfile.mkdtemp()
+    falso = os.path.join(casa, "chrome")
+    with open(falso, "w", encoding="utf-8") as f:
+        f.write("#!/bin/bash\n"
+                "echo 'FATAL: could not open display, and this is the useful half' >&2\n"
+                "sleep 30\n")
+    os.chmod(falso, 0o755)
+    salida = subprocess.run(
+        ["node", os.path.join(RAIZ, "bin", "navegador.mjs"), "http://127.0.0.1:1/"],
+        capture_output=True, text=True, timeout=90,
+        env=dict(os.environ, CHROME_PATH=falso, CITY_BROWSER_WAIT_MS="1500"),
+    )
+    shutil.rmtree(casa, ignore_errors=True)
+    todo = salida.stdout + salida.stderr
+    afirma("· the timeout names what it waited for",
+           "never announced its port" in todo, todo[-300:])
+    afirma("· and repeats what the browser actually said",
+           "could not open display" in todo, todo[-300:])
+
+
 def main():
     print()
     print("  the hall, in a browser that clicks")
+    un_chrome_que_no_arranca()
     print(f"  · {bundle_al_dia()}")
     datos = tempfile.mkdtemp()
     casa = tempfile.mkdtemp()
