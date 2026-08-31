@@ -350,19 +350,7 @@ def escribe_ficha(ruta, usuario, rol, agentes=None, objetivo=None, ciudad=""):
         "## Agents",
         "",
     ]
-    if agentes:
-        for a in agentes:
-            monta = f"{len(a['mounts'])} mount{'s' if len(a['mounts']) != 1 else ''}"
-            cuerpo.append(f"- `{a['nombre']}` — {a['clase']}, role {a['rol']}, {monta}.")
-        cuerpo += ["", "Change the roster with `./bin/seat --agents`."]
-    else:
-        cuerpo += [
-            "No agents yet, on purpose. This role holds a property of "
-            "everybody else's — so it has no houses, and what it is for "
-            "begins where there is more than one city to reach.",
-            "",
-            "If that is wrong: `./bin/seat --agents`.",
-        ]
+    cuerpo += card.bloque_agentes(agentes)
     cuerpo += ["", "## Current goals", ""]
 
     cuerpo += card.bloque_objetivo(objetivo)
@@ -1315,6 +1303,29 @@ def ajusta_seat_yolo(a, datos, nueva):
     return solo
 
 
+def ajusta_seat_reach(a, datos, nueva):
+    """The --seat-reach flag: whether the chair may work inside its agents' own
+    mounts. Returns True when the invocation was ONLY this adjustment.
+
+    Closed by default, and the reason is that the failure it prevents leaves no
+    trace: a seat that reads the repo and answers looks exactly like a seat that
+    asked, right up until the specialist you configured turns out never to have
+    been consulted about anything. Open is a real choice for whoever wants a
+    chair with its own hands — it is just not one this makes for them.
+    """
+    if not a.seat_reach:
+        return False
+    cities.pon_clave(datos, "seat_reach", a.seat_reach)
+    if a.seat_reach == "open":
+        print("  The chair may work inside its agents' mounts (city.yml seat_reach).")
+    else:
+        print("  The chair asks its agents rather than working their ground.")
+    solo = not hay_ajustes(a, nueva)
+    if solo:
+        print("  It applies to the next tool call the seat makes.\n")
+    return solo
+
+
 def configura(a, ficha, nueva, datos, usuario):
     """The seven questions, or the setting being re-asked. False means quit."""
     previo = open(ficha).read() if not nueva else ""
@@ -1586,6 +1597,13 @@ def argumentos():
         metavar="on|off",
         help="whether the chair itself runs without permission prompts (stored per city)",
     )
+    ap.add_argument(
+        "--seat-reach",
+        default="",
+        choices=["open", "closed"],
+        metavar="open|closed",
+        help="whether the chair may work inside its agents' mounts (stored per city)",
+    )
     ap.add_argument("--no-sync", action="store_true")
     ap.add_argument("--only", default="")
     ap.add_argument(
@@ -1651,6 +1669,8 @@ def main():
     nueva = not os.path.exists(ficha)
 
     if ajusta_seat_yolo(a, datos, nueva):
+        return 0
+    if ajusta_seat_reach(a, datos, nueva):
         return 0
 
     if hay_ajustes(a, nueva):

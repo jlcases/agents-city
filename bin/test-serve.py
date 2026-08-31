@@ -1266,6 +1266,44 @@ def main():
             and "role.urgencias-web: triage" in carta,
             carta,
         )
+        # The frontmatter is what the launcher and the cage read. The BODY is
+        # what the SEAT reads — and for a while only the first one moved, so a
+        # city could have three agents and tell its own chair, in prose, that it
+        # had one. This fixture's card is frontmatter only, which is a card a
+        # person may legitimately hand-write, so the check needs a card shaped
+        # the way the wizard writes them.
+        import seat as _seat
+        from testlib import roster as _roster
+
+        ficha_completa = os.path.join(hallDatos, "halltest.md")
+        antes_carta = open(ficha_completa, encoding="utf-8").read()
+        _seat.escribe_ficha(
+            ficha_completa, "halltest", "cpto", _roster(("notas", "knowledge", "apuntes"))
+        )
+        st, _ = pide(
+            puerto,
+            "/api/agentes",
+            metodo="POST",
+            cuerpo={"name": "guardia", "kind": "code", "role": "dev"},
+        )
+        entera = open(ficha_completa, encoding="utf-8").read()
+        cuerpo_carta = entera.split("## Agents", 1)[-1].split("## ", 1)[0]
+        afirma(
+            "· happy: and the seat is told about it in the half of the card it reads",
+            st == 200 and "`guardia`" in cuerpo_carta and "`notas`" in cuerpo_carta,
+            cuerpo_carta[:300],
+        )
+        afirma(
+            "· non-happy: adding a house never eats the goals or the round history",
+            "## Round history" in entera and "## Current goals" in entera,
+            entera[-400:],
+        )
+        with open(ficha_completa, "w", encoding="utf-8") as f:
+            f.write(antes_carta)
+        afirma(
+            "· non-happy: a hand-written card with no roster section is left alone",
+            "## Agents" not in open(ficha_completa, encoding="utf-8").read(),
+        )
         st, _ = pide(
             puerto, "/api/agentes", metodo="POST",
             cuerpo={"name": "urgencias web", "kind": "code", "role": "dev"},

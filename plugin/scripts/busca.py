@@ -378,6 +378,19 @@ def caduco():
         return True
 
 
+def sabidos():
+    """What the index already knows, and never a crawl.
+
+    `lugares()` will rebuild when the cache is stale, and rebuilding means
+    walking a home directory — fine in a launcher, wrong inside a hook that runs
+    before every tool call. A caller that can afford to know less asks here: a
+    stale or missing index answers nothing rather than making somebody wait.
+    """
+    if caduco():
+        return []
+    return _lee() or []
+
+
 def lugares(refrescar=False):
     """Every place, from the cache while it is fresh. The first crawl of a full
     home directory is not fast and nobody should pay for it twice."""

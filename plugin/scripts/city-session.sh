@@ -95,10 +95,30 @@ ADDRESS="$(python3 "$(dirname "$0")/cities.py" address "$USUARIO" "$EQUIPO")"
 # second local city could address or replace the first one's seat by accident.
 SEAT_NAME="$SESSION"
 
+# ── What is already open ───────────────────────────────────────────────────
+#
+# This used to be "the session exists, attach to it, done". Which meant that
+# adding a house to a city that was already open did nothing you could see: the
+# card had four agents, tmux had three windows, and closing the terminal did not
+# help because detaching from a session is not ending it. The only way to meet
+# your new agent was to kill the whole city — every running agent in it — and
+# start again.
+#
+# So an existing session is reconciled instead of re-created: the windows that
+# are missing are opened, the ones already there are left completely alone.
+# Nothing is ever killed here. A window whose agent left the card is REPORTED,
+# not closed: it may be mid-task, and that decision is the owner's.
+SESION_YA=0
+VENTANAS_YA=""
 if tmux has-session -t "$SESSION" 2>/dev/null; then
-  echo "Session '$SESSION' is already up — attaching."
-  exec tmux attach -d -t "$SESSION"
+  SESION_YA=1
+  VENTANAS_YA="$(tmux list-windows -t "$SESSION" -F '#W' 2>/dev/null || true)"
 fi
+
+existe_ventana() {
+  [ -n "$VENTANAS_YA" ] || return 1
+  printf '%s\n' "$VENTANAS_YA" | grep -Fxq -- "$1"
+}
 
 # Claude's half of the deal, asked for rather than respelled.
 #
@@ -457,7 +477,13 @@ python3 "$(dirname "$0")/trust-repos.py" "$EQUIPO" ${RUTAS[@]+"${RUTAS[@]}"}
 # ── The seat window: this city's identity on its roads ─────────────────────
 "$RUNTIME" ensure >/dev/null
 comodidades
-tmux new-session -d -s "$SESSION" -n seat -c "$EQUIPO"
+if [ "$SESION_YA" -eq 0 ]; then
+  tmux new-session -d -s "$SESSION" -n seat -c "$EQUIPO"
+elif ! existe_ventana seat; then
+  # The session outlived its own chair — somebody closed that one window. The
+  # city is not a city without it.
+  tmux new-window -t "$SESSION" -n seat -c "$EQUIPO"
+fi
 
 # Where the cards live, told to the session rather than assumed.
 #
@@ -522,7 +548,11 @@ SEAT_OTRO="$(python3 "$LEER" "$FICHA" "runs.seat")"
 turno=0
 [ -n "$SEAT_OTRO" ] && [ "$(runtime_de "$SEAT_OTRO")" != claude ] && turno=-1
 # If the seat runs another engine, the first repo window is the first Claude.
-if [ "$RUN_CLAUDE" -eq 1 ]; then
+#
+# `! existe_ventana seat`: a chair that is already sitting is not started again.
+# Sending a second `claude` into a live pane would put one runtime on top of
+# another and lose whatever conversation was in it.
+if [ "$RUN_CLAUDE" -eq 1 ] && ! existe_ventana seat; then
   if [ -n "$SEAT_OTRO" ]; then
     SEAT_RUNTIME="$(runtime_de "$SEAT_OTRO")"
     if [ "$SEAT_RUNTIME" = claude ]; then
@@ -550,7 +580,11 @@ fi
 # that validates (declared repo only, never the default branch) and audits.
 # Each window gets its own token file, and its cage re-allows exactly that one.
 BROKER_URL=""
-if [ "${CITY_BROKER:-0}" = "1" ]; then
+if [ "${CITY_BROKER:-0}" = "1" ] && [ "$SESION_YA" -eq 1 ]; then
+  # A restart would invalidate the token files of every window already running.
+  BROKER_URL="$(python3 "$BROKERPY" url --data "$EQUIPO" 2>/dev/null || true)"
+fi
+if [ "${CITY_BROKER:-0}" = "1" ] && [ -z "$BROKER_URL" ]; then
   python3 "$BROKERPY" stop --data "$EQUIPO" >/dev/null 2>&1 || true
   nohup python3 "$BROKERPY" serve --data "$EQUIPO" >/dev/null 2>&1 &
   for _ in 1 2 3 4 5 6 7 8 9 10; do
@@ -569,9 +603,14 @@ fi
 # gateways. None receives assignments through tmux. An unknown CLI must be
 # prefixed with `terminal:` to opt into the visibly labelled compatibility path.
 i=0
+ABIERTAS=()
 for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
   win="${NOMBRES[$i]}"
   i=$((i + 1))
+  # Already open: leave it exactly as it is. Whatever is running in there is
+  # somebody's work in progress.
+  if existe_ventana "$win"; then continue; fi
+  ABIERTAS+=("$win")
   # Professional specialty is separate from bus authority. Every repo actor is
   # still a member; only `seat` is chair. A malformed or legacy value resolves
   # to the explicit blank role in read-card.py.
@@ -664,5 +703,34 @@ if [ "${#RUTAS[@]}" -eq 0 ]; then
   echo "If that is wrong and you do own folders:  ./bin/seat --repos" >&2
 fi
 
-tmux select-window -t "$SESSION:seat"
+# ── What changed, said out loud ────────────────────────────────────────────
+#
+# Reconciling in silence is how the old bug felt from the outside: you asked for
+# the city, something happened, and you were left to work out whether your new
+# agent was there. So it is stated — including the windows this deliberately did
+# NOT touch.
+DESTACADA="seat"
+if [ "$SESION_YA" -eq 1 ]; then
+  if [ ${#ABIERTAS[@]-0} -gt 0 ]; then
+    echo "Session '$SESSION' was already up. New windows opened: ${ABIERTAS[*]}" >&2
+    DESTACADA="${ABIERTAS[0]}"
+  else
+    echo "Session '$SESSION' is already up, with every agent on the card — attaching." >&2
+  fi
+  sobran=()
+  for w in $VENTANAS_YA; do
+    [ "$w" = seat ] && continue
+    esta=0
+    for n in ${NOMBRES[@]+"${NOMBRES[@]}"}; do [ "$n" = "$w" ] && esta=1 && break; done
+    [ "$esta" -eq 0 ] && sobran+=("$w")
+  done
+  if [ ${#sobran[@]-0} -gt 0 ]; then
+    echo >&2
+    echo "These windows are no longer on the card: ${sobran[*]}" >&2
+    echo "Nothing was closed — one of them may be mid-task. When you are sure:" >&2
+    for w in ${sobran[@]+"${sobran[@]}"}; do echo "  tmux kill-window -t $SESSION:$w" >&2; done
+  fi
+fi
+
+tmux select-window -t "$SESSION:$DESTACADA"
 exec tmux attach -d -t "$SESSION"

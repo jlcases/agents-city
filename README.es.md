@@ -653,6 +653,7 @@ agents-city seat --no-yolo --no-sync
 | `--model ALIAS` | override de modelo para todas las ventanas de este arranque |
 | `--effort LEVEL` | override `low`, `medium`, `high`, `xhigh` o `max` para este arranque |
 | `--seat-yolo on\|off` | si el propio asiento corre sin preguntar permisos; persiste por ciudad (`seat_yolo` en `city.yml`, también la sexta pregunta del asistente). En local el asiento son las manos del dueño; las ventanas de repo conservan su propia historia de yolo/jaula |
+| `--seat-reach open\|closed` | si el propio asiento puede trabajar dentro de los mounts de sus agentes; persiste por ciudad (`seat_reach` en `city.yml`). Cerrado por defecto: el asiento pregunta al agente dueño de ese terreno en vez de leerlo, y el rechazo dice quién es y con qué comando se le pregunta |
 | `--no-yolo` | desactiva autoaprobación en este arranque — asiento incluido, diga lo que diga `seat_yolo` |
 | `--no-sync` | no hace `git fetch/pull` inicial en repos de este arranque |
 
@@ -1818,6 +1819,7 @@ slug: producto
 owner: alice
 domain: software
 seat_yolo: 1
+seat_reach: closed
 ```
 
 El address público se deriva como `owner/slug`; no se guarda como una identidad
@@ -1825,6 +1827,15 @@ global del plugin porque varias ciudades pueden ejecutarse a la vez.
 `seat_yolo: 1` lanza el propio asiento sin preguntar permisos — se elige en la
 sexta pregunta del asistente o con `agents-city seat --seat-yolo on|off`;
 `--no-yolo` sigue frenando la sesión entera.
+
+`seat_reach` dice si la silla tiene manos dentro de los mounts de sus agentes.
+Está `closed` mientras no escribas `open`, y cerrado significa que una llamada a
+una herramienta que cae sobre un repo, un worktree o una carpeta de documentos
+que montó un agente se rechaza, con el nombre de quien es su dueño, su rol y el
+comando que le pregunta. La silla conserva la carpeta de la ciudad, las
+carreteras y el registro. Existe porque el fallo que evita no deja rastro: un
+asiento que lee el código y responde es idéntico a uno que consultó a sus
+especialistas.
 
 ### `<owner>.md`: ficha del asiento
 

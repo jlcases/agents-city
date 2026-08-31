@@ -224,6 +224,24 @@ def olvida_crecimiento(datos, slug):
     _CRECIDO.pop((os.path.realpath(datos), slug), None)
 
 
+def refresca_roster(ficha, datos):
+    """Bring the card's `## Agents` list back in line with its frontmatter.
+
+    The Hall writes the roster as frontmatter keys, which is what the launcher,
+    the cage and the map read — and for a while that was the whole of it. But
+    the seat reads the BODY: the list under `## Agents` is what the chair is
+    told its city contains. So a person who added two houses from the Hall got
+    two windows and a card that still said, in prose, that they had one. Every
+    door that changes the roster passes through here.
+    """
+    texto = card.lee(ficha).get("texto") or ""
+    try:
+        agentes = workspace.agentes(texto, datos)
+    except (OSError, ValueError):
+        return
+    card.cambia_agentes(ficha, [workspace.como_ficha(a) for a in agentes])
+
+
 def _crecimiento_cacheado(a, datos, vida=90):
     import time
 
@@ -1443,6 +1461,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         for clave, valor in workspace.claves_de_roster(roster).items():
             card.pon_campo(ficha, clave, valor)
         workspace.crea_workspace(datos, slug)
+        refresca_roster(ficha, datos)
         return self.responde({"ok": True, "agent": slug, "name": nombre})
 
     def p_montaje(self, q, cuerpo):
@@ -1495,6 +1514,8 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         # "this agent declares no mounts" in a longer, staler way.
         lista = ("[" + ", ".join(fuentes) + "]") if fuentes else ""
         card.pon_campo(ficha, f"mounts.{a.slug}", lista)
+        # The body counts mounts out loud ("2 mounts"), so it moves too.
+        refresca_roster(ficha, datos)
         # What this agent works on just changed, which is exactly what growth
         # counts: remembering the old number for 90s would read as a failed mount.
         olvida_crecimiento(datos, a.slug)

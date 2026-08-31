@@ -1255,10 +1255,16 @@ def arranque_escalonado():
 
     registro = os.path.join(casa, "tmux.log")
     falso = os.path.join(fbin, "tmux")
+    # A tmux that writes down what it is told. FAKE_SESSION/FAKE_WINDOWS let a
+    # test say "this city is already open, with these windows in it", which is
+    # the only way to exercise the reconcile path without a real tmux server.
     open(falso, "w").write(
         '#!/bin/bash\nprintf "%s\\n" "$*" >> '
         + registro
-        + '\n[ "$1" = "has-session" ] && exit 1\nexit 0\n'
+        + '\nif [ "$1" = "has-session" ]; then [ -n "${FAKE_SESSION:-}" ] || exit 1; exit 0; fi'
+        + '\nif [ "$1" = "list-windows" ]; then'
+        + ' for w in ${FAKE_WINDOWS:-}; do echo "$w"; done; exit 0; fi'
+        + '\nexit 0\n'
     )
     os.chmod(falso, 0o755)
     falso_node = os.path.join(fbin, "node")
@@ -1498,6 +1504,101 @@ def arranque_escalonado():
         "city-runtime.sh gateway seat" in asiento, asiento[:200],
     )
     card.pon_campo(ficha, "ui.seat", "")
+
+    # ── a city that is already open ──────────────────────────────────────────
+    #
+    # Adding a house to a running city used to do nothing you could see. The
+    # launcher's first act was "session exists → attach", so the card had four
+    # agents and tmux had three windows, and closing the terminal did not help:
+    # detaching from a tmux session is not ending it. The only way to meet the
+    # new agent was to kill the city — every agent running in it — and start
+    # over.
+    #
+    # These read the RAW tmux log rather than the decoded launch commands,
+    # because what is being asserted is which windows were created and which
+    # were left alone.
+    def crudo(**extra):
+        corre(**extra)
+        return open(registro).read()
+
+    log = crudo(FAKE_SESSION="1", FAKE_WINDOWS="seat api", CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· happy: an agent added to a running city gets its window",
+        "new-window" in log and " -n docs " in log,
+        log[:600],
+    )
+    afirma(
+        "· and the window that was already open is not created twice",
+        log.count(" -n api ") == 0,
+        log[:600],
+    )
+    afirma(
+        "· non-happy: nothing is killed, ever",
+        "kill-window" not in log and "kill-session" not in log,
+        log[:600],
+    )
+    afirma(
+        "· non-happy: and the running session is not re-created underneath it",
+        "new-session" not in log,
+        log[:600],
+    )
+    afirma(
+        "· the new house is what you are looking at when it opens",
+        "select-window" in log and ":docs" in log.split("select-window")[-1][:40],
+        log.split("select-window")[-1][:80],
+    )
+    lineas = corre(FAKE_SESSION="1", FAKE_WINDOWS="seat api", CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· non-happy: no runtime is started in a chair that is already sitting",
+        not any("CITY_BUS_ACTOR=seat" in l for l in lineas)
+        and any("CITY_BUS_ACTOR=docs" in l for l in lineas),
+        str(lineas)[:400],
+    )
+
+    log = crudo(FAKE_SESSION="1", FAKE_WINDOWS="seat api docs", CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· happy: a city already whole opens no windows at all",
+        " -n api " not in log and " -n docs " not in log and "new-session" not in log,
+        log[:600],
+    )
+    afirma("· and still attaches", "attach" in log, log[-200:])
+
+    # The seat is the one window whose absence is not somebody's work in
+    # progress: a city without its chair is not a city.
+    log = crudo(FAKE_SESSION="1", FAKE_WINDOWS="api docs", CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· happy: a session that outlived its own chair gets the chair back",
+        " -n seat " in log,
+        log[:600],
+    )
+    lineas = corre(FAKE_SESSION="1", FAKE_WINDOWS="api docs", CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· and only the chair — the houses are left running",
+        any("CITY_BUS_ACTOR=seat" in l for l in lineas)
+        and not any("CITY_BUS_ACTOR=api" in l for l in lineas),
+        str(lineas)[:400],
+    )
+
+    # A window whose agent left the card may be mid-task. Say so; do not close
+    # it. The owner decides what to do with somebody's unfinished work.
+    sobra = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 FAKE_SESSION="1", FAKE_WINDOWS="seat api docs viejo"),
+    )
+    afirma(
+        "· non-happy: a window no longer on the card is reported, not closed",
+        "viejo" in sobra.stderr and "kill-window" in sobra.stderr,
+        sobra.stderr[-400:],
+    )
+    afirma(
+        "· and the killing is left to the person whose work it is",
+        "kill-window" not in open(registro).read(),
+        open(registro).read()[:400],
+    )
+
     shutil.rmtree(casa)
 
 

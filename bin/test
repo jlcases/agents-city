@@ -22,7 +22,7 @@ if [ -d .git ] && [ -x .githooks/pre-commit ] \
     && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
 fi
 
-SUITES=(widgets card parcels domains busca arnes i18n diario serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
+SUITES=(widgets card parcels domains busca arnes i18n diario alcance serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch)
 [ $# -gt 0 ] && SUITES=("$@")
 
 fallos=0
@@ -91,7 +91,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "plugin/scripts/crecimiento.py",
               "plugin/scripts/reset.py", "plugin/scripts/desinstala.py",
               "plugin/scripts/demos.py", "plugin/scripts/arnes.py",
-              "plugin/scripts/diario.py",
+              "plugin/scripts/diario.py", "plugin/scripts/alcance.py",
               "plugin/channel/runtime/arnes.json", "plugin/scripts/capabilities.py",
               "plugin/scripts/deliberations.py",
               "plugin/scripts/runtime_processes.py",
