@@ -786,18 +786,33 @@ def publicar_es_verificable():
     afirma('· the tag has to agree with package.json before it publishes',
            'GITHUB_REF_NAME#v' in release and 'exit 1' in release,
            'a tag that disagrees would publish one version under another name')
+    afirma('· and the notes wait for the publish, so they never announce nothing',
+           re.search(r'(?m)^\s*needs:\s*\[\s*test\s*,\s*publish\s*\]', codigo) is not None,
+           'announce must depend on publish, not race it')
     afirma('· it publishes with provenance, so the tarball names its commit',
            '--provenance' in release, release)
     afirma('· through a short-lived identity, with no token stored anywhere',
            'id-token: write' in release
            and 'NPM_TOKEN' not in release and 'secrets.' not in release,
            'trusted publishing: a secret that does not exist cannot leak')
-    # A whole line that grants a write permission, not the word anywhere: this
-    # file names `id-token: write` inside an error message telling somebody what
-    # to go and check, and a permissions audit that counts English is not one.
-    afirma('· and it asks for nothing else',
-           len(re.findall(r'(?m)^\s*[a-z-]+:\s*write\s*$', codigo)) == 1,
-           'id-token is the only write permission')
+    # Which job holds which permission, not how many the file mentions. The
+    # job that publishes holds an identity npm accepts as this package's
+    # publisher; if it could also write to the repository, one compromised step
+    # could rewrite the source and publish from it. Writing the release notes
+    # does need the repository — so it is a different job, and this is the check
+    # that keeps the two apart rather than merely rare.
+    trabajos = re.findall(
+        r'(?m)^  ([a-z-]+):\n(.*?)(?=^  [a-z-]+:\n|\Z)', codigo + '\n  fin:\n', re.S)
+    permisos = {
+        nombre: set(re.findall(r'(?m)^\s*([a-z-]+):\s*write\s*$', cuerpo))
+        for nombre, cuerpo in trabajos
+    }
+    afirma('· the job that publishes may not write to the repository',
+           permisos.get('publish') == {'id-token'},
+           f"publish holds {sorted(permisos.get('publish') or [])}")
+    afirma('· and the job that writes the release notes holds no npm identity',
+           permisos.get('announce') == {'contents'},
+           f"announce holds {sorted(permisos.get('announce') or [])}")
     # Node 22 bundles npm 10, which cannot exchange an OIDC token and so
     # publishes UNAUTHENTICATED — the registry answers 404, which reads like a
     # missing package and is really a missing credential. It cost one release

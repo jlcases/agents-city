@@ -204,6 +204,24 @@ jobs:
             exit 1
           }
 
+  # Writing the release notes needs `contents: write`, and the job above must
+  # not have it. That job holds an identity the npm registry accepts as this
+  # package's publisher; giving it the repository as well would mean one
+  # compromised step could both rewrite the source and publish from it, and the
+  # whole point of trading a short-lived token for exactly one permission is
+  # that it is exactly one.
+  #
+  # So the notes are a separate job with a separate, single permission. It cost
+  # a failed release to notice: `publish` succeeded, the tarball went out signed,
+  # and then `gh release create` answered 403 from inside a job that was
+  # correctly forbidden to do it.
+  announce:
+    needs: [test, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
       # The release notes are the commits since the previous tag, written by
       # whoever wrote them. Nothing here invents a changelog.
       - name: github release
