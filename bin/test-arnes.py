@@ -20,6 +20,7 @@ So there are two things to defend here, and the second is the hard one:
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -119,10 +120,117 @@ def sin_deriva():
            arnes.banderas("codex") == "" and arnes.banderas("opencode") == "",
            f"codex={arnes.banderas('codex')!r}")
 
+    # And it survives a SHELL, which is what receives it.
+    #
+    # This is the check that was missing, and its absence cost every Claude
+    # window in a city. Emitted bare, `--settings {"a":"b","c":true}` is
+    # destroyed twice before Claude sees it: brace expansion splits it on the
+    # comma, quote removal eats the double quotes, and what arrives is
+    # `--settings {a:b}` — "Invalid JSON provided to --settings".
+    #
+    # Asserting that the string CONTAINS the right words could never have
+    # caught that. So this parses the line the way a shell does and reads the
+    # value back as JSON, which is the only claim that matters.
+    import shlex  # noqa: PLC0415
+
+    palabras = shlex.split(arnes.banderas("claude"))
+    afirma("· the flags survive shell parsing as separate words",
+           "--settings" in palabras and "--disallowed-tools" in palabras, str(palabras))
+    valor = palabras[palabras.index("--settings") + 1]
+    try:
+        ajustes = json.loads(valor)
+    except json.JSONDecodeError as e:
+        ajustes = None
+        afirma("· and the settings value is still JSON afterwards", False, f"{valor!r}: {e}")
+    if ajustes is not None:
+        afirma("· and the settings value is still JSON afterwards", True, "")
+        comprueba("· with the cross-session path closed",
+                  ajustes.get("crossSessionInbound"), "refuse")
+        afirma("· and every declared settings key inside it",
+               all(t["clave"] in ajustes
+                   for t in arnes.declaracion()["claude"]["trato"]
+                   if t.get("rinde") == "settings"),
+               str(ajustes))
+    # A real shell, not just a parser: brace expansion is the half `shlex`
+    # forgives, and it is the half that broke.
+    import subprocess  # noqa: PLC0415
+
+    r = subprocess.run(
+        ["bash", "-c", 'set -- ' + arnes.banderas("claude") + '; printf "%s\n" "$@"'],
+        capture_output=True, text=True,
+    )
+    entregado = [l for l in r.stdout.split("\n") if l]
+    comprueba("· a real shell hands over exactly four words", len(entregado), 4)
+    try:
+        json.loads(entregado[1])
+        afirma("· and the second is the settings, intact", True, "")
+    except json.JSONDecodeError as e:
+        afirma("· and the second is the settings, intact", False, f"{entregado!r}: {e}")
+
 
 def _es_metodo_declarado(aguja, declaradas):
     """`approvalPolicy` declared, read through a method of the same name."""
     return any(aguja.lower() == d.lower() for d in declaradas)
+
+
+def valores_que_no_sobrevivirian(tmp):
+    """Values that a shell would eat, or run.
+
+    The happy checks above prove today's declaration survives. They cannot
+    prove the NEXT one will: the values there are mild strings, and the bug
+    that broke every Claude window was a comma. The day somebody declares a
+    value with a space in it, or a quote, this has to hold — and if it does
+    not, it must fail here rather than in a person's terminal.
+
+    The last two are not a formatting concern. `$(...)` and backticks in an
+    unquoted argument are executed by the shell, and this declaration is read
+    from a file: a value that runs a command is a value that runs somebody
+    else's command.
+    """
+    print("  values a shell would eat, or run")
+    testigo = os.path.join(tmp, "ejecutado")
+    hostiles = {
+        "conEspacio": "dos palabras",
+        "conComillas": 'dice "hola" y \'adios\'',
+        "conLlaves": "{a,b}",
+        "conPuntoYComa": "uno; echo dos",
+        "conDolar": "$HOME y ${OTRO}",
+        "conSustitucion": f"$(touch {testigo})",
+        "conAcentoGrave": f"`touch {testigo}`",
+    }
+    real = arnes.declaracion
+    arnes.declaracion = lambda: {
+        "claude": {
+            "trato": [
+                {"clave": k, "valor": v, "via": "x", "porque": "y" * 30, "rinde": "settings"}
+                for k, v in hostiles.items()
+            ]
+        }
+    }
+    try:
+        linea = arnes.banderas("claude")
+    finally:
+        arnes.declaracion = real
+
+    # A real shell, because `shlex` forgives what bash does not.
+    r = subprocess.run(
+        ["bash", "-c", "set -- " + linea + '; printf "%s\\n" "$@"'],
+        capture_output=True, text=True,
+    )
+    entregado = [l for l in r.stdout.split("\n") if l]
+    afirma("· a hostile declaration still comes out as two words",
+           len(entregado) == 2 and entregado[0] == "--settings",
+           f"{entregado!r} from {linea!r}")
+    afirma("· nothing in it was executed on the way",
+           not os.path.exists(testigo),
+           f"{testigo} exists: a declared value ran a command")
+    try:
+        vuelta = json.loads(entregado[1]) if len(entregado) > 1 else {}
+    except json.JSONDecodeError as e:
+        vuelta = {}
+        afirma("· and it is still JSON on the other side", False, f"{entregado[1]!r}: {e}")
+    for clave, valor in hostiles.items():
+        comprueba(f"· {clave} arrives exactly as declared", vuelta.get(clave), valor)
 
 
 def lo_que_hay_en_el_disco():
@@ -183,6 +291,7 @@ def el_informe():
 def main():
     la_declaracion()
     sin_deriva()
+    valores_que_no_sobrevivirian(tempfile.mkdtemp())
     lo_que_hay_en_el_disco()
     el_informe()
     return resumen("arnes")

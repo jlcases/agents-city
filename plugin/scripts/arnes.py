@@ -24,6 +24,7 @@ Three columns, and the distinction between them is the whole point:
 
 import json
 import os
+import shlex
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(os.path.dirname(AQUI))
@@ -200,7 +201,15 @@ def banderas(nombre):
             flags.append(f"--{guion} {valor}")
     partes = []
     if ajustes:
-        partes.append("--settings " + json.dumps(ajustes, separators=(",", ":")))
+        # Quoted for a shell, because a shell is what receives this.
+        #
+        # Emitted bare, `--settings {"a":"b","c":true}` is destroyed twice over
+        # before Claude ever sees it: brace expansion splits it on the comma,
+        # and quote removal eats the double quotes. What arrived was
+        # `--settings {a:b}` and every window died with "Invalid JSON provided
+        # to --settings". The line this replaced was `--settings '$SETTINGS'`,
+        # and the quotes were the part that mattered.
+        partes.append("--settings " + shlex.quote(json.dumps(ajustes, separators=(",", ":"))))
     partes += flags
     return " ".join(partes)
 

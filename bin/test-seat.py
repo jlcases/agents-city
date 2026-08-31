@@ -1101,6 +1101,56 @@ def motores_del_puesto():
             )
 
 
+def el_settings_sobrevive_a_la_shell(asiento, api):
+    """The launch line, parsed the way a shell parses it.
+
+    Asserting the words appear somewhere in the string is not enough, and the
+    gap cost every Claude window in a city: `--settings {"a":"b","c":true}`
+    emitted without quotes is split by brace expansion on the comma and
+    stripped of its double quotes, so what reached Claude was `{a:b}` and it
+    exited with "Invalid JSON provided to --settings". The string contained
+    every word a substring check looks for.
+    """
+    import shlex
+
+    def ajustes_de(linea):
+        """The `--settings` value, dug out through however many shells wrap it.
+
+        A repo window is launched through `tmux send-keys`, so its whole command
+        is one quoted word inside the line; the chair's is not. Splitting once
+        and giving up would test the chair and quietly skip the houses — which
+        is exactly the window that broke.
+        """
+        pendientes, visto = [linea], 0
+        while pendientes and visto < 6:
+            visto += 1
+            actual = pendientes.pop(0)
+            try:
+                palabras = shlex.split(actual)
+            except ValueError:
+                continue
+            if "--settings" in palabras:
+                return palabras[palabras.index("--settings") + 1]
+            pendientes.extend(x for x in palabras if "--settings" in x and x != actual)
+        return None
+
+    for etiqueta, linea in (("the chair", asiento), ("an agent house", api)):
+        crudo = ajustes_de(linea)
+        if crudo is None:
+            afirma(f"· {etiqueta} is launched with --settings", False, linea[:250])
+            continue
+        try:
+            ajustes = json.loads(crudo)
+        except json.JSONDecodeError as e:
+            afirma(f"· {etiqueta}'s --settings is still JSON after the shell has it",
+                   False, f"{crudo!r}: {e}")
+            continue
+        afirma(f"· {etiqueta}'s --settings is still JSON after the shell has it",
+               isinstance(ajustes, dict), crudo)
+        comprueba(f"· and {etiqueta} still refuses cross-session inbound",
+                  ajustes.get("crossSessionInbound"), "refuse")
+
+
 def arranque_escalonado():
     """Claude windows must not all start in the same millisecond.
 
@@ -1310,6 +1360,8 @@ def arranque_escalonado():
         "CITY_BUS_URL= CITY_BUS_TOKEN=" in api and "CITY_BUS_URL= CITY_BUS_TOKEN=" in docs,
     )
     claude_contract = (asiento + "\n" + api).replace("\\", "")
+    el_settings_sobrevive_a_la_shell(asiento, api)
+
     afirma(
         "· Claude native peer messaging is refused and its tools denied",
         claude_contract.count("crossSessionInbound") == 2
