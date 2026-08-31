@@ -777,7 +777,7 @@ def publicar_es_verificable():
     afirma('· the whole suite runs before anything is published',
            'uses: ./.github/workflows/test.yml' in release
            and release.index('uses: ./.github/workflows/test.yml')
-           < release.rindex('run: npm publish'),
+           < release.rindex('npm publish --provenance'),
            'publish must depend on the suite, not race it')
     afirma('· and the suite is the same one, called rather than copied',
            'workflow_call:' in prueba, 'test.yml must be reusable')
@@ -819,16 +819,25 @@ def publicar_es_verificable():
            'setup-node registry-url writes a placeholder token that skips the OIDC exchange')
     afirma('· which is checked in the run rather than inferred from a 404',
            '_authToken' in codigo
-           and codigo.index('_authToken') < codigo.rindex('run: npm publish'),
+           and codigo.index('_authToken') < codigo.rindex('npm publish --provenance'),
            'the registry says "not found" when it means "not allowed"')
     # Having no credential is only half of it: npm has to be able to GET one,
     # and it only tries when GitHub has injected an OIDC endpoint into the job.
     # Without one npm does not try, does not say it is not trying, and fails at
     # the end with "you need to log in" — which sounds like a forgotten password
     # and is a job that was never given an identity to trade.
+    afirma('· and it names the registry it means to be recognised at',
+           'npm config set registry https://registry.npmjs.org/' in codigo
+           and codigo.index('npm config set registry')
+           < codigo.rindex('npm publish --provenance'),
+           'npm offers an OIDC token only for a registry it recognises as decided')
+    afirma('· and a refusal has to explain itself in the log',
+           '--loglevel verbose' in codigo,
+           'ENEEDAUTH twice with no reason is a workflow that cannot be debugged remotely')
+    publica = codigo.rindex('npm publish --provenance')
     afirma('· and the identity it means to trade is proved to exist first',
            'ACTIONS_ID_TOKEN_REQUEST_URL' in codigo
-           and codigo.index('ACTIONS_ID_TOKEN_REQUEST_URL') < codigo.rindex('run: npm publish'),
+           and codigo.index('ACTIONS_ID_TOKEN_REQUEST_URL') < publica,
            'a missing OIDC endpoint must fail by name, not as ENEEDAUTH ten steps later')
     # prepublishOnly rebuilds and re-runs the whole suite. By hand that is the
     # only safety net; here the suite has already run on three platforms and
@@ -843,7 +852,7 @@ def publicar_es_verificable():
     # map and no Hall bundle: 447 files instead of 503.
     afirma('· but it still builds the gitignored half of the package',
            'run: npm run build' in release
-           and release.index('run: npm run build') < release.rindex('run: npm publish'),
+           and release.index('run: npm run build') < release.rindex('npm publish --provenance'),
            'a publish with no build ships no front end')
     afirma('· and checks the front end is in the tarball before sending it',
            'city/web/dist/index.html' in release and 'city/web/dist-hall/hall.js' in release,

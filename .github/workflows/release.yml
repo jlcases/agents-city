@@ -171,8 +171,38 @@ jobs:
           done
           echo "$(printf '%s' "$lista" | grep -c 'npm notice.*kB') files"
 
+      # The registry, said out loud in the config rather than left to the
+      # default. Both are `https://registry.npmjs.org/`, and that is the point:
+      # the value is not in question, whether npm can SEE it decided is. npm
+      # only offers to trade an OIDC token for a registry it recognises, and
+      # "the default" and "configured to the same thing" are not the same state
+      # to code that checks where a value came from.
+      #
+      # It is written here, by hand, instead of by `setup-node`'s `registry-url`
+      # — which writes this line AND a placeholder credential, and the
+      # credential is what stopped npm asking in the first place.
+      - name: name the registry without naming a credential
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm config get registry
+
+      # Verbose, so a refusal explains itself. Twice now this has failed with
+      # `ENEEDAUTH` — a sentence about logging in, from a workflow that holds a
+      # verified identity it never offered. At the default log level npm says
+      # nothing about why it did not offer it; at verbose it does.
+      #
+      # And if it still fails, npm's own debug log is read for the lines about
+      # this decision. Filtered, not dumped: that file is written for a person
+      # who already trusts their own machine, and this one ends up in a public
+      # build log.
       - name: publish with provenance
-        run: npm publish --provenance --access public --ignore-scripts
+        run: |
+          npm publish --provenance --access public --ignore-scripts --loglevel verbose || {
+            echo "── what npm said about authentication ──"
+            grep -ihE 'oidc|trusted|audience|authoriz|ENEEDAUTH|_authToken' \
+              "$HOME"/.npm/_logs/*-debug-0.log | tail -40 || true
+            exit 1
+          }
 
       # The release notes are the commits since the previous tag, written by
       # whoever wrote them. Nothing here invents a changelog.
