@@ -482,9 +482,66 @@ def reset_de_varias():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def mirar_no_es_tocar():
+    """Listing and resolving must be able to answer without repairing anything.
+
+    Both are repairers by default, and rightly so: `lista` heals a managed
+    city's metadata and `actual` will create `home` when there is none, because
+    both normally run just before somebody works in a city. But they are also
+    what the journal calls to decide WHERE a line goes — and the journal runs
+    after the handler. On a request that removed a city, asking where to write
+    did `makedirs` on the folder that had just been deleted and brought it back,
+    racing the removal it was recording. A read that writes is not a read.
+    """
+    print("  looking at a city is not touching it")
+    with aislado() as (base, raiz_ciudades):
+        cities.crea("alice", "home")
+        otra = cities.crea("alice", "otra", usar=False)
+        # Strip the healed keys: the next listing is what puts them back.
+        yml = os.path.join(otra, "city.yml")
+        open(yml, "w", encoding="utf-8").write("name: otra\nslug: otra\nowner: alice\n")
+        os.remove(os.path.join(otra, "roads.json"))
+
+        vistas = cities.lista("alice", tocando=False)
+        afirma(
+            "· non-happy: a read-only listing still finds every city",
+            {c["slug"] for c in vistas} >= {"home", "otra"},
+            str([c["slug"] for c in vistas]),
+        )
+        afirma(
+            "· non-happy: and repairs none of them",
+            "id:" not in open(yml, encoding="utf-8").read()
+            and not os.path.exists(os.path.join(otra, "roads.json")),
+            open(yml, encoding="utf-8").read(),
+        )
+        afirma(
+            "· happy: an ordinary listing is still the one that heals",
+            bool(cities.lista("alice"))
+            and "id:" in open(yml, encoding="utf-8").read()
+            and os.path.exists(os.path.join(otra, "roads.json")),
+            open(yml, encoding="utf-8").read(),
+        )
+
+        # And the fallback: which city is selected, answered without creating one.
+        shutil.rmtree(otra)
+        comprueba(
+            "· happy: the read-only resolver still answers with the selected city",
+            os.path.realpath(cities.actual_sin_tocar("alice")),
+            os.path.realpath(os.path.join(raiz_ciudades, "alice", "home")),
+        )
+        shutil.rmtree(os.path.join(raiz_ciudades, "alice"))
+        comprueba(
+            "· non-happy: with nothing to select it answers nothing, and invents none",
+            (cities.actual_sin_tocar("alice"),
+             os.path.exists(os.path.join(raiz_ciudades, "alice", "home"))),
+            ("", False),
+        )
+
+
 def main():
     print()
     identidad_y_catalogo()
+    mirar_no_es_tocar()
     clave_de_ciudad()
     migracion_v1()
     carreteras()

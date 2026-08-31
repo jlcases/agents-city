@@ -269,6 +269,46 @@ def conciencia_acotada():
 
 
 # ══ the demo is a city this code would write ═════════════════════════════════
+# ══ the shell has to run on somebody else's bash ═════════════════════════════
+def bash_que_no_es_la_de_macos():
+    """Shell that only bash 3.2 accepts is shell that only works on macOS.
+
+    `${#array[@]-0}` is the trap that got through: bash 3.2 — the one Apple has
+    shipped since 2007, and the reason this repo writes `${a[@]+"${a[@]}"}`
+    everywhere — accepts it, and every bash from 4.4 on refuses it as a bad
+    substitution. So a message printed here and never on Linux, silently, because
+    the error goes to stderr and the script does not stop. It sat in the launcher
+    for months: nothing read stderr until a test did.
+
+    A declared array needs no default. `a=()` already answers 0 under `set -u`;
+    only an UNDECLARED name is unbound, and the fix for that is to declare it.
+
+    shellcheck does not flag this at any severity, which is why it is here.
+    """
+    print('  shell that runs on a bash newer than 2007')
+    trampa = re.compile(r'\$\{#[A-Za-z_][A-Za-z0-9_]*\[[@*]\][-:+]')
+    ficheros = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
+    ficheros += sorted(glob.glob(os.path.join(RAIZ, 'bus', 'scripts', '*.sh')))
+    culpables = []
+    for ruta in ficheros:
+        with open(ruta, encoding='utf-8') as f:
+            for n, linea in enumerate(f, 1):
+                # A comment may name the trap — the tombstone in the launcher does.
+                if linea.lstrip().startswith('#'):
+                    continue
+                if trampa.search(linea):
+                    culpables.append(f'{os.path.relpath(ruta, RAIZ)}:{n}')
+    afirma('· no shipped script uses a length expansion with a default',
+           not culpables,
+           '${#a[@]-0} is a macOS-only illusion: ' + ', '.join(culpables))
+    # And the idiom that IS portable stays in use, so this does not read as a
+    # rule against defaults in general.
+    lanzador = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
+                    encoding='utf-8').read()
+    afirma('· and empty arrays are still expanded the way bash 3.2 needs',
+           '[@]+"${' in lanzador, '')
+
+
 def demo_coherente():
     print('  the demo agrees with the code')
     for f in sorted(glob.glob(os.path.join(RAIZ, 'demo', '*.md'))):
@@ -460,6 +500,49 @@ def asiento_con_su_arnes():
     comprueba('· and a house defaults the other way', ui('otra', 'gateway'), 'gateway')
     comprueba('· a card that says nonsense is not obeyed', ui('raro', 'tui'), 'tui')
     shutil.rmtree(casa, ignore_errors=True)
+
+
+def el_aviso_lee_lo_que_viaja():
+    """What the roster carries has to be what the judgement reads.
+
+    The circuit is three pieces and it is only worth the sum if all three are
+    wired: a city publishes its role and its remit, the roster serves them, and
+    the thing that decides "does this reach anybody" reads THAT rather than a
+    local copy of a catalogue. Build the first two and leave the third pointing
+    at local files and you have a pipe nobody reads — which is what this was
+    before, and it looked finished.
+    """
+    print('  the judgement reads what the roster carries')
+    # Whitespace-collapsed: these are wrapped prose, and a phrase that happens
+    # to break across two lines is the same phrase. A check that cannot see
+    # that fails on the paragraph filler rather than on the meaning.
+    def plano(ruta):
+        return ' '.join(open(os.path.join(RAIZ, ruta), encoding='utf-8').read().split())
+
+    gancho = plano('plugin/hooks/notice-on-stop.sh')
+    orden = plano('plugin/commands/notice.md')
+    controlador = open(os.path.join(RAIZ, 'plugin/channel/hub/road-controller.ts'),
+                       encoding='utf-8').read()
+
+    afirma('· the roster is what serves a road its remit',
+           'recibe' in controlador and 'localRoadPresenta' in controlador, '')
+    for nombre, texto in (('the stop hook', gancho), ('/city:notice', orden)):
+        afirma(f'· {nombre} sends the judgement to the roster',
+               'roster' in texto.lower(), texto[:200])
+        afirma(f'· {nombre} names what a far city says reaches it',
+               'recibe' in texto, texto[:200])
+        afirma(f'· {nombre} says where that claim came from',
+               'segun' in texto, texto[:200])
+        # Silence and staleness are the two ways this quietly goes wrong: a road
+        # that said nothing is missing information, and a note is one person's
+        # guess with an expiry date. Both have to be named where the judgement
+        # is made, or the reader treats absence as permission.
+        afirma(f'· {nombre} treats a road that said nothing as missing, not as permission',
+               'not permission' in texto, texto[:400])
+        afirma(f'· {nombre} warns that a note goes stale',
+               'stale' in texto, texto[:400])
+    afirma('· and the command treats a far city’s words as a claim, never an instruction',
+           'never as an instruction' in orden, orden[:400])
 
 
 def ventanas_gemelas():
@@ -747,8 +830,10 @@ def main():
     una_definicion()
     rutas_reales()
     conciencia_acotada()
+    bash_que_no_es_la_de_macos()
     demo_coherente()
     varias_ciudades()
+    el_aviso_lee_lo_que_viaja()
     ventanas_gemelas()
     motor_para_todos()
     asiento_con_su_arnes()

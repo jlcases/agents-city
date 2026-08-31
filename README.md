@@ -644,6 +644,7 @@ agents-city seat --no-yolo --no-sync
 | `--model ALIAS` | model override for all windows in this launch |
 | `--effort LEVEL` | `low`, `medium`, `high`, `xhigh`, or `max` override for this launch |
 | `--seat-yolo on\|off` | whether the chair itself runs without permission prompts; persists per city (`city.yml seat_yolo`, also question six of the wizard). Locally the seat is the owner's own hands; repo windows keep their own yolo/cage story either way |
+| `--seat-reach open\|closed` | whether the chair may work inside its agents' mounts; persists per city (`city.yml seat_reach`). Closed by default: the seat asks the agent who owns that ground instead of reading it, and a refusal names them and the command |
 | `--no-yolo` | disable auto-approval for this launch — seat included, whatever `seat_yolo` says |
 | `--no-sync` | skip initial `git fetch/pull` in repos for this launch |
 
@@ -1798,6 +1799,7 @@ slug: product
 owner: alice
 domain: software
 seat_yolo: 1
+seat_reach: closed
 ```
 
 The public address is derived as `owner/slug`. It is not stored as one global
@@ -1805,6 +1807,14 @@ plugin identity because several cities may run concurrently. `seat_yolo: 1`
 launches the chair itself without permission prompts — set at the wizard's
 sixth question or with `agents-city seat --seat-yolo on|off`; `--no-yolo`
 still brakes the whole session.
+
+`seat_reach` says whether the chair has hands inside its agents' mounts. It is
+`closed` unless you write `open`, and closed means a tool call landing on a
+repo, worktree or document folder an agent mounted is refused, with the owner's
+name, their role and the one command that asks them. The chair keeps the city
+folder, the roads and the record. This exists because the failure it prevents is
+silent: a seat that reads the code and answers looks exactly like a seat that
+consulted its specialists.
 
 ### `<owner>.md`: seat card
 

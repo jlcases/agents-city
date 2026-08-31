@@ -314,10 +314,20 @@ def registra(datos, usuario=''):
         f.write(f'{usuario}\t{r}\n')
 
 
-def lista(usuario=''):
-    """Every city this user owns or has explicitly registered."""
+def lista(usuario='', tocando=True):
+    """Every city this user owns or has explicitly registered.
+
+    `tocando=False` for callers that must not change what they are looking at.
+    Listing normally HEALS: it migrates a v1 layout and gives every managed city
+    its metadata — which does `makedirs` before it decides there is nothing to
+    write. That is right when somebody is about to work in a city, and wrong
+    when the only reason to ask is to write a log line: the journal runs after
+    the handler, so on a request that archived a city, asking where to write
+    brought the folder back. A read that writes is not a read.
+    """
     usuario = _slug(usuario or usuario_actual(), 'me')
-    migra_legacy(usuario)
+    if tocando:
+        migra_legacy(usuario)
     candidatas = []
     propia = carpeta_usuario(usuario)
     try:
@@ -335,7 +345,8 @@ def lista(usuario=''):
         if owner_en_disco and _slug(owner_en_disco, 'me') != usuario:
             continue
         vistos.add(r)
-        meta = asegura_metadata(r, usuario) if gestionada(r, usuario) else {}
+        meta = (asegura_metadata(r, usuario)
+                if tocando and gestionada(r, usuario) else {})
         fuera.append({
             'ruta': r,
             'nombre': nombre(r),
@@ -356,6 +367,37 @@ def selecciona(usuario, datos):
     datos = _real(datos)
     os.makedirs(carpeta_usuario(usuario), exist_ok=True)
     _atomico(_fichero_actual(usuario), datos + '\n')
+
+
+def actual_sin_tocar(usuario=''):
+    """Which city is selected, answered without changing anything.
+
+    `actual()` is a resolver that also repairs: it migrates a v1 layout, heals
+    the metadata of every managed city it lists, records a new selection, and
+    will CREATE `home` when there is none. Every one of those is right before
+    somebody works in a city. None of them is right when the question is only
+    "where does this log line go" — and answering that question is how a city
+    somebody had just archived came back from the dead.
+
+    Returns '' when there is no answer. A caller with nowhere to write must not
+    be handed a folder that was invented for it.
+    """
+    explicita = os.environ.get('AGENTS_CITY_DATA')
+    if explicita and os.path.isdir(os.path.expanduser(explicita)):
+        return _real(explicita)
+    usuario = _slug(usuario or usuario_actual(), 'me')
+    try:
+        elegida = open(_fichero_actual(usuario), encoding='utf-8').read().strip()
+    except OSError:
+        elegida = ''
+    if elegida and es_ciudad(elegida):
+        owner = _lee_clave(elegida, 'owner')
+        if not owner or _slug(owner, 'me') == usuario:
+            return _real(elegida)
+    ciudades = lista(usuario, tocando=False)
+    home = next((c for c in ciudades if c['slug'] == 'home'), None)
+    elegida = home or (ciudades[0] if ciudades else None)
+    return elegida['ruta'] if elegida else ''
 
 
 def actual(usuario='', crear=True, migrar=True):

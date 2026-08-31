@@ -224,6 +224,24 @@ def olvida_crecimiento(datos, slug):
     _CRECIDO.pop((os.path.realpath(datos), slug), None)
 
 
+def refresca_roster(ficha, datos):
+    """Bring the card's `## Agents` list back in line with its frontmatter.
+
+    The Hall writes the roster as frontmatter keys, which is what the launcher,
+    the cage and the map read — and for a while that was the whole of it. But
+    the seat reads the BODY: the list under `## Agents` is what the chair is
+    told its city contains. So a person who added two houses from the Hall got
+    two windows and a card that still said, in prose, that they had one. Every
+    door that changes the roster passes through here.
+    """
+    texto = card.lee(ficha).get("texto") or ""
+    try:
+        agentes = workspace.agentes(texto, datos)
+    except (OSError, ValueError):
+        return
+    card.cambia_agentes(ficha, [workspace.como_ficha(a) for a in agentes])
+
+
 def _crecimiento_cacheado(a, datos, vida=90):
     import time
 
@@ -631,10 +649,14 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         """
         pedida = q.get("city", [""])[0]
         if pedida:
-            resuelta = self.resuelve_conocida(pedida)
+            resuelta = self.resuelve_conocida(pedida, tocando=False)
             if resuelta:
                 return resuelta
-        return seat.donde_viven_las_fichas()
+        # And not `donde_viven_las_fichas`, which resolves through `cities.actual`
+        # — a resolver that migrates, heals and will CREATE `home` when there is
+        # none. Asking it where to write a log line is how a request that removed
+        # a city brought it back.
+        return cities.actual_sin_tocar()
 
     def apunta(self, q, tipo, **campos):
         """One journal line, in the journal of the city the request acted on.
@@ -645,7 +667,11 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         record, because it is a record that lies about where.
         """
         try:
-            diario.apunta(self._ciudad_para_apuntar(q), tipo, **campos)
+            donde = self._ciudad_para_apuntar(q)
+            # No city, no line. A journal with nowhere to go must not be handed a
+            # folder invented for it — that is the same bug wearing a default.
+            if donde:
+                diario.apunta(donde, tipo, **campos)
         except Exception:  # noqa: BLE001  logging must not break the request
             pass
 
@@ -687,12 +713,23 @@ class Manejador(http.server.BaseHTTPRequestHandler):
             return False
         return True
 
-    def resuelve_conocida(self, pedida):
-        """Resolve only cities already in this Hall; never arbitrary folders."""
+    def resuelve_conocida(self, pedida, tocando=True):
+        """Resolve only cities already in this Hall; never arbitrary folders.
+
+        `tocando=False` makes the whole resolution read-only, for the journal:
+        both the listing and the fallback to the selected city are repairers by
+        default, and repairing something in order to write a line about it is
+        how a deleted city comes back.
+        """
         usuario = seat.quien_soy()
-        actual = seat.donde_viven_las_fichas()
-        candidatas = cities.lista(usuario)
-        if not any(os.path.realpath(c["ruta"]) == os.path.realpath(actual) for c in candidatas):
+        actual = seat.donde_viven_las_fichas() if tocando else cities.actual_sin_tocar()
+        candidatas = cities.lista(usuario, tocando=tocando)
+        # The selected city, when the listing did not already cover it. With no
+        # city selected at all there is nothing to add, and asking anyway would
+        # hand `identidad('')` the current working directory.
+        if actual and not any(
+            os.path.realpath(c["ruta"]) == os.path.realpath(actual) for c in candidatas
+        ):
             candidatas.append(
                 {
                     "ruta": actual,
@@ -1443,6 +1480,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         for clave, valor in workspace.claves_de_roster(roster).items():
             card.pon_campo(ficha, clave, valor)
         workspace.crea_workspace(datos, slug)
+        refresca_roster(ficha, datos)
         return self.responde({"ok": True, "agent": slug, "name": nombre})
 
     def p_montaje(self, q, cuerpo):
@@ -1495,6 +1533,8 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         # "this agent declares no mounts" in a longer, staler way.
         lista = ("[" + ", ".join(fuentes) + "]") if fuentes else ""
         card.pon_campo(ficha, f"mounts.{a.slug}", lista)
+        # The body counts mounts out loud ("2 mounts"), so it moves too.
+        refresca_roster(ficha, datos)
         # What this agent works on just changed, which is exactly what growth
         # counts: remembering the old number for 90s would read as a failed mount.
         olvida_crecimiento(datos, a.slug)

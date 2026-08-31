@@ -195,6 +195,46 @@ def bloque_objetivo(obj):
             '- **State**: in progress', '']
 
 
+def bloque_agentes(agentes):
+    """The `## Agents` section, as the lines that go on a card.
+
+    One emitter, because this card has two writers: the wizard writes it whole,
+    and the Hall patches it in place when somebody adds a house. They drifted —
+    the Hall wrote the frontmatter keys and left the body alone, so a card could
+    say `agents: [a, b, c]` in its frontmatter and list only `a` underneath, in
+    the half a seat actually reads. The city had three agents and told itself it
+    had one.
+    """
+    if not agentes:
+        return ['No agents yet, on purpose. This role holds a property of '
+                "everybody else's — so it has no houses, and what it is for "
+                'begins where there is more than one city to reach.', '',
+                'If that is wrong: `./bin/seat --agents`.']
+    fuera = []
+    for a in agentes:
+        cuantos = len(a['mounts'])
+        monta = f"{cuantos} mount{'s' if cuantos != 1 else ''}"
+        fuera.append(f"- `{a['nombre']}` — {a['clase']}, role {a['rol']}, {monta}.")
+    return fuera + ['', 'Change the roster with `./bin/seat --agents`.']
+
+
+def cambia_agentes(ruta, agentes):
+    """Rewrite only the roster section, leaving goals and round history alone.
+
+    Returns False when the card has no `## Agents` section — a hand-written card
+    is still a card, and losing somebody's round history to add a house would be
+    a far worse bug than a stale list.
+    """
+    with open(ruta, encoding='utf-8') as f:
+        texto = f.read()
+    nuevo = _cambia_seccion(texto, 'Agents', bloque_agentes(agentes))
+    if nuevo is None:
+        return False
+    with open(ruta, 'w', encoding='utf-8') as f:
+        f.write(nuevo)
+    return True
+
+
 def _cambia_seccion(texto, titulo, lineas_nuevas):
     """Replace one `##` section's body, touching nothing else on the card."""
     patron = re.compile(rf'(^## {re.escape(titulo)}\n)(.*?)(?=^## |\Z)', re.M | re.S)

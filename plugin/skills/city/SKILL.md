@@ -76,6 +76,18 @@ committee envelope into a known runtime's tmux window. The terminal adapter is
 an explicit compatibility fallback only when the owner wrote
 `terminal:<command>` for an unknown CLI.
 
+**The seat has no hands inside an agent's mounts.** Not "should prefer not to":
+a tool call that lands on a repo, worktree or document folder some agent mounted
+is refused, and the refusal names the owner and the command that asks them. The
+chair's own ground is the city folder, the roads, the record and its own goal.
+
+That is a boundary, not a courtesy. A seat that reads the code and answers is
+indistinguishable from a seat that consulted its specialists, right up until you
+notice the specialists were never asked anything. Ask one agent when one domain
+matters; open a committee when more than one does; say you are waiting when you
+are waiting. An owner who wants a chair with its own hands sets `seat_reach:
+open` in `city.yml` — explicitly, and per city.
+
 Use a committee only when specialised repo evidence can change the decision:
 
 1. Open a precise brief: question, desired outcome, context, constraints,
