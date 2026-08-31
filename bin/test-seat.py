@@ -1521,6 +1521,11 @@ def arranque_escalonado():
         corre(**extra)
         return open(registro).read()
 
+    primera = crudo(CITY_SETTLE="0", CITY_STAGGER="0")
+    afirma(
+        "· happy: a city opened for the first time gets its tmux comforts",
+        "set-option" in primera, primera[:300],
+    )
     log = crudo(FAKE_SESSION="1", FAKE_WINDOWS="seat api", CITY_SETTLE="0", CITY_STAGGER="0")
     afirma(
         "· happy: an agent added to a running city gets its window",
@@ -1541,6 +1546,12 @@ def arranque_escalonado():
         "· non-happy: and the running session is not re-created underneath it",
         "new-session" not in log,
         log[:600],
+    )
+    afirma(
+        "· non-happy: and a running session's tmux options are left exactly as found",
+        "set-option" not in log,
+        "re-applying `set -g mouse on` under a live full-screen app types raw SGR "
+        "sequences into its prompt: " + log[:400],
     )
     afirma(
         "· the new house is what you are looking at when it opens",
