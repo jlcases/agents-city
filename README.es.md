@@ -1828,14 +1828,22 @@ global del plugin porque varias ciudades pueden ejecutarse a la vez.
 sexta pregunta del asistente o con `agents-city seat --seat-yolo on|off`;
 `--no-yolo` sigue frenando la sesión entera.
 
-`seat_reach` dice si la silla tiene manos dentro de los mounts de sus agentes.
-Está `closed` mientras no escribas `open`, y cerrado significa que una llamada a
-una herramienta que cae sobre un repo, un worktree o una carpeta de documentos
-que montó un agente se rechaza, con el nombre de quien es su dueño, su rol y el
-comando que le pregunta. La silla conserva la carpeta de la ciudad, las
-carreteras y el registro. Existe porque el fallo que evita no deja rastro: un
-asiento que lee el código y responde es idéntico a uno que consultó a sus
-especialistas.
+`seat_reach` dice si la silla trabaja con sus propias manos. Está `closed`
+mientras no escribas `open`. Cerrado significa que un asiento tiene las
+herramientas de una silla y ninguna más: su carpeta de ciudad, las puertas de
+este producto (`agents-city …`, que es toda la shell que tiene), el bus de la
+ciudad, y pensar en voz alta. Una carpeta fuera de la ciudad, un comando que no
+es una puerta, una búsqueda, una descarga o el MCP de un proveedor se rechazan
+por su nombre, diciendo a quién preguntar.
+
+Esos tres últimos son la razón de que esto vaya de herramientas y no de
+carpetas. Un asiento al que le piden una decisión de producto puede traerse sus
+propias analíticas, responder bien, no pisar el terreno de nadie — y dejar fuera
+de la conversación a todos los especialistas que le diste. Ese fallo no deja
+rastro: es idéntico a un asiento que consultó a su ciudad. Cuando llega una
+pregunta, al asiento se le pone además delante las dos listas — sus agentes, y
+las ciudades de sus carreteras con el rol que cada una dice tener — porque a
+veces la respuesta no está ni en sus carpetas ni en su ciudad.
 
 ### `<owner>.md`: ficha del asiento
 

@@ -298,8 +298,8 @@ def main():
         propio, _ = llama_al_gancho(mundo, sesion, "Read", {"file_path": ficha})
         comprueba("· happy: its own card is its own business", decision(propio), "")
         ajeno, bruto = llama_al_gancho(
-            mundo, sesion, "Bash",
-            {"command": f"cd {mundo.repo} && grep -rn router app"},
+            mundo, sesion, "Read",
+            {"file_path": os.path.join(mundo.repo, "app", "router.rb")},
         )
         comprueba("· non-happy: its agent's repo is not", decision(ajeno), "deny")
         afirma(
@@ -315,6 +315,18 @@ def main():
             decision(otro) == "deny" and "manual" in motivo(otro),
             motivo(otro)[:200],
         )
+        # The half that folders never covered: work that trespasses on nobody.
+        vendedor, _ = llama_al_gancho(
+            mundo, sesion, "mcp__claude_ai_Nexo__seo_get_site_context", {})
+        afirma(
+            "· non-happy: and neither is a vendor's tool that touches nobody's files",
+            decision(vendedor) == "deny" and "api" in motivo(vendedor)
+            and "bus_send" in motivo(vendedor),
+            motivo(vendedor)[:300],
+        )
+        suelto, _ = llama_al_gancho(mundo, sesion, "Bash", {"command": "ls -la /"})
+        comprueba("· non-happy: nor a shell that is not one of this product's doors",
+                  decision(suelto), "deny")
         puerta, _ = llama_al_gancho(
             mundo, sesion, "Bash",
             {"command": f'agents-city committee open --member api --question "about {mundo.repo}"'},

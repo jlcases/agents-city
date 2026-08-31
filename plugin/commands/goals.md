@@ -4,7 +4,7 @@ argument-hint: ""
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-Source `${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh`, then read the owner from
+Read the owner from
 `$AGENTS_CITY_DATA/city.yml` and that owner's single card.
 
 With no requested change, show the current goal: title, signal, command or manual

@@ -4,7 +4,7 @@ argument-hint: "[domain | role | repos | agent-roles | goal | engines | roads | 
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 
-Source `${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh` first. Show the active city
+The seat window already carries the active city in its environment. Show it
 address and path before changing anything.
 
 - `domain`, `role`, `repos`, `agent-roles`, `goal`, `engines`: run the corresponding option of

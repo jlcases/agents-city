@@ -7,7 +7,7 @@ allowed-tools: Read, Bash, Glob, Grep, mcp__plugin_city_city-bus__bus_roster, mc
 This command keeps its old name as a compatibility alias, but do not describe a
 city as a team of people.
 
-1. Source `${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh`.
+1. Read `$AGENTS_CITY_DATA`, which the launcher already set in this window.
 2. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/cities.py" list`.
 3. Read this city's `roads.json` and owner card only.
 4. Call `bus_roster` when available.
