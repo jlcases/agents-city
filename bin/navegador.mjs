@@ -35,11 +35,31 @@ function dondeEstaChrome() {
   return CANDIDATOS.find((p) => existsSync(p)) || '';
 }
 
-/** Chrome prints its DevTools endpoint on stderr; that is the handshake. */
-function esperaEndpoint(proceso, limite = 20000) {
+/** Chrome prints its DevTools endpoint on stderr; that is the handshake.
+ *
+ * Sixty seconds, not twenty. This is a browser cold-starting on a shared CI
+ * runner that is also finishing two thousand other checks, and twenty seconds
+ * was a coin toss we kept winning until we did not. Waiting longer costs
+ * nothing when it works, because the wait ends at the handshake.
+ *
+ * And a timeout now carries whatever Chrome DID say. "chrome never announced
+ * its port" is a sentence about the observer: it names what we stopped waiting
+ * for and drops the one piece of evidence — a missing library, a sandbox
+ * refusal, a profile it could not write — that says which of those it was.
+ */
+function esperaEndpoint(proceso, limite = Number(process.env.CITY_BROWSER_WAIT_MS) || 60000) {
   return new Promise((listo, falla) => {
     let visto = '';
-    const reloj = setTimeout(() => falla(new Error('chrome never announced its port')), limite);
+    const reloj = setTimeout(
+      () =>
+        falla(
+          new Error(
+            `chrome never announced its port in ${limite / 1000}s` +
+              (visto.trim() ? `; it said: ${visto.trim().slice(-400)}` : ', and said nothing'),
+          ),
+        ),
+      limite,
+    );
     proceso.stderr.on('data', (trozo) => {
       visto += trozo.toString();
       const m = visto.match(/ws:\/\/[^\s]+/);
@@ -65,7 +85,9 @@ class Cdp {
       const espera = this.pendientes.get(mensaje.id);
       if (!espera) return;
       this.pendientes.delete(mensaje.id);
-      mensaje.error ? espera.falla(new Error(JSON.stringify(mensaje.error))) : espera.listo(mensaje.result);
+      mensaje.error
+        ? espera.falla(new Error(JSON.stringify(mensaje.error)))
+        : espera.listo(mensaje.result);
     });
   }
 
@@ -73,7 +95,9 @@ class Cdp {
     const socket = new WebSocket(url);
     await new Promise((listo, falla) => {
       socket.addEventListener('open', listo, { once: true });
-      socket.addEventListener('error', () => falla(new Error('cannot reach chrome')), { once: true });
+      socket.addEventListener('error', () => falla(new Error('cannot reach chrome')), {
+        once: true,
+      });
     });
     return new Cdp(socket);
   }
@@ -102,7 +126,9 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let fallos = 0;
 function comprueba(texto, bien, detalle = '') {
-  console.log(`${bien ? '  ok  ·' : '  FAIL·'} ${texto}${bien || !detalle ? '' : `\n        ${detalle}`}`);
+  console.log(
+    `${bien ? '  ok  ·' : '  FAIL·'} ${texto}${bien || !detalle ? '' : `\n        ${detalle}`}`,
+  );
   if (!bien) fallos += 1;
 }
 
@@ -195,7 +221,11 @@ async function main() {
         test: boton('.rpgTest'),
       };
     })()`);
-    comprueba('the houses view renders its sheets', (abierto?.fichas ?? 0) > 0, JSON.stringify(abierto));
+    comprueba(
+      'the houses view renders its sheets',
+      (abierto?.fichas ?? 0) > 0,
+      JSON.stringify(abierto),
+    );
     for (const [control, etiqueta] of [
       ['alta', 'the build-a-house button'],
       ['instrucciones', 'the CLAUDE.md / AGENTS.md editors'],
@@ -316,8 +346,11 @@ async function main() {
     })()`);
     comprueba(
       'the house form walks the disk — nothing offered, you pick what you want',
-      (casa?.filas ?? 0) > 0 && !!casa?.sube && !!casa?.tomaAqui &&
-        casa.dondeDespues !== casa.dondeAntes && (casa?.elegidas ?? 0) > 0,
+      (casa?.filas ?? 0) > 0 &&
+        !!casa?.sube &&
+        !!casa?.tomaAqui &&
+        casa.dondeDespues !== casa.dondeAntes &&
+        (casa?.elegidas ?? 0) > 0,
       JSON.stringify(casa),
     );
     comprueba(
@@ -468,13 +501,16 @@ async function main() {
     })()`);
     comprueba(
       'thirty connected people use one recipient picker, not thirty message boxes',
-      reception?.navRole === 'button' && reception?.navTabIndex === '0' &&
-        reception?.composers === 1 && reception?.recipients === 30,
+      reception?.navRole === 'button' &&
+        reception?.navTabIndex === '0' &&
+        reception?.composers === 1 &&
+        reception?.recipients === 30,
       JSON.stringify(reception),
     );
     comprueba(
       'pending messages stay above composing and use distinct route/reject language',
-      reception?.messages === 1 && reception?.reviewFirst === true &&
+      reception?.messages === 1 &&
+        reception?.reviewFirst === true &&
         /route|dirigir/i.test(reception?.route ?? '') &&
         /reason|motivo/i.test(reception?.rejection ?? ''),
       JSON.stringify(reception),
@@ -687,8 +723,11 @@ async function main() {
     })()`);
     comprueba(
       'the language switch really translates the page, and remembers it',
-      !!lengua && !lengua.falta && lengua.despues !== lengua.antes &&
-        /casas|resumen|mapa/i.test(lengua.despues) && lengua.guardado === lengua.lang &&
+      !!lengua &&
+        !lengua.falta &&
+        lengua.despues !== lengua.antes &&
+        /casas|resumen|mapa/i.test(lengua.despues) &&
+        lengua.guardado === lengua.lang &&
         lengua.etiqueta !== lengua.etiquetaAntes,
       JSON.stringify(lengua),
     );
@@ -698,8 +737,14 @@ async function main() {
       JSON.stringify(lengua?.marca),
     );
 
-    const errores = await cdp.evalua('window.__erroresDePagina ? window.__erroresDePagina.length : 0');
-    comprueba('the page raised no uncaught errors while we drove it', errores === 0, String(errores));
+    const errores = await cdp.evalua(
+      'window.__erroresDePagina ? window.__erroresDePagina.length : 0',
+    );
+    comprueba(
+      'the page raised no uncaught errors while we drove it',
+      errores === 0,
+      String(errores),
+    );
   } finally {
     proceso.kill('SIGKILL');
   }
