@@ -610,6 +610,25 @@ agents-city setup --no-browser
 | `--tui` | use terminal onboarding and open the session |
 | `--no-browser` | keep the Hall in the terminal and print its URL |
 
+### `agents-city hall`
+
+The town hall runs **detached**, like the city bus and every other long-lived
+piece of this product. Closing the window that started it is not a way to break
+the page somebody is looking at, and `agents-city hall` run twice hands back the
+address that is already serving rather than starting a second one. Stop it with
+`agents-city exit`; `--foreground` serves in the window and stops with it.
+
+Its address survives a restart. The token used to be minted per process, which
+made every tab disposable — close the hall, open it again, and the page somebody
+had is permanently refused, with no way back except reading a new URL out of a
+terminal. It is stored at `~/.agents-city/.runtime/hall.pase`, mode 0600, in the
+same class as the bus token this product already keeps.
+
+And when the hall is not answering, the page says so in its own words: what
+happened, that nothing was lost, the command that opens it again, and a button
+that retries — plus a quiet retry every few seconds, so a page left open
+recovers by itself when the hall comes back.
+
 ### `agents-city seat`
 
 Configures requested settings, ensures tmux/plugin, and opens or resumes the city

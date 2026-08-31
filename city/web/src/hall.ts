@@ -15,6 +15,7 @@ import './es'; // the Spanish dictionary registers itself on import
 import { FormularioDeCasa } from './casa';
 import { confirma, pregunta } from './dialogo';
 import { Demos } from './demo';
+import * as desconectado from './desconectado';
 import type { Vista } from './vista';
 import { Explorador } from './explorador';
 import { idioma, plural, ponIdioma, t as _ } from './idioma';
@@ -317,10 +318,17 @@ async function api<T>(ruta: string, opts?: RequestInit): Promise<T> {
     });
   } catch (e) {
     // A request that never came back. This is the one a person cannot report,
-    // because nothing on screen says it happened.
-    if (ruta !== '/api/diario') anota('fetch failed', String(e), ruta);
+    // because nothing on screen says it happened — so now something does.
+    if (ruta !== '/api/diario') {
+      anota('fetch failed', String(e), ruta);
+      desconectado.muestra('cerrado');
+    }
     throw e;
   }
+  // 403 is the other way to lose the server: it is up, and this tab holds an
+  // address it no longer accepts. Same experience for the person — every button
+  // stops working — so the same screen, worded for what it actually is.
+  if (r.status === 403 && ruta !== '/api/diario') desconectado.muestra('caducado');
   const cuerpo = (await r.json()) as T & { error?: string };
   if (ruta !== '/api/diario' && (!r.ok || cuerpo?.error))
     anota('api refused', { estado: r.status, error: cuerpo?.error }, ruta);

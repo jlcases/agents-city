@@ -503,63 +503,91 @@ def maquinas_hostiles():
             ok = S.asegura_tmux()
         comprueba("· tmux present: proceeds silently", (ok, salida.getvalue()), (True, ""))
 
-    # claude not on PATH: the plugin step must not be fatal.
-    with finge(S, hay=lambda p: p != "claude"):
-        import io
-        from contextlib import redirect_stdout
+    # ── the conscience, which can be absent while everything looks healthy ──
+    #
+    # The plugin is where the guard, the `/city:` commands, the judgement and the
+    # journal live. Without it a city opens, the windows open, the seat answers,
+    # and every rule this product is made of is simply not there.
+    #
+    # These moved from seat.py to conciencia.py for a reason worth keeping in the
+    # test: `agents-city seat` was the ONLY door that installed it. The Hall
+    # opens a city by spawning the launcher and so does the desktop shortcut, so
+    # a city opened from the browser came up with no rules and no way to notice.
+    import io
+    from contextlib import redirect_stdout
 
+    import conciencia
+
+    def con_plugin(listado, corridas=None):
+        """A machine whose `claude` answers with this plugin list."""
+
+        def _corre(orden, segundos=25):
+            if corridas is not None:
+                corridas.append(orden)
+            if orden[:3] == ["claude", "plugin", "list"]:
+                return 0, listado, ""
+            return 0, "Successfully installed", ""
+
+        return finge(conciencia, hay_claude=lambda: True, _corre=_corre)
+
+    with finge(conciencia, hay_claude=lambda: False):
         salida = io.StringIO()
         with redirect_stdout(salida):
             S.asegura_plugin("ana", "ana/lead", "/tmp/x")
-        afirma(
-            "· no claude on PATH: says so and carries on",
-            "skipping the plugin" in salida.getvalue(),
-            salida.getvalue()[:120],
-        )
+        comprueba("· non-happy: no claude on PATH is not a failure, and not a lie",
+                  conciencia.estado()[0], None)
+        comprueba("· and the seat says nothing about a plugin it cannot install",
+                  salida.getvalue(), "")
 
-    # Already installed: must not reinstall, must not print noise.
-    with finge(
-        S,
-        hay=lambda p: True,
-        sh=lambda a, **k: ("city@agents-city enabled" if a[:2] == ["claude", "plugin"] else ""),
-    ):
-        import io
-        from contextlib import redirect_stdout
-
+    al_dia = ("Installed plugins:\n\n  ❯ city@agents-city\n    Version: "
+              + version_del_paquete() + "\n")
+    with con_plugin(al_dia):
         salida = io.StringIO()
         with redirect_stdout(salida):
             S.asegura_plugin("ana", "ana/lead", "/tmp/x")
-        comprueba("· plugin already installed: no-op", salida.getvalue(), "")
+        comprueba("· happy: already installed and current is a silent no-op",
+                  salida.getvalue(), "")
+        comprueba("· and the doctor reports it as present",
+                  conciencia.estado()[0], True)
 
-    # Installed does not mean current. npm may have replaced the package while
-    # Claude still points at an older cached plugin version.
+    # Installed does not mean current: npm may have replaced the package while
+    # Claude still points at an older cached plugin.
     llamadas = []
-
-    class SubprocessPlugin:
-        @staticmethod
-        def run(args, **_kw):
-            llamadas.append(args)
-            return type("R", (), {"returncode": 0, "stdout": "updated", "stderr": ""})()
-
-    listado_viejo = "Installed plugins:\n\n  ❯ city@agents-city\n    Version: 1.2.15\n"
-    with (
-        finge(S, hay=lambda p: True, sh=lambda a, **k: listado_viejo),
-        finge(S, subprocess=SubprocessPlugin),
-    ):
-        import io
-        from contextlib import redirect_stdout
-
+    with con_plugin("Installed plugins:\n\n  ❯ city@agents-city\n    Version: 1.2.15\n",
+                    llamadas):
         salida = io.StringIO()
         with redirect_stdout(salida):
             S.asegura_plugin("ana", "ana/lead", "/tmp/x")
     afirma(
-        "· an old cached Claude plugin is updated through Claude's own CLI",
-        llamadas
-        and llamadas[0][:4] == ["claude", "plugin", "update", "city@agents-city"]
-        # The version comes from package.json, not from a literal here: a
-        # release must never mean editing an assertion in a test.
+        "· happy: an old cached plugin is updated through Claude's own CLI",
+        any(o[:4] == ["claude", "plugin", "update", "city@agents-city"] for o in llamadas)
+        # The version comes from package.json, not a literal here: a release
+        # must never mean editing an assertion in a test.
         and version_del_paquete() in salida.getvalue(),
         f"calls={llamadas!r} output={salida.getvalue()!r}",
+    )
+
+    # And the case that actually happened: not installed at all.
+    llamadas = []
+    with con_plugin("Installed plugins:\n\n  ❯ ruby-lsp@claude-plugins-official\n", llamadas):
+        ok, detalle = conciencia.estado()
+        comprueba("· non-happy: a machine without it is reported as missing", ok, False)
+        afirma("· with the one command that fixes it",
+               "claude plugin install city@agents-city" in detalle, detalle)
+        salida = io.StringIO()
+        with redirect_stdout(salida):
+            S.asegura_plugin("ana", "ana/lead", "/tmp/x")
+    afirma(
+        "· and every door that opens a city installs it",
+        any(o[:3] == ["claude", "plugin", "install"] for o in llamadas),
+        f"calls={llamadas!r}",
+    )
+    lanzador = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"),
+                    encoding="utf-8").read()
+    afirma(
+        "· including the launcher, which is where the Hall and the shortcut meet",
+        "conciencia.py" in lanzador and "asegura" in lanzador,
+        "seat.py was the only door that ensured it, and it is not the only door",
     )
 
     # Windows. tmux is not a thing there outside WSL, and city-session.sh is bash.

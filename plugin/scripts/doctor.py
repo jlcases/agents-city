@@ -236,6 +236,12 @@ def revisa_entorno():
     except (OSError, ValueError) as e:
         fuera.append(('city', False, str(e)))
 
+    # The conscience, which can be absent while everything else looks healthy.
+    import conciencia as _conciencia
+
+    ok_plugin, detalle_plugin = _conciencia.estado()
+    fuera.append(('city plugin', ok_plugin, detalle_plugin))
+
     hall = os.path.join(os.path.dirname(os.path.dirname(GUIONES)),
                         'city', 'web', 'dist-hall', 'hall.js')
     fuera.append(('hall bundle', os.path.isfile(hall),

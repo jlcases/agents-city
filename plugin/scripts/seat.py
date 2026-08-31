@@ -44,9 +44,7 @@ Requires tmux and bash, so on Windows run it inside WSL.
 """
 
 import argparse
-import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +53,7 @@ GUIONES = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, GUIONES)
 import busca  # noqa: E402  the one disk scanner: repos, worktrees, documents
 import card  # noqa: E402  a card: read, written
+import conciencia  # noqa: E402  the plugin that makes a seat a seat
 import gh  # noqa: E402  who you are, and what GitHub knows
 import roles  # noqa: E402  the catalogue and the bus suffixes
 import domains  # noqa: E402  work domain -> relevant role and knowledge packs
@@ -179,84 +178,24 @@ def asegura_gh():
 def asegura_plugin(usuario, agente, datos):
     """The city plugin, installed and pointed at your card.
 
-    Without it the seat window is a plain Claude session: no `/city:goals`, no
-    `/city:round`, no skills. With it, and with no bus deployed anywhere, it is
-    your role with its commands — which is exactly what level 2 should be.
+    Without it the seat window is a plain Claude session: no `/city:` commands,
+    no guard, no journal. With it, and with no bus deployed anywhere, it is your
+    role with its rules — which is exactly what level 2 should be.
 
-    The two bus fields stay empty on purpose. They are what makes you reachable by
-    somebody else's agent, and that is a different level; the plugin used to mark
-    them required, which meant a person working alone was nagged for credentials to
-    a bus that did not exist.
+    The work is `conciencia.asegura`, because this used to be the ONLY door that
+    did it. The Hall opens a city by spawning the launcher, and so does the
+    desktop shortcut; both went straight past this function, and a city opened
+    from the browser came up with none of its rules and no way to notice.
     """
-    if not hay("claude"):
-        print("  (claude is not on PATH, so I am skipping the plugin — the session still opens.)")
-        return
-    instalados = sh(["claude", "plugin", "list"])
-    if "city@agents-city" in instalados:
-        instalada = ""
-        m = re.search(r"city@agents-city.*?^\s*Version:\s*(\S+)", instalados, re.M | re.S)
-        if m:
-            instalada = m.group(1)
-        manifiestos = [
-            os.path.join(RAIZ, "plugin", ".claude-plugin", "plugin.json"),
-            os.path.join(os.path.dirname(GUIONES), ".claude-plugin", "plugin.json"),
-        ]
-        deseada = ""
-        for manifiesto in manifiestos:
-            try:
-                deseada = str(json.load(open(manifiesto, encoding="utf-8")).get("version") or "")
-            except (OSError, ValueError, TypeError):
-                continue
-            if deseada:
-                break
-        # Older Claude versions did not print plugin versions. Silence remains
-        # safer than reinstalling on every seat launch when comparison is
-        # impossible. Current Claude updates only on an observed mismatch.
-        if not instalada or not deseada or instalada == deseada:
-            return
-        print(f"  Updating the city plugin from {instalada} to {deseada}…")
-        actualiza = subprocess.run(
-            [
-                "claude",
-                "plugin",
-                "update",
-                "city@agents-city",
-                "--scope",
-                "user",
-                "--yes",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if actualiza.returncode == 0:
-            print("    · updated; the new city windows will load this version")
-        else:
-            print("    · the existing plugin remains enabled; its update did not complete")
-        return
-    print("  Installing the city plugin, so your seat has its commands…")
-    if "agents-city" not in sh(["claude", "plugin", "marketplace", "list"]):
-        subprocess.run(
-            ["claude", "plugin", "marketplace", "add", RAIZ], capture_output=True, text=True
-        )
-    # No --config here on purpose. It writes into the user's global settings.json,
-    # and it only ever runs on a fresh install — so a plugin somebody installed by
-    # hand first would never get configured, which is how this was wrong a moment
-    # ago. The session passes AGENTS_CITY_DATA and CITY_BUS_AGENT in the
-    # environment instead, and city_env.py reads the environment before anything
-    # else. Same answer, nothing written to a file you did not ask us to touch.
-    r = subprocess.run(
-        ["claude", "plugin", "install", "city@agents-city", "-y"], capture_output=True, text=True
-    )
-    if "Successfully installed" in r.stdout or "already installed" in r.stdout:
-        print(
-            f"    · installed. Your seat is {agente}, reading "
-            f"{datos.replace(os.path.expanduser('~'), '~')}"
-        )
-        print("    · no bus token needed — local roads work without one")
-    else:
-        print("    · could not install it; the session still opens without it.")
-        if r.stderr.strip():
-            print(f"      {r.stderr.strip().splitlines()[0]}")
+    hecho = conciencia.asegura(hablar=print)
+    if hecho == 'installed':
+        print(f"    · installed. Your seat is {agente}, reading "
+              f"{datos.replace(os.path.expanduser('~'), '~')}")
+        print('    · no bus token needed — local roads work without one')
+    elif hecho.startswith('could not') or hecho.endswith('stays enabled'):
+        print(f'    · {hecho}')
+    elif hecho == 'updated':
+        print('    · updated; the new city windows will load this version')
 
 
 def quien_soy():

@@ -435,4 +435,16 @@ anota({
   'reading the domain packs': 'leyendo los paquetes de dominio',
   'reading the role files': 'leyendo los ficheros de rol',
   'an isometric house': 'una casa isométrica',
+
+  // ── when the hall is not there ────────────────────────────────────────────
+  'The town hall is closed': 'El ayuntamiento está cerrado',
+  'This page is out of date': 'Esta página se ha quedado antigua',
+  'It runs on this computer, not on the internet — so it stops when you stop it, and nothing was lost. Your city, your agents and everything you wrote are files on your disk, exactly as you left them.':
+    'Se ejecuta en este ordenador, no en internet — así que se para cuando lo paras, y no se ha perdido nada. Tu ciudad, tus agentes y todo lo que escribiste son ficheros en tu disco, exactamente como los dejaste.',
+  'The hall is running, but this tab is holding an address it no longer accepts. Nothing is wrong with your city — this page is just old.':
+    'El ayuntamiento está abierto, pero esta pestaña guarda una dirección que ya no acepta. Tu ciudad está bien — la vieja es la página.',
+  'To open it again, in a terminal:': 'Para volver a abrirlo, en una terminal:',
+  'Try again': 'Reintentar',
+  'Checking every few seconds…': 'Compruebo cada pocos segundos…',
+  'Looking…': 'Mirando…',
 });

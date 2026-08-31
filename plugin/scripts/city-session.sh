@@ -471,6 +471,19 @@ else
   done
 fi
 
+# ── the city's own rules, before its windows ───────────────────────────────
+#
+# Everything that makes a seat a seat rather than a Claude session in a folder
+# lives in the plugin: the guard, the note that says who to ask, the `/city:`
+# commands, the journal. It can be absent, and when it is nothing FAILS — the
+# city opens, the seat answers, and every rule is simply not there.
+#
+# It used to be ensured by `agents-city seat` alone. The Hall's open button
+# spawns this script directly and so does the desktop shortcut, so opening a
+# city from the browser gave you a city with no conscience, in silence. This is
+# where every door meets, so this is where it belongs.
+python3 "$(dirname "$0")/conciencia.py" asegura || true
+
 # Trust every folder up front, so no window sits waiting on the dialog.
 python3 "$(dirname "$0")/trust-repos.py" "$EQUIPO" ${RUTAS[@]+"${RUTAS[@]}"}
 

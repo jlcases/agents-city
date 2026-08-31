@@ -187,8 +187,54 @@ def la_casa_que_no_debe_construirse(puerto, hallDatos):
            str(anotado[-1:]))
 
 
+def la_direccion_sobrevive():
+    """A page left open overnight has to work in the morning.
+
+    The token used to be minted per process, which made every tab disposable:
+    close the Hall, open it again, and the address somebody had is permanently
+    403. Refreshing cannot help — the address itself is stale — so the only way
+    back was reading a new URL out of a terminal, for a product whose page is
+    the product.
+
+    It is also what makes the "try again" button on the offline screen able to
+    do anything at all: without a stable address, recovering means finding a new
+    one, and a page cannot.
+    """
+    print("  the address survives a restart")
+    import importlib
+
+    casa = tempfile.mkdtemp()
+    previo = os.environ.get("AGENTS_CITY_HOME")
+    os.environ["AGENTS_CITY_HOME"] = casa
+    try:
+        importlib.reload(serve)
+        primero = serve.PASE
+        importlib.reload(serve)
+        comprueba("· the same machine keeps the same address between runs",
+                  serve.PASE, primero)
+        afirma("· and it is long enough to be a secret", len(primero) >= 32, primero)
+        # Guarded: with no file there is no mode to read, and an OSError here
+        # would replace a named failure with a traceback about the last line.
+        fichero = os.path.join(casa, ".runtime", "hall.pase")
+        modo = os.stat(fichero).st_mode & 0o777 if os.path.isfile(fichero) else None
+        afirma("· non-happy: kept 0600, because it is one",
+               modo == 0o600, f"{fichero}: {oct(modo) if modo else 'not written at all'}")
+        os.environ["AGENTS_CITY_HOME"] = tempfile.mkdtemp()
+        importlib.reload(serve)
+        afirma("· non-happy: and another machine's is not the same one",
+               serve.PASE != primero, "two homes must not share a token")
+    finally:
+        if previo is None:
+            os.environ.pop("AGENTS_CITY_HOME", None)
+        else:
+            os.environ["AGENTS_CITY_HOME"] = previo
+        importlib.reload(serve)
+        shutil.rmtree(casa, ignore_errors=True)
+
+
 def main():
     print()
+    la_direccion_sobrevive()
     destino = tempfile.mkdtemp()
     serve.DESTINO = os.path.join(destino, "ciudad")
 

@@ -268,6 +268,53 @@ def conciencia_acotada():
                f'{r.stdout!r} {residuos}')
 
 
+# ══ a page that loses its server says so ═════════════════════════════════════
+def la_pagina_no_se_queda_muda():
+    """Nielsen 1 and 9, wired where every request already passes.
+
+    A page whose server went away used to show nothing at all: the browser wrote
+    "Failed to fetch" into a console nobody has open, and the page sat there
+    looking healthy while every button quietly did nothing. Somebody who does
+    not know a web page can have a server on their own machine does not read
+    that as an error — they read it as the product having stopped being real.
+
+    Asserted at the seam rather than in a browser, and the reason is worth
+    keeping: a hall handed a token it refuses does not serve the PAGE either, so
+    the obvious way to stage this in Chrome produces no app to observe. Driving
+    the network-failure path needs a control that re-fetches, and hardcoding one
+    here would tie this check to a button somebody may rename. What is checked
+    is that the one function every request goes through raises the screen, that
+    the screen exists, and that it speaks in sentences rather than in status
+    codes.
+    """
+    print('  a page that loses its server says so')
+
+    def texto_de(ruta):
+        return open(os.path.join(RAIZ, ruta), encoding='utf-8').read()
+
+    hall = texto_de('city/web/src/hall.ts')
+    fuera = texto_de('city/web/src/desconectado.ts')
+    afirma('· every request goes through one function, so there is one place to say it',
+           hall.count('async function api<T>') == 1, '')
+    afirma('· a request that never came back raises the screen',
+           "anota('fetch failed'" in hall and "desconectado.muestra('cerrado')" in hall, '')
+    afirma('· and so does a token the hall no longer accepts',
+           "r.status === 403" in hall and "desconectado.muestra('caducado')" in hall, '')
+    afirma('· the journal is exempt, or a page that cannot report would report forever',
+           hall.count("ruta !== '/api/diario'") >= 3, '')
+    afirma('· the screen names the way back rather than describing it',
+           'agents-city hall' in fuera and 'reintentar' in fuera, '')
+    afirma('· it recovers on its own, for somebody who never sees the button',
+           'setInterval' in fuera and 'location.reload' in fuera, '')
+    afirma('· non-happy: and it never says fetch, failed or a status code to a person',
+           not re.search(r"_\(`?[^`']*\b(fetch|failed|403)\b", fuera), '')
+    # The address it tells people to reopen has to be the one they already have,
+    # or "try again" can never work.
+    servidor = texto_de('bin/serve.py')
+    afirma('· the address survives a restart, which is what makes trying again work',
+           '_pase_estable' in servidor and 'hall.pase' in servidor, '')
+
+
 # ══ the demo is a city this code would write ═════════════════════════════════
 # ══ the shell has to run on somebody else's bash ═════════════════════════════
 def bash_que_no_es_la_de_macos():
@@ -894,6 +941,7 @@ def main():
     rutas_reales()
     conciencia_acotada()
     bash_que_no_es_la_de_macos()
+    la_pagina_no_se_queda_muda()
     demo_coherente()
     varias_ciudades()
     el_aviso_lee_lo_que_viaja()
