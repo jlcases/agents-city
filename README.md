@@ -1808,13 +1808,20 @@ launches the chair itself without permission prompts — set at the wizard's
 sixth question or with `agents-city seat --seat-yolo on|off`; `--no-yolo`
 still brakes the whole session.
 
-`seat_reach` says whether the chair has hands inside its agents' mounts. It is
-`closed` unless you write `open`, and closed means a tool call landing on a
-repo, worktree or document folder an agent mounted is refused, with the owner's
-name, their role and the one command that asks them. The chair keeps the city
-folder, the roads and the record. This exists because the failure it prevents is
-silent: a seat that reads the code and answers looks exactly like a seat that
-consulted its specialists.
+`seat_reach` says whether the chair works with its own hands. It is `closed`
+unless you write `open`. Closed means a seat holds a chair's tools and nothing
+else: its own city folder, this product's own doors (`agents-city …` — that is
+the whole shell it has), the city bus, and thinking out loud. A folder outside
+the city, a shell command that is not a door, a search, a fetch or a vendor's
+MCP server are refused by name, with who to ask instead.
+
+The last three are the reason this is about tools and not folders. A seat asked
+for a product decision can pull its own analytics, answer well, trespass on
+nothing — and leave every specialist it was given out of the conversation. That
+failure is silent: it looks exactly like a seat that consulted its city. When a
+question arrives, the seat is also handed both rosters — its agents, and the
+cities on its roads with the role each one says it has — because the answer is
+sometimes in neither its folders nor its own city.
 
 ### `<owner>.md`: seat card
 

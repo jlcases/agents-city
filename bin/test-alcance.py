@@ -32,7 +32,9 @@ sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
 
 import alcance  # noqa: E402
 import cities  # noqa: E402
+import consulta  # noqa: E402
 import diario  # noqa: E402
+import roads  # noqa: E402
 import seat as S  # noqa: E402
 import workspace  # noqa: E402
 from testlib import afirma, comprueba, resumen, roster  # noqa: E402
@@ -82,6 +84,10 @@ def juzga(datos, herramienta, entrada, cwd=None, **extra):
     )
 
 
+def decision_de(veredicto):
+    return ((veredicto or {}).get("hookSpecificOutput") or {}).get("permissionDecision", "")
+
+
 def razon(veredicto):
     return ((veredicto or {}).get("hookSpecificOutput") or {}).get("permissionDecisionReason", "")
 
@@ -113,13 +119,20 @@ def lo_que_sigue_pudiendo(datos, api):
         is None,
     )
     afirma(
-        "· happy: a shell command that names no place at all",
-        juzga(datos, "Bash", {"command": "git status"}) is None,
+        "· happy: and its own record, written not just read",
+        juzga(datos, "Write", {"file_path": os.path.join(datos, "roles", "cpto.md")}) is None,
     )
     afirma(
-        "· happy: somewhere nobody in this city owns",
-        juzga(datos, "Read", {"file_path": os.path.join(datos, "..", "nada.txt")}) is None,
+        "· happy: the bus is its voice, so its own bus tools pass",
+        all(juzga(datos, t, {}) is None for t in
+            ("mcp__city-bus__bus_roster", "mcp__plugin_city_city-bus__bus_send")),
     )
+    afirma(
+        "· happy: and thinking out loud costs nobody anything",
+        all(juzga(datos, t, {}) is None
+            for t in ("TodoWrite", "Skill", "SlashCommand", "ExitPlanMode")),
+    )
+
 
     # The refusal recommends `agents-city committee open --question "..."`, and a
     # brief about a repo names that repo. A guard that denies its own remedy is
@@ -137,28 +150,23 @@ def lo_que_sigue_pudiendo(datos, api):
         "· happy: and neither is the repo's own committee door",
         juzga(datos, "Bash", {"command": f"./bin/committee open --member api # {api}"}) is None,
     )
-    # Prose that happens to contain a path is prose.
+    # A brief quotes the folder it is about. That prose must survive inside the
+    # one shell a chair has, or the refusal would be denying its own remedy.
     afirma(
-        "· happy: a quoted sentence that mentions a folder is not a hand in it",
-        juzga(datos, "Bash", {"command": f'echo "the answer is somewhere under {api}/app"'})
-        is None,
+        "· happy: a door whose question quotes a folder is still a door",
+        juzga(datos, "Bash", {
+            "command": f'agents-city committee open --member api '
+                       f'--question "what should change under {api}/app"'}) is None,
     )
     afirma(
-        "· happy: even when the sentence starts with the folder",
-        juzga(datos, "Bash", {"command": f'echo "{api}/app is where it lives"'}) is None,
+        "· happy: even when the question starts with the folder",
+        juzga(datos, "Bash", {
+            "command": f'agents-city committee open --member api '
+                       f'--question "{api}/app is where it lives"'}) is None,
     )
     afirma(
         "· happy: and a sibling folder whose name merely starts the same way",
-        juzga(datos, "Read", {"file_path": f"{api}-viejo/router.rb"}) is None,
-    )
-    # The other side of that tiebreaker: a folder with a space in its name is a
-    # real folder, and plenty of people have one.
-    con_espacio = os.path.join(os.path.dirname(api), "api", "app", "mis notas.md")
-    open(con_espacio, "w").write("# notas\n")
-    afirma(
-        "· non-happy: a real path with a space in it is still that agent's ground",
-        juzga(datos, "Bash", {"command": f'cat "{con_espacio}"'}) is not None,
-        con_espacio,
+        juzga(datos, "Read", {"file_path": os.path.join(datos, "roles")}) is None,
     )
 
     afirma(
@@ -265,6 +273,64 @@ def lo_que_ya_no_puede(datos, api, docs):
     )
 
 
+# ── a chair holds a chair's tools ────────────────────────────────────────────
+
+
+def las_manos_de_una_silla(datos, api):
+    """The half that folders never covered.
+
+    A seat asked for a product decision read nobody's files, trespassed on
+    nothing, called two of its vendor's SEO tools and answered alone — while
+    three configured specialists never heard the question. A guard that only
+    watches folders records that as a clean turn, which is why the rule is now
+    what a chair IS rather than where it may go.
+    """
+    print("  and it holds a chair's tools, not the work's")
+
+    fuera_de_la_ciudad = [
+        ("a search", "WebSearch", {"query": "menu information architecture"}),
+        ("a fetch", "WebFetch", {"url": "https://example.invalid/x"}),
+        ("somebody else's MCP server", "mcp__claude_ai_Nexo__seo_get_site_context", {}),
+        ("another vendor's, spelled differently", "mcp__slack__slack_send_message", {}),
+        ("hiring hands that are not its houses", "Task", {"prompt": "go and find out"}),
+        ("a shell that is not a door", "Bash", {"command": "ls -la"}),
+        ("a shell that leaves the machine", "Bash", {"command": "curl https://example.invalid"}),
+        ("a file that belongs to nobody here", "Read", {"file_path": "/etc/hosts"}),
+    ]
+    for nombre, herramienta, entrada in fuera_de_la_ciudad:
+        v = juzga(datos, herramienta, entrada)
+        afirma(f"· non-happy: {nombre}", (v or {}) and decision_de(v) == "deny",
+               f'{herramienta} {json.dumps(entrada)[:80]}')
+
+    # The one from the report, in full: nothing is trespassed and the answer is
+    # still one model's.
+    texto = razon(juzga(datos, "mcp__claude_ai_Nexo__seo_get_site_context", {}))
+    afirma("· the refusal says why a clean turn is still the wrong turn",
+           "leaves no trace" in texto, texto[:300])
+    afirma("· and names everyone this city has, with their roles",
+           "api" in texto and "dev" in texto and "manual" in texto and "seo" in texto,
+           texto[:400])
+    afirma("· and how to ask one of them",
+           "agents-city committee open" in texto and "--member" in texto, texto[:400])
+    afirma("· and that the answer may not be in this city at all",
+           "bus_roster" in texto and "bus_send" in texto, texto[-500:])
+
+    afirma("· non-happy: and a bare shell says what a chair's shell is",
+           "agents-city committee" in razon(juzga(datos, "Bash", {"command": "ls -la"})))
+
+    # A chair with nobody to ask is a person with a terminal.
+    sola = tempfile.mkdtemp()
+    with open(os.path.join(sola, "city.yml"), "w", encoding="utf-8") as f:
+        f.write("owner: ana\nname: sola\nslug: sola\nid: city-alcance-sola\n")
+    S.escribe_ficha(os.path.join(sola, "ana.md"), "ana", "cpto", [])
+    afirma(
+        "· happy: a city with no agents yet does not come with its seat bricked",
+        juzga(sola, "WebSearch", {"query": "anything"}) is None
+        and juzga(sola, "Bash", {"command": "ls"}) is None,
+    )
+    shutil.rmtree(sola, ignore_errors=True)
+
+
 # ── the owner decides, and the guard never decides for them ──────────────────
 
 
@@ -274,7 +340,8 @@ def la_puerta_del_dueno(datos, api):
     afirma("· closed is the default", juzga(datos, "Read", dentro) is not None)
     afirma(
         "· happy: CITY_SEAT_REACH=open gives the chair its hands, now",
-        juzga(datos, "Read", dentro, CITY_SEAT_REACH="open") is None,
+        juzga(datos, "Read", dentro, CITY_SEAT_REACH="open") is None
+        and juzga(datos, "WebSearch", {"query": "x"}, CITY_SEAT_REACH="open") is None,
     )
     cities.pon_clave(datos, "seat_reach", "open")
     try:
@@ -289,6 +356,77 @@ def la_puerta_del_dueno(datos, api):
         "· non-happy: and so does a value that only looks like consent",
         juzga(datos, "Read", dentro, CITY_SEAT_REACH="opened") is not None,
     )
+
+
+# ── and it is told who it has, when the question arrives ─────────────────────
+
+
+def el_momento_de_decidir(datos):
+    """Stopping the chair is half of it; the other half is knowing who to ask.
+
+    A refusal that arrives after the seat has started is a correction. The plan
+    has to happen where the question lands — and it has to carry BOTH rosters,
+    because a city can be missing the answer in two ways: no agent here does
+    that work, or the answer belongs to somebody else's city entirely.
+    """
+    print("  and it is told who it has, at the moment the question arrives")
+    roads.escribe(datos, [{
+        "id": "road_0000000000000000000000000000abcd",
+        "address": "bea/comunidad",
+        "owner": "bea",
+        "name": "comunidad",
+        "role": "ux",
+        "domain": "marketing",
+        "local": True,
+    }])
+    nota = consulta.contexto(datos)
+    afirma("· it names every agent in this city, with its role",
+           "api" in nota and "dev" in nota and "manual" in nota and "seo" in nota, nota)
+    afirma("· and how much ground each of them holds",
+           "1 folder" in nota, nota)
+    afirma("· it names the cities on the roads too, with what they do",
+           "bea/comunidad" in nota and "ux" in nota and "marketing" in nota, nota)
+    afirma("· and says a road's role came from a note, not from that city",
+           "note" in nota, nota)
+    afirma("· it offers both routes, because the answer may be in neither place",
+           "agents-city committee open" in nota and "bus_send" in nota, nota)
+    afirma("· and says that deciding nobody is a decision, not a shortcut",
+           "concerns nobody" in nota, nota[-400:])
+
+    def por_el_gancho(prompt, **extra):
+        env = dict(os.environ)
+        env.update({"CLAUDE_PLUGIN_ROOT": os.path.join(RAIZ, "plugin"),
+                    "AGENTS_CITY_DATA": datos, "CITY_BUS_ACTOR": "seat"})
+        env.update(extra)
+        r = subprocess.run(
+            ["/bin/bash", os.path.join(RAIZ, "plugin", "hooks", "who-does-this-concern.sh")],
+            input=json.dumps({"prompt": prompt}), capture_output=True, text=True, env=env,
+        )
+        try:
+            return json.loads(r.stdout or "{}"), r
+        except ValueError:
+            return {}, r
+
+    salida, r = por_el_gancho("I want to improve the menu, people cannot find things")
+    afirma("· the hook itself puts it in front of the seat",
+           "api" in ((salida.get("hookSpecificOutput") or {}).get("additionalContext") or ""),
+           f"{r.stdout[:200]} {r.stderr[-200:]}")
+    salida, _ = por_el_gancho("/city:round")
+    comprueba("· non-happy: a slash command already carries its own instructions",
+              salida, {})
+    salida, _ = por_el_gancho("sigue")
+    comprueba("· non-happy: and a two-word reply is not a question to route", salida, {})
+    salida, _ = por_el_gancho("I want to improve the menu, people cannot find things",
+                              CITY_BUS_ACTOR="api")
+    comprueba("· non-happy: a house is not chairing anything", salida, {})
+    salida, _ = por_el_gancho("I want to improve the menu, people cannot find things",
+                              AGENTS_CITY_DATA="")
+    comprueba("· non-happy: and with no city there is nobody to name", salida, {})
+    roads.escribe(datos, [])
+
+    hooks = json.load(open(os.path.join(RAIZ, "plugin", "hooks", "hooks.json")))
+    afirma("· and Claude is told to run it when a prompt arrives",
+           "who-does-this-concern.sh" in json.dumps(hooks["hooks"]["UserPromptSubmit"]))
 
 
 # ── a guard that breaks a turn is worse than no guard ────────────────────────
@@ -356,7 +494,8 @@ def nunca_rompe_el_turno(datos, api):
         "· non-happy: a tool_input that is not an object",
         juzga(datos, "Read", "no soy un objeto") is None,
     )
-    afirma("· non-happy: an empty command", juzga(datos, "Bash", {"command": ""}) is None)
+    afirma("· non-happy: an empty command is not a door either",
+           juzga(datos, "Bash", {"command": ""}) is not None)
     afirma(
         "· non-happy: an unbalanced quote still gets read",
         juzga(datos, "Bash", {"command": f"grep -r ' {api}/app"}) is not None,
@@ -388,12 +527,12 @@ def nunca_rompe_el_turno(datos, api):
 def queda_escrito(datos, api):
     print("  every refusal is on disk before anybody has to remember it")
     antes = len(diario.lee(datos))
-    juzga(datos, "Bash", {"command": f"grep -rn router {api}"})
+    juzga(datos, "Grep", {"pattern": "router", "path": api})
     lineas = [x for x in diario.lee(datos) if x.get("tipo") == "alcance"]
     afirma("· the refusal is journalled", len(diario.lee(datos)) > antes and lineas, str(lineas))
     ultima = lineas[-1]
     comprueba("· with the agent whose ground it was", ultima.get("agente"), "api")
-    comprueba("· and the tool that tried", ultima.get("herramienta"), "Bash")
+    comprueba("· and the tool that tried", ultima.get("herramienta"), "Grep")
     afirma("· and the exact path", api in str(ultima.get("ruta")), str(ultima))
 
 
@@ -440,8 +579,9 @@ def el_gancho_de_verdad(datos, api):
     # nobody registered is a file.
     hooks = json.load(open(os.path.join(RAIZ, "plugin", "hooks", "hooks.json")))
     texto = json.dumps(hooks["hooks"]["PreToolUse"])
-    afirma("· and Claude is told to run it before every tool that names a place",
-           "ask-the-house.sh" in texto and "Bash" in texto and "Grep" in texto, texto[:400])
+    afirma("· and Claude is told to run it before EVERY tool, not a list of them",
+           "ask-the-house.sh" in texto and '"matcher": "*"' in texto,
+           'a list of tools is a list of the ways somebody thought of')
 
 
 def main():
@@ -451,6 +591,8 @@ def main():
     try:
         lo_que_sigue_pudiendo(datos, api)
         lo_que_ya_no_puede(datos, api, docs)
+        las_manos_de_una_silla(datos, api)
+        el_momento_de_decidir(datos)
         la_puerta_del_dueno(datos, api)
         nunca_se_lleva_la_ciudad_por_delante(base, api)
         nunca_rompe_el_turno(datos, api)

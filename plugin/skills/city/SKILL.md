@@ -19,13 +19,9 @@ Every operation must use the city selected by the current process.
 
 ## Resolve the active city
 
-Source the shared resolver before reading files:
-
-```bash
-. "${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh"
-```
-
-It establishes these runtime values:
+The launcher already set these in this window; read them, do not go looking for
+them. (Repo windows and hooks source `scripts/city-env.sh` to establish the same
+values — a seat does not need to, and its shell is this product's doors only.)
 
 - `$AGENTS_CITY_DATA` — this city's folder;
 - `$AGENTS_CITY_USER` — its local owner;
@@ -76,17 +72,27 @@ committee envelope into a known runtime's tmux window. The terminal adapter is
 an explicit compatibility fallback only when the owner wrote
 `terminal:<command>` for an unknown CLI.
 
-**The seat has no hands inside an agent's mounts.** Not "should prefer not to":
-a tool call that lands on a repo, worktree or document folder some agent mounted
-is refused, and the refusal names the owner and the command that asks them. The
-chair's own ground is the city folder, the roads, the record and its own goal.
+**A chair holds a chair's tools, and nothing else.** This is enforced at every
+tool call, not offered as advice:
 
-That is a boundary, not a courtesy. A seat that reads the code and answers is
-indistinguishable from a seat that consulted its specialists, right up until you
-notice the specialists were never asked anything. Ask one agent when one domain
-matters; open a committee when more than one does; say you are waiting when you
-are waiting. An owner who wants a chair with its own hands sets `seat_reach:
-open` in `city.yml` — explicitly, and per city.
+- its own city folder — the card, the roles, the domain, the record, the roads;
+- this product's own doors — `agents-city committee`, `bus`, `road`, `cities`,
+  `agents`, `seat`, `skills`. That is the whole shell a seat has;
+- the city bus, which is its voice on its roads;
+- and thinking out loud: a plan, a question to the owner, a `/city:` command.
+
+Everything else is refused, by name, with who to ask instead: a folder outside
+this city, a shell command that is not a door, a search, a fetch, a vendor's MCP
+server. Especially those last three, because they leave no trace on anybody's
+folders — a seat that pulls its own analytics and answers has trespassed on
+nothing and still left every specialist it was given out of the conversation.
+
+That is a boundary, not a courtesy. A seat that does the work and answers is
+indistinguishable from a seat that consulted its city, right up until you notice
+nobody was consulted. Ask one agent when one domain matters; open a committee
+when more than one does; ask another city when the answer is not in this one;
+say you are waiting when you are waiting. An owner who wants a chair that works
+with its own hands sets `seat_reach: open` in `city.yml` — explicitly, per city.
 
 Use a committee only when specialised repo evidence can change the decision:
 

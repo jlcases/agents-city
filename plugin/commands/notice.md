@@ -7,7 +7,7 @@ allowed-tools: Read, Bash, Glob, Grep, mcp__plugin_city_city-bus__bus_send, mcp_
 Read the `city` skill's Notices section. Inspect the requested diff and separate
 observed facts from guesses. Do not notify merely because files changed.
 
-Source `${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh`, call `bus_roster`, and choose
+Call `bus_roster` and choose
 only explicit road destinations whose role/domain may be affected. If none match,
 say so and send nothing.
 

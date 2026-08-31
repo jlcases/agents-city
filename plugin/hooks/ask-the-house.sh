@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# PreToolUse / every tool that names a place — the chair's hands.
+# PreToolUse / every tool — the chair's hands.
 #
-# The seat decides; the houses investigate. Left as advice in the skill, that
-# lasted exactly as long as it took for reading the repo to be quicker than
-# asking the agent who lives in it. So the seat is stopped at the ground it does
-# not own, and told whose it is and how to ask.
+# The seat decides; the agents work. Left as advice in the skill, that lasted
+# exactly as long as it took for doing it to be quicker than asking.
 #
-# Only the seat. A house inside its own mounts is where it belongs, and this
-# leaves every other runtime untouched.
+# It began as a guard on FOLDERS, and folders turned out to be half the story: a
+# seat asked for a product decision trespassed on nothing, called two of its
+# vendor's SEO tools, and answered alone while three configured specialists never
+# heard the question. So the matcher is every tool, and what is allowed is what a
+# chair is: its own city folder, this product's own doors, its own voice on the
+# bus, and thinking out loud.
+#
+# Only the seat. An agent using its tools is an agent doing its job, and every
+# other runtime is left untouched.
 set -uo pipefail
 # Outside a city runtime the whole plugin stays silent (see the guard).
 . "$(dirname "$0")/solo-en-ciudad.sh"

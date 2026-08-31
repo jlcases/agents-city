@@ -92,6 +92,7 @@ necesarios = ["bin/agents-city.js", "bin/hall", "bin/seat", "bin/city", "bin/dem
               "plugin/scripts/reset.py", "plugin/scripts/desinstala.py",
               "plugin/scripts/demos.py", "plugin/scripts/arnes.py",
               "plugin/scripts/diario.py", "plugin/scripts/alcance.py",
+              "plugin/scripts/consulta.py",
               "plugin/channel/runtime/arnes.json", "plugin/scripts/capabilities.py",
               "plugin/scripts/deliberations.py",
               "plugin/scripts/runtime_processes.py",

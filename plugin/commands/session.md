@@ -4,7 +4,7 @@ argument-hint: "[--no-yolo] [--only r1,r2]"
 allowed-tools: Read, Bash, Glob, Grep
 ---
 
-Source `${CLAUDE_PLUGIN_ROOT}/scripts/city-env.sh` and run:
+Run:
 
 ```bash
 "$CLAUDE_PLUGIN_ROOT/scripts/city-session.sh" "$AGENTS_CITY_USER" --claude $ARGUMENTS

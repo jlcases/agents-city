@@ -161,12 +161,15 @@ Before acting for this city:
    asking it for evidence. Use a chaired committee when several matter.
    Repo agents do not talk directly to each other.
 
-The seat has no hands inside an agent's mounts. Its own ground is this folder,
-the roads and the record; the repos, worktrees and document folders belong to
-the agents that mounted them, and reaching into one is refused with the name of
-who to ask. Ask one agent when one domain matters, a committee when several do,
-and say you are waiting when you are waiting. `seat_reach: open` in `city.yml`
-is the owner's explicit choice to have a chair that reads for itself.
+A chair holds a chair's tools and nothing else: this folder, this product's own
+doors, the bus, and thinking out loud. A folder outside this city, a shell
+command that is not a door, a search, a fetch or a vendor's MCP server are all
+refused with the name of who to ask instead — the last three especially, because
+work done that way trespasses on nobody and still leaves every specialist out of
+the conversation. Ask one agent when one domain matters, a committee when
+several do, another city on your roads when the answer is not here, and say you
+are waiting when you are waiting. `seat_reach: open` in `city.yml` is the
+owner's explicit choice to have a chair that works with its own hands.
 
 Skills remain installed in the referenced repos. Agents City only recognises
 them; it never copies, installs or enables a repo skill from this folder.

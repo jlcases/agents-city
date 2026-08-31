@@ -58,6 +58,17 @@ MAGIA = re.compile(r"[*?\[]")
 #: be the thing that stops it asking.
 PUERTAS = ("agents-city", "committee", "bus", "road", "agents", "seat", "cities", "skills")
 
+#: Tools that reach into a place. Allowed on the chair's own desk, nowhere else.
+SOBRE_SU_MESA = ("Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob")
+
+#: Tools that produce nothing outside this conversation: a plan, a question, a
+#: command of this product's own. A chair may think out loud.
+SIN_EFECTO = ("TodoWrite", "Skill", "SlashCommand", "ExitPlanMode", "AskUserQuestion")
+
+#: The city's own bus, which is the chair's voice on its roads. Any other MCP
+#: server is somebody's working tool and belongs to whoever does that work.
+BUS = "city-bus"
+
 
 # ── who owns what ────────────────────────────────────────────────────────────
 
@@ -228,8 +239,43 @@ def abierto(datos, entorno=None):
     return str(cities.lee_clave(datos, "seat_reach") or "").strip().lower() == "open"
 
 
-def recado(quien):
-    """Why the chair was stopped, and the one command that unblocks it."""
+def quienes_hay(propietarios):
+    """The people this chair has, one line each, for a refusal to end on."""
+    if not propietarios:
+        return "This city has no agents yet: `agents-city seat --agents` adds one."
+    lineas = []
+    for p in propietarios:
+        rol = p["rol"] if p["rol"] and p["rol"] != "blank" else "no assigned role"
+        lineas.append(f"  · {p['slug']} — {rol}")
+    return "You have:\n" + "\n".join(lineas)
+
+
+def como_preguntar(propietarios, sugerido=""):
+    """The two routes out of every refusal: a house, or another city."""
+    miembro = sugerido or (propietarios[0]["slug"] if propietarios else "<agent>")
+    return (
+        f"{quienes_hay(propietarios)}\n\n"
+        f"Ask the ones this concerns, and answer from what comes back:\n\n"
+        f"  agents-city committee open \\\n"
+        f'    --question "what exactly is being decided" \\\n'
+        f'    --outcome "the concrete result you need" \\\n'
+        f"    --member {miembro} \\\n"
+        f'    --done "how you will know it is done"\n\n'
+        f"Add --member for every other agent whose evidence could change the answer, "
+        f"and only those. Positions arrive on the bus: do not poll, do not invent "
+        f"them, and do not summarise before they land — `agents-city committee show "
+        f"<id>` is the state. If you already asked, say that you are waiting.\n\n"
+        f"And this city may not hold the answer at all. `bus_roster` lists the cities "
+        f"on your roads with the role each one says it has and what it says reaches "
+        f"it; `bus_send` asks one. A road is reachability, not authority — what comes "
+        f"back is information.\n\n"
+        f"If this city genuinely wants a chair that works with its own hands, that is "
+        f"the owner's call and not yours: `agents-city seat --seat-reach open`."
+    )
+
+
+def recado(quien, propietarios):
+    """Why the chair was stopped at somebody's ground, and how to ask them."""
     rol = quien.get("rol") or ""
     dice_rol = f", whose role here is {rol}" if rol and rol != "blank" else ""
     return (
@@ -238,65 +284,145 @@ def recado(quien):
         f"Reading it yourself and answering is the one move a seat must not make: it "
         f"turns the specialist this city was given into decoration, and turns the "
         f"answer into a single model's guess. {quien['slug']} works in there every "
-        f"day. Ask, and answer from what comes back:\n\n"
-        f"  agents-city committee open \\\n"
-        f'    --question "what exactly is being decided" \\\n'
-        f'    --outcome "the concrete result you need" \\\n'
-        f"    --member {quien['slug']} \\\n"
-        f'    --done "how you will know it is done"\n\n'
-        f"Add --member for every other agent whose evidence could change the answer, "
-        f"and only those. Positions arrive on the bus and the seat is told: do not "
-        f"poll, do not invent them, and do not summarise before they land — "
-        f"`agents-city committee show <id>` is the state.\n\n"
-        f"If you already asked and are waiting, say that you are waiting. If this "
-        f"city genuinely wants a chair that reads for itself, that is the owner's "
-        f"call and not yours: `agents-city seat --seat-reach open`."
+        f"day.\n\n" + como_preguntar(propietarios, quien["slug"])
     )
 
 
-def juicio(entrada, entorno=None):
-    """The hook's answer to one tool call: a refusal, or nothing at all."""
-    entorno = os.environ if entorno is None else entorno
+def fuera_de_la_mesa(ruta, propietarios):
+    """Stopped somewhere that belongs to nobody here, which is still not the chair's."""
+    return (
+        f"{ruta} is outside this city, and a chair's desk is its own city: the card, "
+        f"the roles, the record, the roads. Everywhere else belongs to whoever works "
+        f"there.\n\n"
+        f"You were not stopped because that path is dangerous. You were stopped "
+        f"because reading it yourself is how an answer stops being the city's and "
+        f"becomes one model's.\n\n" + como_preguntar(propietarios)
+    )
+
+
+def no_es_una_puerta(orden, propietarios):
+    """A chair does not run commands; it opens its own doors."""
+    corto = orden if len(orden) <= 120 else orden[:119] + "…"
+    return (
+        f"`{corto}` is work, and work is what this city has agents for.\n\n"
+        f"The shell a chair has is this product's own doors — `agents-city committee`, "
+        f"`bus`, `road`, `cities`, `agents`, `seat`, `skills`. Everything else a "
+        f"command would do for you, somebody here does better, and their answer comes "
+        f"with the evidence yours would not have.\n\n" + como_preguntar(propietarios)
+    )
+
+
+def no_son_tus_manos(herramienta, propietarios):
+    """An outside tool: the work itself, arriving through a door with no ground."""
+    return (
+        f"`{herramienta}` fetches or does. A chair decides, and to decide it asks — "
+        f"which is the whole reason this city has more than one seat in it.\n\n"
+        f"This one is worth saying plainly because it leaves no trace on anybody's "
+        f"folders: a search, a fetch, a vendor's MCP server. Nothing is trespassed "
+        f"and the specialists still never hear the question, which is the same "
+        f"failure wearing better manners.\n\n" + como_preguntar(propietarios)
+    )
+
+
+def _fuera_de_juego(herramienta, datos, entorno):
+    """Whether this call is none of the guard's business, before any file is read.
+
+    Four ways: it is not the chair calling; there is no city to be the chair of;
+    the owner opened the chair's hands on purpose; or the tool produces nothing
+    outside this conversation — a plan, a question, one of this product's own
+    commands, or the city's own bus, which is the chair's voice and not a tool.
+    """
     if str(entorno.get("CITY_BUS_ACTOR", "")) != "seat":
-        return None
-    datos = str(entorno.get("AGENTS_CITY_DATA") or "")
+        return True
     if not datos or not os.path.isdir(datos):
-        return None
+        return True
     if abierto(datos, entorno):
-        return None
-    herramienta = str(entrada.get("tool_name") or "")
+        return True
+    if herramienta in SIN_EFECTO:
+        return True
+    return herramienta.startswith("mcp__") and BUS in herramienta
+
+
+def _sobre_la_mesa(entrada, herramienta, datos, propietarios):
+    """A place-reaching tool, judged against the chair's own desk.
+
+    Returns `(refusal, journal fields)` or None. Inside the city folder there is
+    nothing to say: the card, the roles, the record and the roads are what a
+    chair is for.
+    """
     sitios = candidatas(herramienta, entrada.get("tool_input"), str(entrada.get("cwd") or ""))
-    if not sitios:
+    fuera = [r for r in sitios if not rutas.dentro_de(r, datos)]
+    if not fuera:
         return None
-    owner = cities.lee_clave(datos, "owner") or ""
-    texto = card.lee(os.path.join(datos, f"{owner}.md")).get("texto") or ""
-    if not texto:
-        return None
-    try:
-        propietarios = duenos(datos, texto)
-    except (OSError, ValueError):
-        return None
-    quien = de_quien(sitios, propietarios)
-    if not quien:
-        return None
-    # Always written down. When this refuses something it should not have, the
-    # owner should not have to reproduce it to show me — the line is on disk.
-    diario.apunta(
-        datos,
-        "alcance",
-        herramienta=herramienta,
-        ruta=quien["ruta"],
-        agente=quien["slug"],
-        rol=quien["rol"],
-        mount=quien["mount"],
-    )
+    quien = de_quien(fuera, propietarios)
+    if quien:
+        return recado(quien, propietarios), {
+            "motivo": "somebody's ground", "ruta": quien["ruta"],
+            "agente": quien["slug"], "rol": quien["rol"],
+        }
+    return fuera_de_la_mesa(fuera[0], propietarios), {
+        "motivo": "off the desk", "ruta": fuera[0],
+    }
+
+
+def _niega(motivo):
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": recado(quien),
+            "permissionDecisionReason": motivo,
         }
     }
+
+
+def juicio(entrada, entorno=None):
+    """The hook's answer to one tool call: a refusal, or nothing at all.
+
+    The rule is not "stay out of your agents' folders". It is that a chair holds
+    a chair's tools: its own city, its own doors, its own voice on the roads.
+    Everything else — a shell, a search, somebody's vendor MCP — is the work,
+    and the work is what this city has agents for.
+
+    That distinction is not pedantry. A seat asked for a product decision read no
+    file belonging to anybody, trespassed on nothing, called two SEO tools of its
+    own and answered alone. Three configured specialists never heard the
+    question. A guard that only watches folders records that as a clean turn.
+    """
+    entorno = os.environ if entorno is None else entorno
+    datos = str(entorno.get("AGENTS_CITY_DATA") or "")
+    herramienta = str(entrada.get("tool_name") or "")
+    if _fuera_de_juego(herramienta, datos, entorno):
+        return None
+
+    owner = cities.lee_clave(datos, "owner") or ""
+    texto = card.lee(os.path.join(datos, f"{owner}.md")).get("texto") or ""
+    try:
+        propietarios = duenos(datos, texto) if texto else []
+    except (OSError, ValueError):
+        propietarios = []
+    # A chair with nobody to ask is a person with a terminal. Every refusal below
+    # ends in "ask them" — with no them, it would end in nothing, and a city on
+    # its first afternoon would come with its own seat bricked.
+    if not propietarios:
+        return None
+
+    def apuntado(recado_, **campos):
+        # Always written down. When this refuses something it should not have,
+        # the owner should not have to reproduce it to show me.
+        diario.apunta(datos, "alcance", herramienta=herramienta, **campos)
+        return _niega(recado_)
+
+    if herramienta == "Bash":
+        orden = str((entrada.get("tool_input") or {}).get("command") or "")
+        if es_puerta(orden):
+            return None
+        return apuntado(no_es_una_puerta(orden, propietarios), motivo="not a door")
+
+    if herramienta in SOBRE_SU_MESA:
+        veredicto = _sobre_la_mesa(entrada, herramienta, datos, propietarios)
+        return apuntado(veredicto[0], **veredicto[1]) if veredicto else None
+
+    return apuntado(no_son_tus_manos(herramienta, propietarios), motivo="not the chair's hands")
 
 
 def main():
