@@ -117,6 +117,15 @@ def main():
                    and 'agents-city committee respond' in body
                    and 'Do not contact another repo agent directly' in body,
                    body[-160:])
+            # A member read its brief and answered "let me start working on it",
+            # then ran thirteen shell commands. Investigating is what it was
+            # asked for; deciding by doing is not, and nothing in the brief had
+            # ever said so. Gathering an opinion has to leave the repo as it
+            # found it, or the committee is ratifying work already done.
+            afirma(f'· and {runtime} is told that gathering a position changes nothing',
+                   'Look, do not touch' in body
+                   and 'leave the repo as it found it' in body,
+                   body[-300:])
             esperado = (
                 'operating role is seo'
                 if actor == 'legacy-two'

@@ -1828,6 +1828,18 @@ global del plugin porque varias ciudades pueden ejecutarse a la vez.
 sexta pregunta del asistente o con `agents-city seat --seat-yolo on|off`;
 `--no-yolo` sigue frenando la sesión entera.
 
+`ui.<agente>` elige qué se abre en una ventana: `tui` es el Claude Code de esa
+persona — sus plugins, su statusline, sus comandos — y `gateway` es el prompt de
+la ciudad con el runtime headless detrás. La silla usa `tui` por defecto y una
+casa `gateway`, y los dos defectos son los útiles: una silla es donde te sientas,
+y una casa es donde llega el trabajo sin que nadie se siente en ella, con la
+conversación entera apareciendo en el Hall.
+
+El intercambio se dice, no se esconde. El TUI de Claude Code no tiene puerta de
+entrada, así que una ventana en `tui` recibe su trabajo como un pegado protegido
+en el pane, y el lanzador avisa de que la entrega nativa no está disponible ahí.
+Es el mismo trato que la silla lleva haciendo desde siempre.
+
 `seat_reach` dice si la silla trabaja con sus propias manos. Está `closed`
 mientras no escribas `open`. Cerrado significa que un asiento tiene las
 herramientas de una silla y ninguna más: su carpeta de ciudad, las puertas de

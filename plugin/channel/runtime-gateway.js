@@ -3723,6 +3723,7 @@ function promptFor(envelope, operatingRole = "blank") {
       RULES,
       role,
       `Your first position is isolated: do not seek or read another member's answer. Inspect your own repo and use any matching skill installed there. Abstention is valid.`,
+      `Look, do not touch. A position is what you have found and what you would do \u2014 reading, running read-only checks, and reporting. Nothing here asks you to change a file, land a branch or run a migration, and doing it now would decide the very thing the chair convened this committee to decide. The act of gathering an opinion must leave the repo as it found it; work follows a decision, and this is not one yet.`,
       `Brief:
 ${pretty(envelope.payload.brief)}`,
       `Submit evidence, not a chat reply. Run:`,

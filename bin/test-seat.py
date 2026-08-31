@@ -1495,6 +1495,51 @@ def arranque_escalonado():
         and "--channels" not in asiento,
         asiento[:160],
     )
+    # And the same choice, for a house. It is the point of the product — orchestrate
+    # somebody's CLI, do not replace it — and until now `ui_de` was a general
+    # function consulted for exactly one window.
+    card.pon_campo(ficha, "ui.api", "tui")
+    lineas = corre(CITY_SETTLE="0", CITY_STAGGER="0")
+    api_tui = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
+    afirma(
+        "· happy: `ui.api: tui` opens that house's own Claude Code, not a prompt in front of it",
+        "city-runtime.sh gateway api" not in api_tui and "claude" in api_tui,
+        api_tui[:300],
+    )
+    aviso = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 CITY_SETTLE="0", CITY_STAGGER="0"),
+    ).stderr
+    afirma(
+        "· and the city says out loud what that costs, rather than hiding it",
+        "api uses the explicit terminal fallback" in aviso
+        and "native delivery is unavailable" in aviso,
+        aviso[-400:],
+    )
+    afirma(
+        "· non-happy: while its cage and its bus identity are exactly as before",
+        "CITY_BUS_ACTOR=api" in api_tui and "CITY_AGENT_ROLE=data-engineer" in api_tui,
+        api_tui[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+    api_pasarela = next(
+        (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
+    afirma(
+        "· non-happy: and clearing the key puts the gateway back, which is the default",
+        "city-runtime.sh gateway api" in api_pasarela, api_pasarela[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "ventana-preciosa")
+    api_raro = next(
+        (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
+    afirma(
+        "· non-happy: a value that is neither tui nor gateway is not a third mode",
+        "city-runtime.sh gateway api" in api_raro, api_raro[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+
     # The old shape is still one card key away, for anybody who wants the bus
     # able to drive their chair.
     card.pon_campo(ficha, "ui.seat", "gateway")
