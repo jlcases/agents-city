@@ -476,8 +476,17 @@ python3 "$(dirname "$0")/trust-repos.py" "$EQUIPO" ${RUTAS[@]+"${RUTAS[@]}"}
 
 # ── The seat window: this city's identity on its roads ─────────────────────
 "$RUNTIME" ensure >/dev/null
-comodidades
 if [ "$SESION_YA" -eq 0 ]; then
+  # Only on a city being opened. These are a dozen GLOBAL tmux options, and a
+  # session already running has whatever its owner has set since — a mouse
+  # toggle, a status bar, a style. Re-applying them from underneath a
+  # full-screen app is not a fresh start, it is a change of terrain mid-step:
+  # flipping mouse reporting while Claude Code is drawing sends the raw SGR
+  # sequences (`^[[<0;40;51M`) into the prompt as text.
+  #
+  # It could not happen before reconciling existed, because an open session
+  # exec'd `attach` and never got here.
+  comodidades
   tmux new-session -d -s "$SESSION" -n seat -c "$EQUIPO"
 elif ! existe_ventana seat; then
   # The session outlived its own chair — somebody closed that one window. The
