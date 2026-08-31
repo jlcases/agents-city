@@ -119,6 +119,53 @@ def sin_deriva():
            arnes.banderas("codex") == "" and arnes.banderas("opencode") == "",
            f"codex={arnes.banderas('codex')!r}")
 
+    # And it survives a SHELL, which is what receives it.
+    #
+    # This is the check that was missing, and its absence cost every Claude
+    # window in a city. Emitted bare, `--settings {"a":"b","c":true}` is
+    # destroyed twice before Claude sees it: brace expansion splits it on the
+    # comma, quote removal eats the double quotes, and what arrives is
+    # `--settings {a:b}` — "Invalid JSON provided to --settings".
+    #
+    # Asserting that the string CONTAINS the right words could never have
+    # caught that. So this parses the line the way a shell does and reads the
+    # value back as JSON, which is the only claim that matters.
+    import shlex  # noqa: PLC0415
+
+    palabras = shlex.split(arnes.banderas("claude"))
+    afirma("· the flags survive shell parsing as separate words",
+           "--settings" in palabras and "--disallowed-tools" in palabras, str(palabras))
+    valor = palabras[palabras.index("--settings") + 1]
+    try:
+        ajustes = json.loads(valor)
+    except json.JSONDecodeError as e:
+        ajustes = None
+        afirma("· and the settings value is still JSON afterwards", False, f"{valor!r}: {e}")
+    if ajustes is not None:
+        afirma("· and the settings value is still JSON afterwards", True, "")
+        comprueba("· with the cross-session path closed",
+                  ajustes.get("crossSessionInbound"), "refuse")
+        afirma("· and every declared settings key inside it",
+               all(t["clave"] in ajustes
+                   for t in arnes.declaracion()["claude"]["trato"]
+                   if t.get("rinde") == "settings"),
+               str(ajustes))
+    # A real shell, not just a parser: brace expansion is the half `shlex`
+    # forgives, and it is the half that broke.
+    import subprocess  # noqa: PLC0415
+
+    r = subprocess.run(
+        ["bash", "-c", 'set -- ' + arnes.banderas("claude") + '; printf "%s\n" "$@"'],
+        capture_output=True, text=True,
+    )
+    entregado = [l for l in r.stdout.split("\n") if l]
+    comprueba("· a real shell hands over exactly four words", len(entregado), 4)
+    try:
+        json.loads(entregado[1])
+        afirma("· and the second is the settings, intact", True, "")
+    except json.JSONDecodeError as e:
+        afirma("· and the second is the settings, intact", False, f"{entregado!r}: {e}")
+
 
 def _es_metodo_declarado(aguja, declaradas):
     """`approvalPolicy` declared, read through a method of the same name."""
