@@ -103,16 +103,29 @@ Use a committee only when specialised repo evidence can change the decision:
    chair or another member before the barrier opens. Abstention is valid.
 3. Compare evidence and publish one synthesis. Do not count votes.
 4. After synthesis, members stay silent unless they can identify new evidence, a
-   contradiction, a material risk or a dependency. They request the floor.
-5. Grant or deny every request explicitly. A grant allows one scoped reply. That
+   contradiction, a material risk or a dependency. Wanting to add something is
+   not one of those — the moment to contribute was the isolated position, and a
+   floor taken for an opinion is how a committee becomes a chat room. They
+   request the floor; they never take it.
+5. There is a fifth basis, `misrepresented`, and it is about the record rather
+   than the world: the synthesis does not say what that member said. Not
+   disagreement with the summary — words put in their mouth, a condition
+   dropped, a stance reported that they did not take. Each member gets one, it
+   does not spend the rebuttal budget even where the brief allowed none, and
+   the bus attaches their stored position so the chair is shown what it
+   summarised rather than a memory of it. A member the chair proceeded without
+   has nothing on the record and so cannot raise it. This exists because
+   execution gets an independent verifier and the summary had nobody: it was
+   the one place where a single actor could bend the outcome unchecked.
+6. Grant or deny every request explicitly. A grant allows one scoped reply. That
    intervention is then heard by all selected members, but nobody answers it
    directly: a material counterpoint requires a new request which the chair
    sequences. This creates deliberation without opening a free debate.
-6. Record outcome, rationale, owner, executor, selected and rejected evidence,
+7. Record outcome, rationale, owner, executor, selected and rejected evidence,
    decisive contributors, dissent and observable conditions that reopen the
    decision. Review `agents-city committee history`; repeated influence is a
    prompt to inspect capture, not a verdict.
-7. Assign verification to an agent other than the executor whenever one exists.
+8. Assign verification to an agent other than the executor whenever one exists.
    A failed verification must replan; only a pass may close the act.
 
 The vendor-neutral terminal door is:

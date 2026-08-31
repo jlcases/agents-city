@@ -1,7 +1,28 @@
 import { ActorRole } from '../protocol.js';
 
 export const STANCES = ['support', 'oppose', 'conditional', 'abstain'] as const;
-export const FLOOR_BASES = ['new_evidence', 'contradiction', 'risk', 'dependency'] as const;
+/** Why a member may interrupt a synthesis.
+ *
+ * The first four are about the WORLD: something is true that the chair did not
+ * have, said something the evidence contradicts, carries a risk, or depends on
+ * something. They are deliberately narrow — "I would like to add something" is
+ * how a committee becomes a chat room, and with the chat room comes the
+ * anchoring that isolated first positions exist to prevent.
+ *
+ * `misrepresented` is about the RECORD, and it is the one a member had no way
+ * to raise. A position summarised into something it did not say is neither new
+ * evidence nor a contradiction in the facts; it is the chair's account of what
+ * you said being wrong. Until this existed, the synthesis was the one place in
+ * the protocol where a single actor could bend the outcome and nothing could
+ * catch it: execution gets an independent verifier, the summary got nobody.
+ */
+export const FLOOR_BASES = [
+  'new_evidence',
+  'contradiction',
+  'risk',
+  'dependency',
+  'misrepresented',
+] as const;
 export const AUTHORITIES = ['recommend', 'decide', 'execute'] as const;
 export const VERIFY_RESULTS = ['pass', 'fail'] as const;
 export const TERMINAL_STATUSES = new Set(['closed', 'cancelled']);
@@ -40,6 +61,11 @@ export interface FloorRequest {
   basis: (typeof FLOOR_BASES)[number];
   reason: string;
   evidence: string[];
+  /** On `misrepresented`, the requester's own position, attached by the bus.
+   *  The point of the basis is that the chair is shown the literal text it
+   *  summarised, not a member's memory of it — quoting yourself from memory is
+   *  the same class of evidence as the summary being challenged. */
+  position?: Position;
   status: 'pending' | 'granted' | 'used' | 'denied';
   requestedAt: string;
   decidedAt?: string;

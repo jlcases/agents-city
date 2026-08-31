@@ -526,6 +526,34 @@ entorno_de() {  # $1 = actor ("seat" or a window name)
   printf '%s%s' "$(sync_line)AGENTS_CITY_DATA=$EQUIPO AGENTS_CITY_HOME=${AGENTS_CITY_HOME:-$HOME/.agents-city} AGENTS_CITY_USER=$USUARIO CITY_ADDRESS=$ADDRESS CITY_SEAT_NAME=$SEAT_NAME " "$propio"
 }
 
+# A house's Claude, opened the way its card asks for.
+#
+# `gateway` by default, and that default is what makes a city a city: work
+# reaches the agent without anybody sitting in its terminal, and the whole
+# conversation shows up in the Hall instead of in a pane nobody is watching.
+#
+# `ui.<house>: tui` opens the person's own Claude Code instead — their plugins,
+# their statusline, their slash commands, their transcript. The cost is stated
+# rather than hidden: delivery falls back to a protected paste into the pane,
+# and `city-runtime.sh fallback` warns that native delivery is unavailable.
+#
+# That choice already existed for the chair, and `ui_de` was written as a
+# general function consulted for exactly one window. Which is the tell: the
+# chair — the one actor that receives text from OTHER cities — has been running
+# pasted delivery all along, so refusing a house the same option while granting
+# it there was backwards on risk, not careful about it.
+lanza_casa_claude() {  # $1 = window, $2 = cwd, $3 = the full claude command, $4 = wait
+  local win="$1" ruta="$2" orden="$3" espera="${4:-}" entorno
+  entorno="$(entorno_de "$win")$BROKER_ENV$JAULA$CAGE_RUNTIME_ENV"
+  if [ "$(ui_de "$win" gateway)" = tui ]; then
+    lanza "$SESSION:$win" "$win" "$ruta" "$espera$entorno${CLAUDE_AUTH_PREFIX}$orden"
+    "$RUNTIME" fallback "$win" "$SESSION:$win" claude
+  else
+    lanza "$SESSION:$win" "$win" "$ruta" \
+      "$espera$entorno${CLAUDE_AUTH_PREFIX}$(gateway_line "$win" "$ruta" "$orden")"
+  fi
+}
+
 # The chair's Claude, opened the way the card asks for.
 #
 # Both spellings carry the SAME flags. That matters: `--settings` closes
@@ -651,8 +679,7 @@ for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
         turno=$((turno + 1))
         if [ "$espera" = "0" ]; then espera=''; else espera="sleep $espera; "; fi
         CLAUDE_REPO="$(con_motor "$win" claude "$OTRO --name $SESSION-$win")$CLAUDE_TRATO$YOLO_FLAG"
-        lanza "$SESSION:$win" "$win" "$path" \
-          "$espera$(entorno_de "$win")$BROKER_ENV$JAULA$CAGE_RUNTIME_ENV${CLAUDE_AUTH_PREFIX}$(gateway_line "$win" "$path" "$CLAUDE_REPO")"
+        lanza_casa_claude "$win" "$path" "$CLAUDE_REPO" "$espera"
       elif [ "$KIND" = codex ] || [ "$KIND" = opencode ] || [ "$KIND" = kimi ]; then
         # Native servers have their own credentials and do not share Claude's OAuth race.
         # Codex stays outside the outer cage ON macOS ONLY: its node_repl MCP
@@ -684,8 +711,7 @@ for path in ${RUTAS[@]+"${RUTAS[@]}"}; do
       turno=$((turno + 1))
       if [ "$espera" = "0" ]; then espera=''; else espera="sleep $espera; "; fi
       CLAUDE_REPO="$(con_motor "$win" claude "claude --name $SESSION-$win")$CLAUDE_TRATO$YOLO_FLAG"
-      lanza "$SESSION:$win" "$win" "$path" \
-        "$espera$(entorno_de "$win")$BROKER_ENV${JAULA}$CAGE_RUNTIME_ENV${CLAUDE_AUTH_PREFIX}$(gateway_line "$win" "$path" "$CLAUDE_REPO")"
+      lanza_casa_claude "$win" "$path" "$CLAUDE_REPO" "$espera"
     fi
   fi
 done

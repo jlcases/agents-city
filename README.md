@@ -1808,6 +1808,18 @@ launches the chair itself without permission prompts — set at the wizard's
 sixth question or with `agents-city seat --seat-yolo on|off`; `--no-yolo`
 still brakes the whole session.
 
+`ui.<agent>` chooses what opens in a window: `tui` is that person's own Claude
+Code — their plugins, their statusline, their slash commands — and `gateway` is
+the city's own prompt with the runtime headless behind it. The chair defaults to
+`tui` and a house to `gateway`, and both defaults are the useful ones: a chair is
+where you sit, and a house is where work arrives without anybody sitting in it,
+with the whole conversation showing up in the Hall.
+
+The trade is stated rather than hidden. Claude Code's TUI has no inbound door,
+so a `tui` window receives its work as a protected paste into the pane, and the
+launcher warns that native delivery is unavailable for it. That is the same
+bargain the chair has always made.
+
 `seat_reach` says whether the chair works with its own hands. It is `closed`
 unless you write `open`. Closed means a seat holds a chair's tools and nothing
 else: its own city folder, this product's own doors (`agents-city …` — that is

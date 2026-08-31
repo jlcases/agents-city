@@ -220,6 +220,82 @@ def main():
         })
         afirma('· the chair resolves the request explicitly', denied.returncode == 0)
 
+        # ── the record, which had nobody checking it ────────────────────────
+        #
+        # Execution gets an independent verifier. The SUMMARY got nobody: a
+        # position quietly softened, a condition dropped, a stance reported as
+        # something it was not, and the member it belonged to had no valid basis
+        # to say so. Not new evidence, not a contradiction in the facts — a
+        # challenge to the chair's account of what they said.
+        mal_citado = valor(ejecuta(env, 'web', 'floor-request', thread, {
+            'basis': 'misrepresented',
+            'reason': 'the synthesis reports me as unconditional; my stance was conditional',
+            'evidence': [],
+        }))
+        mal_id = mal_citado.get('myFloorRequests', [{}])[-1].get('id', '')
+        afirma('· a member can say the synthesis is not what it said', bool(mal_id))
+        peticion = next((r for r in mal_citado.get('myFloorRequests', [])
+                         if r.get('id') == mal_id), {})
+        afirma(
+            "· and its own position travels with it, so the chair is shown what it summarised",
+            peticion.get('position', {}).get('recommendation')
+            == web_position['recommendation'],
+            json.dumps(peticion)[:300],
+        )
+        bloquea = ejecuta(env, 'seat', 'decide', thread, {
+            'outcome': 'ship', 'rationale': 'gates pass', 'owner': 'alice',
+            'executor': 'seat', 'verifier': 'ops',
+            'verificationQuestion': 'does replay pass?',
+            'selectedEvidence': ['run 482'], 'reopenIf': ['replay fails'],
+        })
+        afirma('· non-happy: and the chair cannot decide over an unanswered one',
+               bloquea.returncode != 0 and 'pending floor request' in bloquea.stderr)
+        ejecuta(env, 'seat', 'floor-deny', thread, {
+            'requestId': mal_id, 'reason': 'the stance is quoted verbatim in the act',
+        })
+        # Resolved, so the pending guard is out of the way and what refuses the
+        # second one is the rule this basis carries: once.
+        otra_vez = ejecuta(env, 'web', 'floor-request', thread, {
+            'basis': 'misrepresented', 'reason': 'still not right', 'evidence': [],
+        })
+        afirma('· non-happy: a correction that repeats is a filibuster with better manners',
+               otra_vez.returncode != 0
+               and 'already challenged how its position' in otra_vez.stderr,
+               otra_vez.stderr.strip())
+
+        # The one case where a member has nothing on the record: the chair
+        # synthesised without it, said why, and now it turns up. There is no
+        # summary of its position to be wrong, because it never gave one — and a
+        # basis that would let it claim otherwise would let anybody claim
+        # anything.
+        segundo = valor(ejecuta(env, 'seat', 'open', payload={
+            'question': 'Do we cache the banner?',
+            'desiredOutcome': 'A yes or no',
+            'definitionOfDone': ['a decision'],
+            'participants': ['api', 'ops'],
+            'authority': 'recommend',
+        }))
+        hilo2 = segundo.get('id', '')
+        ejecuta(env, 'api', 'respond', hilo2, {
+            'stance': 'support', 'recommendation': 'cache it',
+            'evidence': ['cdn hit rate'], 'expectedImpact': 'fewer origin hits',
+            'visibleWhen': 'next deploy', 'withdrawIf': 'the banner changes hourly',
+        })
+        sin_esperar = ejecuta(env, 'seat', 'synthesize', hilo2, {
+            'summary': 'api says cache', 'agreements': ['cache it'],
+            'conflicts': [], 'unknowns': [],
+            'proceedWithout': 'ops has not answered in an hour and the window closes',
+        })
+        afirma('· a chair may proceed without a position, having said why',
+               sin_esperar.returncode == 0, sin_esperar.stderr.strip())
+        tarde = ejecuta(env, 'ops', 'floor-request', hilo2, {
+            'basis': 'misrepresented', 'reason': 'that is not my view', 'evidence': [],
+        })
+        afirma('· non-happy: and one who said nothing has nothing to be misquoted about',
+               tarde.returncode != 0 and 'submitted no position' in tarde.stderr,
+               tarde.stderr.strip()[:200])
+        ejecuta(env, 'seat', 'cancel', hilo2, {'reason': 'fixture'})
+
         decision = {
             'outcome': 'ship after staging replay',
             'rationale': 'migration and rollback evidence agree',
@@ -313,9 +389,14 @@ def main():
                len(events) >= 16 and events[-1]['type'] == 'committee.close',
                f'{len(events)} events')
         history = valor(ejecuta(env, 'seat', 'history'))
+        # Indexed defensively: an earlier transition that stops working leaves
+        # these lists empty, and an IndexError here would replace every failure
+        # this suite had collected with a traceback about the last one.
+        reciente = (history.get('recent') or [{}])[0]
+        contribuyentes = (history.get('contributorCounts') or [{}])[0]
         afirma('· the chair gets concise cross-decision memory against capture',
-               history.get('recent', [{}])[0].get('deliberation') == thread
-               and history.get('contributorCounts', [{}])[0].get('decisions') == 2
+               reciente.get('deliberation') == thread
+               and contribuyentes.get('decisions') == 2
                and 'not proof of capture' in history.get('note', ''), str(history))
         denied_history = ejecuta(env, 'api', 'history')
         afirma('· decision influence history is chair-only',

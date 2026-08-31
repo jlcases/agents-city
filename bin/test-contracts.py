@@ -474,9 +474,16 @@ def asiento_con_su_arnes():
            and "crossSessionInbound" not in fuente
            and "SendMessage,ListAgents" not in fuente, '')
 
-    # A house is not a chair: it must still be reachable from the bus.
-    afirma('· an agent house still goes through the gateway',
-           'gateway_line "$win" "$path" "$CLAUDE_REPO"' in fuente, '')
+    # A house is not a chair, and its DEFAULT must keep it reachable from the
+    # bus: work arrives without anybody sitting in that window. The choice is
+    # now offered — `ui.<house>: tui` opens the person's own Claude Code — so
+    # what this checks is the default, not the absence of a choice.
+    casa_claude = fuente[fuente.index('lanza_casa_claude() {'):fuente.index("# The chair's Claude")]
+    afirma('· a house defaults to the gateway, which is what makes work reach it',
+           'ui_de "$win" gateway' in casa_claude
+           and 'gateway_line "$win" "$ruta" "$orden"' in casa_claude, casa_claude[:400])
+    afirma('· and a house that keeps its own CLI is given a way to be handed work',
+           '"$RUNTIME" fallback "$win"' in casa_claude, casa_claude[:400])
 
     # `ui.<window>`, lifted out and exercised.
     casa = tempfile.mkdtemp()
