@@ -70,6 +70,11 @@ function exportedArtifactBoundary() {
   const runtime = readFileSync(join(ROOT, 'plugin/channel/managed-connect-client.js'), 'utf8');
   check('the shipped runtime is relay v4 and contains no relay v2 fallback',
     runtime.includes('agents-city-relay/4') && !runtime.includes('agents-city-relay/2'));
+  check('temporary admission failures get two bounded same-envelope retries',
+    runtime.includes('attempt < 3')
+      && runtime.includes('code === "mailbox_full" ? 5e3 : 2e3')
+      && runtime.includes('error.code === "delivery_unavailable"')
+      && runtime.includes('error.code === "mailbox_full"'));
   const sandboxRoots = readFileSync(
     join(ROOT, 'plugin/channel/trust/agents-city-sandbox-roots.json'),
     'utf8',
@@ -99,6 +104,9 @@ function documentationBoundary() {
     managed.includes('not production-enabled')
       && managed.includes('not itself application-level encrypted')
       && managed.includes('independent security audit'));
+  check('public documentation explains bounded admission recovery',
+    managed.includes('at most two more attempts')
+      && /same\s+encrypted envelope/.test(managed));
   check('both READMEs require a signed root chain in first-pairing examples',
     english.includes('--service https://connect.example.com --trust-file roots.json')
       && spanish.includes('--service https://connect.example.com --trust-file roots.json'));

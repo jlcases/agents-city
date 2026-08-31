@@ -10,7 +10,7 @@
     "packages/connect-client/src/node-persistence.ts": "34de5a67a5168907afe9394edbb4b6d5c87dc66b74524a1abac9d4b50618862f",
     "packages/connect-client/src/node.ts": "0aff832557684758c323ff768753e2da693766df21e35079e2f40cd31fbd1c27",
     "packages/connect-client/src/ratchet.ts": "f6f900f6c78a1db20f44ae4582c7c3a56236c2342a406bfa3a4c158446890395",
-    "packages/connect-client/src/relay-session.ts": "113fcb5ee9db8ee3a0e9c4778a04367d8e1c5213bcb590dabe4fc73c34ea2259",
+    "packages/connect-client/src/relay-session.ts": "47a02968547e0c5bcf716976a134c3d45a3d5ec55f50fcca6816e292b4ee0230",
     "packages/connect-client/src/road.ts": "0f6be1e5a7ee29efe7159cfa13d91e42505af454bfb281f5308e65a91fce1f1b",
     "packages/connect-client/src/sealed-client.ts": "be8a88438548f44be5ec12f6e0c8fa3dcb7abf2739f11ab7da6cfe3e20462877",
     "packages/service-protocol/src/index.ts": "4bec14f75b1bfa6ccadb59724dce53d0c60723384cf92e51b99fd5689ecaeddc",
@@ -24,7 +24,7 @@
     "config/sandbox-key-transparency-root-chain.json": "29067a5fd0d7bc6f5ad0810677c430bdd3b7f5177bbb304da4d1ce7fa815585f"
   },
   "exported": {
-    "plugin/channel/managed-connect-client.js": "39369414df546e839034c6c693201d17ae50d5d9661a006939ee2073c913c03c",
+    "plugin/channel/managed-connect-client.js": "314a6aabfc6e3ba6ee9cc668cee3adfa3f49f6014c12788bc65524a7ad3239cd",
     "plugin/channel/managed-connect-client.d.ts": "e5c7992f9b163234d3fc56cbf1469244902d0ede220d7d025eeb30359dc7f301",
     "plugin/channel/trust/agents-city-sandbox-roots.json": "29067a5fd0d7bc6f5ad0810677c430bdd3b7f5177bbb304da4d1ce7fa815585f",
     "plugin/channel/kinsh_vodozemac_wasm_bg.wasm": "b05699476752705a95100a9c54874be89b636bd361497b524b798944b401ba12",

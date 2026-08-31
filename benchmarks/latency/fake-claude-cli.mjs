@@ -72,7 +72,8 @@ function runNext() {
   working = true;
   const message = queue.shift();
   const text = userText(message);
-  const delay = behavior() === 'slow' ? 350 : 5;
+  const mode = behavior();
+  const delay = mode === 'slow-long' ? 1_500 : mode === 'slow' ? 350 : 5;
   setTimeout(() => {
     emit({
       type: 'assistant',
@@ -103,7 +104,7 @@ function userText(message) {
   const content = message?.message?.content;
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
-  return content.map((block) => block?.type === 'text' ? String(block.text || '') : '').join('');
+  return content.map((block) => (block?.type === 'text' ? String(block.text || '') : '')).join('');
 }
 
 function emit(value) {

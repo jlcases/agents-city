@@ -163,6 +163,11 @@ consuming another capability. A changed body with the same ID is rejected.
 were already admitted. Neither status means that a person or model has read or
 answered the message.
 
+If an identified WebSocket admission temporarily returns `delivery_unavailable`
+or `mailbox_full`, the client makes at most two more attempts with the same
+encrypted envelope. Server-directed delays are capped and receive per-message
+jitter, so a recovering lane is not hit again by every sender at once.
+
 Transport is therefore at-least-once with an idempotent local effect, not a
 fictional exactly-once network. Revocation removes the Road revision, queued
 ciphertext, capabilities and local cryptographic state. Reopening consumes new

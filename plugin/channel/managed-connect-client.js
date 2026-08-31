@@ -5206,6 +5206,27 @@ var submitSealedMessage = async (endpoint, candidate, fetcher = fetch) => {
 };
 
 // packages/connect-client/src/relay-session.ts
+var RelayRequestError = class extends Error {
+  constructor(code, retryAfterMs) {
+    super(code);
+    this.code = code;
+    this.retryAfterMs = retryAfterMs;
+    this.name = "RelayRequestError";
+  }
+  code;
+  retryAfterMs;
+};
+var admissionRetryDelay = (messageId, attempt, code, retryAfterMs) => {
+  const maximum = code === "mailbox_full" ? 5e3 : 2e3;
+  const base = Math.min(maximum, retryAfterMs ?? 100 * (attempt + 1));
+  const jitterWindow = Math.min(250, Math.floor(base / 4));
+  let hash = 2166136261;
+  for (const character of `${messageId}:${attempt}`) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return base + (jitterWindow > 0 ? (hash >>> 0) % (jitterWindow + 1) : 0);
+};
 var ManagedRelaySession = class {
   constructor(identity, city, transport, options) {
     this.identity = identity;
@@ -5296,7 +5317,7 @@ var ManagedRelaySession = class {
     await options.onAccepted?.(result);
     return result;
   }
-  async sendEnvelope(envelope) {
+  async sendEnvelopeOnce(envelope) {
     const result = new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(envelope.requestId);
@@ -5312,7 +5333,33 @@ var ManagedRelaySession = class {
         error instanceof Error ? error : new Error("relay_send_failed")
       );
     }
-    const accepted = await result;
+    return result;
+  }
+  async sendEnvelope(envelope) {
+    let lastError;
+    let accepted = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        accepted = await this.sendEnvelopeOnce(envelope);
+        break;
+      } catch (error) {
+        lastError = error;
+        const retryableCode = error instanceof RelayRequestError && (error.code === "delivery_unavailable" || error.code === "mailbox_full") ? error.code : null;
+        if (!retryableCode || attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(
+          resolve,
+          admissionRetryDelay(
+            envelope.id,
+            attempt,
+            retryableCode,
+            error instanceof RelayRequestError ? error.retryAfterMs : null
+          )
+        ));
+      }
+    }
+    if (!accepted) {
+      throw lastError instanceof Error ? lastError : new Error("delivery_unavailable");
+    }
     if (envelope.payload.suite === HYBRID_ESTABLISHMENT_SUITE) {
       await this.identity.ratchet.confirmHybridEstablishmentQueued(
         envelope.roadId,
@@ -5516,7 +5563,10 @@ var ManagedRelaySession = class {
         this.pendingCapabilities.delete(frame.requestId);
         request.reject(new Error(frame.code));
       } else if (frame.requestId)
-        this.rejectPending(frame.requestId, new Error(frame.code));
+        this.rejectPending(
+          frame.requestId,
+          new RelayRequestError(frame.code, frame.retryAfterMs ?? null)
+        );
       else throw new Error(frame.code);
       return;
     }
