@@ -22,6 +22,37 @@ CHANNEL = os.path.join(RAIZ, 'plugin', 'channel', 'run.sh')
 CLIENT = os.path.join(RAIZ, 'plugin', 'channel', 'client.js')
 
 
+def espera_avisos(bus, quieto=0.6, tope=10):
+    """The seat's wake-ups, once they have arrived AND stopped arriving.
+
+    Reading `bus.mensajes` at a fixed moment samples a race, and a sample lies
+    in both directions: it saw zero on a loaded Linux runner and failed a
+    working product, and on a slow one it could see two of a hundred and pass a
+    broken one. Both halves of the assertion need the burst to be over — the
+    lower bound needs them to have arrived, the upper bound needs no more to be
+    coming.
+
+    So: wait for the first, then wait until none has appeared for `quieto`.
+    Quiescence, not a guess at how long a hundred arrivals take.
+    """
+    def cuantos():
+        return sum(1 for m in bus.mensajes
+                   if m.get('method') == 'notifications/claude/channel')
+
+    limite = time.monotonic() + tope
+    bus.espera(lambda m: m.get('method') == 'notifications/claude/channel', segundos=tope)
+    ultimo, estable = cuantos(), time.monotonic()
+    while time.monotonic() < limite:
+        time.sleep(0.05)
+        ahora = cuantos()
+        if ahora != ultimo:
+            ultimo, estable = ahora, time.monotonic()
+        elif time.monotonic() - estable >= quieto:
+            break
+    return [m for m in bus.mensajes
+            if m.get('method') == 'notifications/claude/channel']
+
+
 def espera(condicion, segundos=8):
     limite = time.monotonic() + segundos
     while time.monotonic() < limite:
@@ -398,8 +429,9 @@ def main():
                'alice/home' in texto(roster)
                and 'alice/ghost' not in texto(roster)
                and '"online": true' in texto(roster), texto(roster))
-        road_notices = [m for m in b.mensajes
-                        if m.get('method') == 'notifications/claude/channel']
+        # Waited for, not sampled. Reading the list at a fixed moment saw zero
+        # on a loaded runner and failed a product that was working.
+        road_notices = espera_avisos(b)
         # Coalesced, not exactly-one. The property is that a hundred arrivals
         # do not become a hundred interruptions; whether the window happens to
         # close once or twice mid-burst is the machine's business, and asserting
