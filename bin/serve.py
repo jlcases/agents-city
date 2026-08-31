@@ -619,6 +619,23 @@ class Manejador(http.server.BaseHTTPRequestHandler):
     _ultimo = None
     _error = None
 
+    def _ciudad_para_apuntar(self, q):
+        """The same city `ciudad` would resolve, resolved without touching it.
+
+        `ciudad` calls `asegura_metadata`, which does `makedirs` and writes
+        `city.yml` — right when a request is about to act on a city, and wrong
+        when the only reason we are asking is to write a log line. The journal
+        runs AFTER the handler, so on a request that archived or reset a city it
+        recreated the very folder that had just been taken away, leaving a ghost
+        behind. Observing something must not create it.
+        """
+        pedida = q.get("city", [""])[0]
+        if pedida:
+            resuelta = self.resuelve_conocida(pedida)
+            if resuelta:
+                return resuelta
+        return seat.donde_viven_las_fichas()
+
     def apunta(self, q, tipo, **campos):
         """One journal line, in the journal of the city the request acted on.
 
@@ -628,7 +645,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         record, because it is a record that lies about where.
         """
         try:
-            diario.apunta(self.ciudad(q), tipo, **campos)
+            diario.apunta(self._ciudad_para_apuntar(q), tipo, **campos)
         except Exception:  # noqa: BLE001  logging must not break the request
             pass
 

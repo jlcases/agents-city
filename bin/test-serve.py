@@ -937,7 +937,31 @@ def main():
             not os.path.exists(os.path.join(hallDatos, "units.yml"))
             or "u1" not in open(os.path.join(hallDatos, "units.yml")).read(),
         )
+        # Observing must not create.
+        #
+        # The journal runs after the handler, and it used to resolve its city
+        # through `ciudad`, which does `makedirs` and writes `city.yml`. On a
+        # request that archived a city, the log line recreated the folder that
+        # had just been taken away — a ghost city, left behind by the act of
+        # recording that it had gone. It also raced this very cleanup.
         shutil.rmtree(otra)
+        # The resolver the journal uses, on its own: it must answer where
+        # to write without bringing anything into being.
+        #
+        # (A handler is a different matter. It resolves through `ciudad`, which
+        # creates metadata for a city it is about to act on, so a request naming
+        # a deleted city can recreate its folder. That predates the journal and
+        # is not what this is about.)
+        fantasma = os.path.join(tempfile.mkdtemp(), "no-existe")
+        manejador = serve.Manejador.__new__(serve.Manejador)
+        donde = manejador._ciudad_para_apuntar(
+            {"city": [fantasma]}
+        )
+        afirma(
+            "· the journal's own resolver creates nothing",
+            not os.path.exists(fantasma) and isinstance(donde, str),
+            f"{fantasma} exists after only asking where to log",
+        )
 
         # ── the demo's remote control ────────────────────────────────────────
         print("  the demo's remote control")
