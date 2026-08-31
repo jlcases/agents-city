@@ -19,6 +19,12 @@
 #   repository  jlcases/agents-city
 #   workflow    release.yml
 #
+# If that setting is missing the registry answers the SAME 404 as a bad
+# credential does, on purpose — it will not tell a stranger which packages
+# exist. So when a publish 404s, there are exactly two candidates: a credential
+# the workflow gave itself (guarded below) or that setting. The log distinguishes
+# them: npm says what it is attempting before it attempts it.
+#
 # To release:  npm version patch --no-git-tag-version  (then a PR)
 #              git tag v0.5.2 && git push origin v0.5.2
 name: release
@@ -41,10 +47,28 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      # Deliberately WITHOUT `registry-url`.
+      #
+      # It reads like the line that points npm at npmjs.com. What it actually
+      # does is write an `.npmrc` containing
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` and export
+      # NODE_AUTH_TOKEN as the literal placeholder `XXXXX-XXXXX-XXXXX-XXXXX`.
+      # npm then believes it already holds a credential, never asks GitHub for
+      # the OIDC token this workflow is entitled to, and PUTs the tarball
+      # authenticated as a string of X's.
+      #
+      # The registry answers 404 — "not found" rather than "not allowed", so as
+      # not to reveal which packages exist — which reads like a missing package
+      # and is really a credential the workflow handed itself. That is what
+      # v0.5.4 died of, after signing its provenance and publishing it to the
+      # transparency log: sigstore's OIDC is a different exchange, and it
+      # succeeded, which made the failure look like anything but auth.
+      #
+      # registry.npmjs.org is npm's default. The only thing that line bought is
+      # the thing that broke it.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       # Trusted publishing is npm 11.5.1 and newer. Node 22 bundles npm 10,
       # which does not know how to trade the workflow's OIDC token for a
@@ -64,6 +88,17 @@ jobs:
               process.exit(1);
             }
           ' "$(npm --version)"
+
+      # And nothing may have left a credential lying around, because a
+      # credential is how the OIDC exchange gets skipped. Checked here rather
+      # than inferred from a 404 an hour later.
+      - name: no stored credential, so the OIDC exchange is the only way in
+        run: |
+          guardado="$(npm config get //registry.npmjs.org/:_authToken 2>/dev/null || true)"
+          case "$guardado" in
+            ''|undefined|null) echo "no stored credential" ;;
+            *) echo "::error::npm already holds a registry credential; trusted publishing will not even be attempted" ; exit 1 ;;
+          esac
 
       # A tag that disagrees with the manifests would publish one version under
       # another one's name, in a public registry, permanently. The contracts

@@ -761,6 +761,11 @@ def publicar_es_verificable():
     if not os.path.isfile(ruta):
         return
     release = open(ruta, encoding='utf-8').read()
+    # The workflow without its comments. Half of what is asserted below is the
+    # ABSENCE of something, and this file documents every trap it has fallen
+    # into by name — so a check that cannot tell a step from a sentence about a
+    # step fails on the explanation of why it exists.
+    codigo = '\n'.join(l for l in release.splitlines() if not l.lstrip().startswith('#'))
     prueba = open(os.path.join(RAIZ, '.github', 'workflows', 'test.yml'),
                   encoding='utf-8').read()
 
@@ -788,7 +793,8 @@ def publicar_es_verificable():
            and 'NPM_TOKEN' not in release and 'secrets.' not in release,
            'trusted publishing: a secret that does not exist cannot leak')
     afirma('· and it asks for nothing else',
-           release.count('write') == 1, 'id-token is the only write permission')
+           len(re.findall(r':\s*write\b', codigo)) == 1,
+           'id-token is the only write permission')
     # Node 22 bundles npm 10, which cannot exchange an OIDC token and so
     # publishes UNAUTHENTICATED — the registry answers 404, which reads like a
     # missing package and is really a missing credential. It cost one release
@@ -798,6 +804,20 @@ def publicar_es_verificable():
            'trusted publishing needs npm >= 11.5.1; setup-node gives 10.x')
     afirma('· and it refuses to publish with an older one rather than trying',
            'process.exit(1)' in release, release)
+    # And an npm new enough is still not enough if something already handed it a
+    # credential, because a credential is how the OIDC exchange gets SKIPPED.
+    # `setup-node`'s `registry-url` looks like the line that points npm at
+    # npmjs.com; what it does is write `_authToken=${NODE_AUTH_TOKEN}` into an
+    # .npmrc and export NODE_AUTH_TOKEN as the literal `XXXXX-XXXXX-XXXXX-XXXXX`.
+    # npm then publishes authenticated as a string of X's and the registry
+    # answers the same 404 it answers a stranger. It cost the second release.
+    afirma('· and nothing hands npm a credential of its own before it asks',
+           'registry-url' not in codigo and 'NODE_AUTH_TOKEN' not in codigo,
+           'setup-node registry-url writes a placeholder token that skips the OIDC exchange')
+    afirma('· which is checked in the run rather than inferred from a 404',
+           '_authToken' in codigo
+           and codigo.index('_authToken') < codigo.rindex('run: npm publish'),
+           'the registry says "not found" when it means "not allowed"')
     # prepublishOnly rebuilds and re-runs the whole suite. By hand that is the
     # only safety net; here the suite has already run on three platforms and
     # byte-compared the artifacts, so a fourth run verifies nothing and can
