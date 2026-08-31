@@ -248,9 +248,17 @@ export class Bienvenida {
             this.roster.length ? 'Add another house' : 'Build the first house',
           )}</button>
           <button class="bt" data-bv="siguiente">${_(
-            this.roster.length ? 'That is everyone' : 'Skip — just me for now',
+            this.roster.length ? 'That is everyone' : 'Nobody yet — I answer alone',
           )}</button>
         </div>
+        ${
+          this.roster.length
+            ? ''
+            : `<p class="prosa apunte">${_(`A city with no houses does not delegate: the seat
+              answers, and it is the only one who can. That is a real choice for a role whose
+              work is other people's cities rather than folders — and it is not the usual one.
+              Houses can be added later, from here or with <b>agents-city seat --agents</b>.`)}</p>`
+        }
       </div>`;
   }
 

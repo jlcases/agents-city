@@ -118,7 +118,9 @@ anota({
   'Build the first house': 'Construye la primera casa',
   'Add another house': 'Añade otra casa',
   'That is everyone': 'Ya están todos',
-  'Skip — just me for now': 'Sáltalo — de momento solo yo',
+  'Nobody yet — I answer alone': 'Nadie todavía — contesto yo solo',
+  "A city with no houses does not delegate: the seat answers, and it is the only one who can. That is a real choice for a role whose work is other people's cities rather than folders — and it is not the usual one. Houses can be added later, from here or with <b>agents-city seat --agents</b>.":
+    'Una ciudad sin casas no delega: contesta el asiento, y es el único que puede. Es una elección de verdad para un rol cuyo trabajo son las ciudades de otros y no las carpetas — y no es la habitual. Las casas se pueden añadir luego, desde aquí o con <b>agents-city seat --agents</b>.',
   'a new house': 'una casa nueva',
   'Who lives in it?': '¿Quién vive en ella?',
   'What do you call it?': '¿Cómo la llamas?',

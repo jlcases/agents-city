@@ -114,8 +114,6 @@ def contexto(datos, plugin=""):
     """The whole note, or '' when there is nobody to name."""
     agentes = agentes_de(datos)
     caminos = carreteras(datos, plugin)
-    if not agentes and not caminos:
-        return ""
     partes = [
         "Before you answer this, decide who it concerns. You are the chair of "
         "this city: the answer that leaves here should be the city's, and a city "
@@ -123,11 +121,25 @@ def contexto(datos, plugin=""):
     ]
     if agentes:
         partes.append("In this city:\n" + "\n".join(_linea_de_agente(a) for a in agentes))
+    else:
+        # Said rather than left silent. A city with no houses cannot delegate, so
+        # nothing is refused here and the answer is yours alone — which is a fact
+        # about this city worth knowing before you give it, not a state to
+        # discover afterwards.
+        partes.append(
+            "This city has no houses, so there is nobody here to ask and nothing "
+            "is being withheld from you: whatever you answer is yours alone. "
+            "`agents-city seat --agents` changes that."
+        )
     if caminos:
         partes.append(
             "On your roads — other cities, each with its own owner and its own "
             "seat:\n" + "\n".join(_linea_de_carretera(c) for c in caminos)
         )
+    # With nobody in the city and no road out, the two routes below are a form
+    # to fill in with nothing. Say what is true and stop.
+    if not agentes and not caminos:
+        return "\n\n".join(partes)
     partes.append(
         "Ask the ones it concerns, and only those:\n"
         "  · an agent here — `agents-city committee open --question … --member <agent> "
