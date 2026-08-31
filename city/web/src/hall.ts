@@ -878,6 +878,11 @@ function estadoDeLaCiudad(): string {
   return `<div class="estadoCiudad">${filas.map((f) => `<div>${f}</div>`).join('')}</div>`;
 }
 
+/** A figure, with a zero drawn as the absence it is. */
+function cifra(n: number): string {
+  return `<b class="${n ? '' : 'cero'}">${n}</b>`;
+}
+
 function rail(): void {
   // Everything above the divider belongs to ONE city — its seat, its agents,
   // its map. Saying so here is the difference between a menu and a place: an
@@ -1230,11 +1235,11 @@ VISTAS.resumen = () => {
              counted with <code class="mono">${esc(E.grow || 'nothing yet')}</code>.</p>`
       }</div>
     <div class="cifras">
-      <div class="cifra"><b>${Object.keys(E.skills).length}</b><span>${_('repo agents')}</span></div>
-      <div class="cifra"><b>${E.parcelas.length}</b><span>houses</span></div>
-      <div class="cifra"><b>${E.roads.length}</b><span>roads</span></div>
-      <div class="cifra"><b>${E.deliberations.length}</b><span>${_('committee acts')}</span></div>
-      <div class="cifra"><b>${Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0)}</b><span>${_('skills recognised')}</span></div>
+      <div class="cifra">${cifra(Object.keys(E.skills).length)}<span>${_('repo agents')}</span></div>
+      <div class="cifra">${cifra(E.parcelas.length)}<span>houses</span></div>
+      <div class="cifra">${cifra(E.roads.length)}<span>roads</span></div>
+      <div class="cifra">${cifra(E.deliberations.length)}<span>${_('committee acts')}</span></div>
+      <div class="cifra">${cifra(Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0))}<span>${_('skills recognised')}</span></div>
     </div>
     <div class="luces">
       <span class="luz ${E.tarjetas.length ? 'on' : ''}">${_('data repo')}</span>
