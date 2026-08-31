@@ -340,24 +340,35 @@ def la_pagina_no_se_queda_muda():
     # radii. That is not a set of decisions, it is the absence of one, and it is
     # what makes a page read as assembled rather than designed. Seven steps now,
     # and a raw px here means somebody nudged instead of choosing.
-    hoja_txt = texto_de('bin/hall.html')
-    sueltos = re.findall(r'font-size:([0-9.]+)px', hoja_txt)
-    afirma('· every size on the page comes from the scale, not from a nudge',
-           not sueltos, f'raw sizes: {sorted(set(sueltos))}')
-    radios = [r for r in re.findall(r'border-radius:([0-9]+)px', hoja_txt) if r != '999']
-    afirma('· and so does every corner, pills aside',
-           not radios, f'raw radii: {sorted(set(radios))}')
-    afirma('· the scale is defined once, next to the palette it belongs beside',
-           '--t0:' in hoja_txt and '--t6:' in hoja_txt and '--r1:' in hoja_txt, '')
-    # A product somebody can only use with a mouse is not finished.
-    # Anchored at the start of a line, so it means the GLOBAL rule. Buttons
-    # already had `.bt:focus-visible`, and a check satisfied by that was a check
-    # that would have passed before the thing it exists for was written.
-    afirma('· a keyboard can see where it is, on everything and not just buttons',
-           re.search(r'(?m)^:focus-visible\{outline', hoja_txt) is not None,
-           'only .bt had a ring; every link, field and tab had none')
-    afirma('· and somebody who asked for less motion gets less',
-           'prefers-reduced-motion' in hoja_txt, '')
+    # BOTH surfaces. The map is a separate bundle with its own stylesheet, and it
+    # already shared the palette for a stated reason — two frames in one window
+    # that disagree are two products. A scale it did not share was that same
+    # disagreement one layer down.
+    superficies = {'the hall': texto_de('bin/hall.html'),
+                   'the map': texto_de('city/web/index.html')}
+    for donde, css in superficies.items():
+        sueltos = re.findall(r'font-size:([0-9.]+)px', css)
+        afirma(f'· every size in {donde} comes from the scale, not from a nudge',
+               not sueltos, f'raw sizes: {sorted(set(sueltos))}')
+        radios = [r for r in re.findall(r'border-radius:([0-9]+)px', css) if r != '999']
+        afirma(f'· and so does every corner in {donde}, pills aside',
+               not radios, f'raw radii: {sorted(set(radios))}')
+        afirma(f'· {donde} defines the scale beside the palette it belongs with',
+               '--t0:' in css and '--t6:' in css and '--r1:' in css, '')
+        # Anchored at the start of a line, so it means the GLOBAL rule. Each file
+        # already had a ring on ONE control, and a check satisfied by that would
+        # have passed before the thing it exists for was written.
+        afirma(f'· a keyboard can see where it is in {donde}, not just on one control',
+               re.search(r'(?m)^:focus-visible\{outline', css) is not None,
+               'a ring on one control is an accident, not keyboard support')
+        afirma(f'· and {donde} honours a request for less motion, for everything',
+               re.search(r'(?m)^@media \(prefers-reduced-motion:reduce\)', css) is not None,
+               'naming two animations leaves out the third one nobody remembers')
+    hoja_txt = superficies['the hall']
+    afirma('· and the two surfaces agree on what a step is',
+           re.search(r'--t3:(\d+)px', hoja_txt).group(1)
+           == re.search(r'--t3:(\d+)px', superficies['the map']).group(1),
+           'one window, one scale')
 
     # Typography is a property, not a taste. A 62ch measure is the width at
     # which text is read rather than skimmed, and `.prosa` had set it for years
