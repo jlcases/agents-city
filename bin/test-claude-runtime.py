@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
@@ -74,6 +75,13 @@ def open_committee(env, question):
         return json.loads(opened.stdout).get('id', '')
     except json.JSONDecodeError:
         return ''
+
+
+def open_committees(env, questions):
+    """Admit independent requests concurrently instead of timing the CLI loop."""
+    with ThreadPoolExecutor(max_workers=len(questions)) as pool:
+        futures = [pool.submit(open_committee, env, question) for question in questions]
+        return [future.result() for future in futures]
 
 
 def main():  # noqa: C901 - this is one complete process lifecycle
@@ -180,9 +188,11 @@ def main():  # noqa: C901 - this is one complete process lifecycle
         # Claude is slow must remain serialized: the second stays in the durable
         # actor outbox until the first result finishes instead of starting a
         # concurrent model call.
-        open(behavior, 'w', encoding='utf-8').write('slow\n')
-        first_slow = open_committee(env, 'First slow assignment.')
-        second_slow = open_committee(env, 'Second assignment waits behind the first.')
+        open(behavior, 'w', encoding='utf-8').write('slow-long\n')
+        first_slow, second_slow = open_committees(env, [
+            'First slow assignment.',
+            'Second assignment waits behind the first.',
+        ])
         afirma('· load: two slow assignments are admitted to the durable city queue',
                bool(first_slow) and bool(second_slow))
         afirma('· load: Claude receives the first slow turn',
@@ -212,10 +222,11 @@ def main():  # noqa: C901 - this is one complete process lifecycle
         metrics_before = len(rows(metrics))
         captures_before = len(rows(capture))
         burst_started = time.monotonic()
-        burst_threads = [
-            open_committee(env, f'Slow backlog assignment {index + 1}.')
+        open(behavior, 'w', encoding='utf-8').write('slow\n')
+        burst_threads = open_committees(env, [
+            f'Slow backlog assignment {index + 1}.'
             for index in range(burst_count)
-        ]
+        ])
         pending_files = os.listdir(outbox) if os.path.isdir(outbox) else []
         peak_backlog = len(pending_files)
         oldest_age_ms = 0
