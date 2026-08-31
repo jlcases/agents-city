@@ -1,6 +1,6 @@
 {
   "name": "agents-city",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Run autonomous agent cities: one chair seat, role-aware repo agents, repo-owned skills, and explicit roads.",
   "bin": {
     "agents-city": "bin/agents-city.js"
@@ -61,7 +61,10 @@
     "linux"
   ],
   "homepage": "https://agentscity.net",
-  "repository": "github:jlcases/agents-city",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jlcases/agents-city.git"
+  },
   "bugs": "https://github.com/jlcases/agents-city/issues",
   "author": "jlcases",
   "license": "Apache-2.0",
