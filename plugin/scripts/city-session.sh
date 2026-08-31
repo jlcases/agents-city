@@ -757,6 +757,36 @@ if [ "$SESION_YA" -eq 1 ]; then
   else
     echo "Session '$SESSION' is already up, with every agent on the card — attaching." >&2
   fi
+  # A window that is already open is left alone — there may be work in it — and
+  # that is exactly why a card change to one of them has to be said out loud.
+  # `ui.dev: tui` on a running city applies to nothing and reports nothing, so
+  # the owner sets it, reopens, sees the same gateway and concludes the feature
+  # does not work. The gateway leaves a pid marker, so drift here is a fact and
+  # not a guess.
+  # Only where there is positive evidence. A gateway leaves a pid marker, so its
+  # presence proves what that window is running; its ABSENCE proves nothing —
+  # a session opened without --claude has no markers at all, and inferring "then
+  # it must be a TUI" reported drift on a city where nothing had drifted. So
+  # this speaks in one direction, and says nothing rather than something it
+  # cannot know.
+  desfasadas=()
+  MARCAS="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import runtime_processes as r; print(r.ruta(sys.argv[2]))' "$(dirname "$0")" "$EQUIPO" 2>/dev/null || true)"
+  for w in $VENTANAS_YA; do
+    [ "$w" = seat ] && continue
+    [ "$(ui_de "$w" gateway)" = tui ] || continue
+    [ -n "$MARCAS" ] && [ -f "$MARCAS/gateways/$w.pid" ] \
+      && desfasadas+=("$w: the card says tui, and the open window is the city's gateway")
+  done
+  if [ ${#desfasadas[@]} -gt 0 ]; then
+    echo >&2
+    echo "These windows were left as they are, and their card has moved on:" >&2
+    printf '  %s\n' "${desfasadas[@]}" >&2
+    echo "Nothing was closed — there may be work in them. To apply:" >&2
+    for d in ${desfasadas[@]+"${desfasadas[@]}"}; do
+      echo "  tmux kill-window -t $SESSION:${d%%:*}   (then open the city again)" >&2
+    done
+  fi
+
   sobran=()
   for w in $VENTANAS_YA; do
     [ "$w" = seat ] && continue
