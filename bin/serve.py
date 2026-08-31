@@ -368,6 +368,39 @@ def estado_del_cli(a, ventanas):
     }
 
 
+#: The plugin answer, and when it was asked. Claude is a subprocess and this is
+#: read on every render; a second per paint would make the page feel broken in a
+#: different way from the one being fixed.
+_PLUGIN = {"cuando": 0.0, "ok": None}
+
+
+def plugin_de_verdad():
+    """Whether the conscience is installed, asked of Claude rather than guessed.
+
+    This used to be `isdir(~/.claude/plugins/cache/agents-city)`, and that
+    directory is the MARKETPLACE's cache — it appears the moment somebody adds
+    the marketplace, whether or not any plugin was ever installed from it. So a
+    machine with no city plugin showed a green "plugin installed" light, which is
+    worse than showing nothing: it is why the owner could not diagnose a seat
+    running with no guard, no commands and no journal. The product was telling
+    them it was fine.
+
+    A status light that reports health it did not verify is not a light.
+    """
+    import time
+
+    import conciencia
+
+    ahora = time.time()
+    if _PLUGIN["ok"] is None or ahora - _PLUGIN["cuando"] > 30:
+        try:
+            _PLUGIN["ok"] = conciencia.estado()[0]
+        except (OSError, ValueError):
+            _PLUGIN["ok"] = None
+        _PLUGIN["cuando"] = ahora
+    return _PLUGIN["ok"]
+
+
 def ventanas_vivas(owner, datos):
     """The window names alive in this city's tmux session, or nothing.
 
@@ -959,7 +992,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 "lab": sorted(lab),
                 "gh": gh.conectado(),
                 "tmux": sesiones,
-                "plugin": os.path.isdir(os.path.expanduser("~/.claude/plugins/cache/agents-city")),
+                "plugin": plugin_de_verdad(),
                 "mapa": mapa_vivo(datos),
                 "sesion": cities.sesion(owner, datos),
                 # The list always contains the city being looked at, registered or

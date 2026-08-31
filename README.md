@@ -624,6 +624,15 @@ had is permanently refused, with no way back except reading a new URL out of a
 terminal. It is stored at `~/.agents-city/.runtime/hall.pase`, mode 0600, in the
 same class as the bus token this product already keeps.
 
+Whether the city is running is said on **every** screen, not on the front page
+somebody may never return to: open or not, how many agents are actually
+connected, and — only when it is missing — that this city is running with none of
+its rules. That last light is the one that had to be earned: it used to be a
+guess at whether a directory existed, and that directory is the *marketplace's*
+cache, which appears the moment somebody adds the marketplace. So a machine with
+no city plugin showed a green "installed", which is why its owner could spend an
+afternoon unable to see that nothing was being enforced. It asks Claude now.
+
 And when the hall is not answering, the page says so in its own words: what
 happened, that nothing was lost, the command that opens it again, and a button
 that retries — plus a quiet retry every few seconds, so a page left open

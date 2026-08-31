@@ -436,6 +436,14 @@ anota({
   'reading the role files': 'leyendo los ficheros de rol',
   'an isometric house': 'una casa isométrica',
 
+  // ── is this city actually running ─────────────────────────────────────────
+  open: 'abierta',
+  'not open — nothing of this city is running': 'cerrada — no hay nada de esta ciudad corriendo',
+  'without its plugin: this city runs with none of its rules':
+    'sin su plugin: esta ciudad corre sin ninguna de sus reglas',
+  '{n} agent running': '{n} agente en marcha',
+  '{n} agents running': '{n} agentes en marcha',
+
   // ── when the hall is not there ────────────────────────────────────────────
   'The town hall is closed': 'El ayuntamiento está cerrado',
   'This page is out of date': 'Esta página se ha quedado antigua',

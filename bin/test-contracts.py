@@ -308,6 +308,33 @@ def la_pagina_no_se_queda_muda():
            'setInterval' in fuera and 'location.reload' in fuera, '')
     afirma('· non-happy: and it never says fetch, failed or a status code to a person',
            not re.search(r"_\(`?[^`']*\b(fetch|failed|403)\b", fuera), '')
+    # A status light that reports health it did not verify is not a light. This
+    # one was `isdir(~/.claude/plugins/cache/agents-city)` — the MARKETPLACE's
+    # cache, which appears the moment somebody adds the marketplace and says
+    # nothing about whether a plugin was ever installed from it. So a machine
+    # with no city plugin showed a green "installed", and its owner spent an
+    # afternoon unable to see why no rule was being enforced.
+    servidor_txt = texto_de('bin/serve.py')
+    # The value the page is handed, not the prose around it: this file keeps a
+    # tombstone naming the directory it used to guess at.
+    afirma('· the plugin light asks Claude rather than guessing at a directory',
+           '"plugin": plugin_de_verdad()' in servidor_txt
+           and 'isdir(os.path.expanduser("~/.claude/plugins' not in servidor_txt,
+           'a green light nobody verified is worse than no light')
+    afirma('· and it is cached, because a subprocess per repaint is its own bug',
+           '_PLUGIN' in servidor_txt and '> 30' in servidor_txt, '')
+    # Whether the city is running, on every screen and not just the front page.
+    # Called from the nav, not merely defined: a function nobody renders is a
+    # function that says nothing, and the whole point is that it is on screen
+    # wherever you are.
+    tira = hall[hall.index("q('#railCiudad')"):]
+    tira = tira[:tira.index(';')]
+    afirma('· the page says whether this city is running, wherever you are in it',
+           'estadoDeLaCiudad()' in tira,
+           'Nielsen 1 is continuous, not a panel somebody may never return to')
+    afirma('· and it only raises its voice for the state that costs something',
+           'E.plugin === false' in hall, '')
+
     # The address it tells people to reopen has to be the one they already have,
     # or "try again" can never work.
     servidor = texto_de('bin/serve.py')

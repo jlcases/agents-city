@@ -634,6 +634,15 @@ página que alguien tenía queda rechazada para siempre, sin más vuelta que lee
 una URL nueva en una terminal. Se guarda en `~/.agents-city/.runtime/hall.pase`,
 modo 0600, en la misma clase que el token del bus que este producto ya guarda.
 
+Si la ciudad está corriendo se dice en **todas** las pantallas, no en una
+portada a la que quizá no vuelvas: abierta o no, cuántos agentes están conectados
+de verdad y — sólo cuando falta — que esta ciudad corre sin ninguna de sus reglas.
+Esa última luz hubo que ganársela: antes adivinaba si existía un directorio, y ese
+directorio es la caché del *marketplace*, que aparece en cuanto alguien lo añade.
+Así que una máquina sin el plugin enseñaba un «installed» en verde, y por eso su
+dueño podía pasarse una tarde sin ver que no se estaba aplicando nada. Ahora se lo
+pregunta a Claude.
+
 Y cuando el ayuntamiento no contesta, la página lo dice con sus palabras: qué ha
 pasado, que no se ha perdido nada, el comando que lo vuelve a abrir y un botón
 que reintenta — más un reintento silencioso cada pocos segundos, para que una
