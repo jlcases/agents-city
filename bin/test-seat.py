@@ -1635,6 +1635,75 @@ def arranque_escalonado():
         str(lineas)[:400],
     )
 
+    # A card that moved on under a window that is already open. This is the trap
+    # the reconcile created: `ui.api: tui` on a running city applies to nothing,
+    # and if nothing says so the owner sets it, reopens, sees the same gateway
+    # and concludes the feature does not work.
+    card.pon_campo(ficha, "ui.api", "tui")
+    # The gateway's own pid marker: the only positive proof of what an already
+    # open window is running.
+    marcas = subprocess.run(
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); import runtime_processes as r;"
+         " print(r.ruta(sys.argv[2]))",
+         os.path.join(RAIZ, "plugin", "scripts"), datos],
+        capture_output=True, text=True,
+        # The launcher's own environment, or this resolves a different marker
+        # directory from the one the launcher will look in.
+        env={k: v for k, v in dict(os.environ, HOME=casa).items()
+             if k != "AGENTS_CITY_HOME"},
+    ).stdout.strip()
+    os.makedirs(os.path.join(marcas, "gateways"), exist_ok=True)
+    open(os.path.join(marcas, "gateways", "api.pid"), "w").write("4242\n")
+    desfase = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 CITY_SETTLE="0", CITY_STAGGER="0",
+                 FAKE_SESSION="1", FAKE_WINDOWS="seat api docs"),
+    ).stderr
+    afirma(
+        "· happy: a card that moved on under an open window is reported, with what to run",
+        "the card says tui" in desfase and "kill-window" in desfase and "api" in desfase,
+        desfase[-500:],
+    )
+    afirma(
+        "· non-happy: and nothing is closed on the owner's behalf",
+        "kill-window" not in open(registro).read(),
+        open(registro).read()[-300:],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+    sin_desfase = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 CITY_SETTLE="0", CITY_STAGGER="0",
+                 FAKE_SESSION="1", FAKE_WINDOWS="seat api docs"),
+    ).stderr
+    afirma(
+        "· non-happy: and a city whose windows agree with its card says nothing about them",
+        "the card says" not in sin_desfase, sin_desfase[-300:],
+    )
+    # The absence of a marker is not proof of anything, and used to be read as
+    # proof of a TUI.
+    card.pon_campo(ficha, "ui.api", "tui")
+    os.remove(os.path.join(marcas, "gateways", "api.pid"))
+    sin_marca = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 CITY_SETTLE="0", CITY_STAGGER="0",
+                 FAKE_SESSION="1", FAKE_WINDOWS="seat api docs"),
+    ).stderr
+    afirma(
+        "· non-happy: with no marker it says nothing, rather than guessing what is running",
+        "the card says" not in sin_marca, sin_marca[-300:],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+
     # A window whose agent left the card may be mid-task. Say so; do not close
     # it. The owner decides what to do with somebody's unfinished work.
     sobra = subprocess.run(
