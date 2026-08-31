@@ -20,6 +20,7 @@ So there are two things to defend here, and the second is the hard one:
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 
@@ -172,6 +173,66 @@ def _es_metodo_declarado(aguja, declaradas):
     return any(aguja.lower() == d.lower() for d in declaradas)
 
 
+def valores_que_no_sobrevivirian(tmp):
+    """Values that a shell would eat, or run.
+
+    The happy checks above prove today's declaration survives. They cannot
+    prove the NEXT one will: the values there are mild strings, and the bug
+    that broke every Claude window was a comma. The day somebody declares a
+    value with a space in it, or a quote, this has to hold — and if it does
+    not, it must fail here rather than in a person's terminal.
+
+    The last two are not a formatting concern. `$(...)` and backticks in an
+    unquoted argument are executed by the shell, and this declaration is read
+    from a file: a value that runs a command is a value that runs somebody
+    else's command.
+    """
+    print("  values a shell would eat, or run")
+    testigo = os.path.join(tmp, "ejecutado")
+    hostiles = {
+        "conEspacio": "dos palabras",
+        "conComillas": 'dice "hola" y \'adios\'',
+        "conLlaves": "{a,b}",
+        "conPuntoYComa": "uno; echo dos",
+        "conDolar": "$HOME y ${OTRO}",
+        "conSustitucion": f"$(touch {testigo})",
+        "conAcentoGrave": f"`touch {testigo}`",
+    }
+    real = arnes.declaracion
+    arnes.declaracion = lambda: {
+        "claude": {
+            "trato": [
+                {"clave": k, "valor": v, "via": "x", "porque": "y" * 30, "rinde": "settings"}
+                for k, v in hostiles.items()
+            ]
+        }
+    }
+    try:
+        linea = arnes.banderas("claude")
+    finally:
+        arnes.declaracion = real
+
+    # A real shell, because `shlex` forgives what bash does not.
+    r = subprocess.run(
+        ["bash", "-c", "set -- " + linea + '; printf "%s\\n" "$@"'],
+        capture_output=True, text=True,
+    )
+    entregado = [l for l in r.stdout.split("\n") if l]
+    afirma("· a hostile declaration still comes out as two words",
+           len(entregado) == 2 and entregado[0] == "--settings",
+           f"{entregado!r} from {linea!r}")
+    afirma("· nothing in it was executed on the way",
+           not os.path.exists(testigo),
+           f"{testigo} exists: a declared value ran a command")
+    try:
+        vuelta = json.loads(entregado[1]) if len(entregado) > 1 else {}
+    except json.JSONDecodeError as e:
+        vuelta = {}
+        afirma("· and it is still JSON on the other side", False, f"{entregado[1]!r}: {e}")
+    for clave, valor in hostiles.items():
+        comprueba(f"· {clave} arrives exactly as declared", vuelta.get(clave), valor)
+
+
 def lo_que_hay_en_el_disco():
     print("  it reads the machine, and admits what it cannot read")
     casa = tempfile.mkdtemp()
@@ -230,6 +291,7 @@ def el_informe():
 def main():
     la_declaracion()
     sin_deriva()
+    valores_que_no_sobrevivirian(tempfile.mkdtemp())
     lo_que_hay_en_el_disco()
     el_informe()
     return resumen("arnes")
