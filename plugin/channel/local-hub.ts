@@ -4,6 +4,7 @@ import { createServer } from 'http';
 import { readFileSync } from 'fs';
 import { WebSocket, WebSocketServer } from 'ws';
 import { committeeFiles } from './committee/storage.js';
+import { loQueLlega } from './hub/lo-que-te-llega.js';
 import { committeeService } from './committee/service.js';
 import { loadCityContext } from './city-config.js';
 import { acknowledgeRoadQueue, pendingRoadQueue } from './delivery-queue.js';
@@ -160,6 +161,13 @@ server.listen(0, '127.0.0.1', () => {
     startedAt: isoNow(),
     roadToken: ingressToken,
     spectatorToken,
+    // What this city says it is, and what it says reaches it — from the city
+    // itself, which is the only one entitled to describe its own remit.
+    presenta: {
+      domain: context.domain,
+      seatRole: context.seatRole,
+      recibe: loQueLlega(context.dataDir, context.seatRole),
+    },
   };
   publishEndpoint(context, endpoint);
   diagnostics('hub.listening', { outcome: 'ready', message: endpoint.url });

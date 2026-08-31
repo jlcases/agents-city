@@ -1,6 +1,7 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import WebSocket from 'ws';
+import { limpia as limpiaRemite } from './lo-que-te-llega.js';
 import { CityContext, runtimeDirForCity } from '../city-config.js';
 import { queueRoad } from '../delivery-queue.js';
 import { BusEnvelope, HubEndpoint, Road, randomId } from '../protocol.js';
@@ -27,6 +28,41 @@ export async function sendLocalRoad(
   } catch {
     queueRoad(destinationRuntime, envelope);
     return `${road.address} became unavailable: queued on the local bus`;
+  }
+}
+
+/**
+ * What the city at the far end says it is, read from its own endpoint file.
+ *
+ * The same file `localRoadOnline` already trusts to decide the city is alive.
+ * Nothing new is trusted here: if that file is good enough to say "this city
+ * exists and is running", it is good enough to say "and it is the design one".
+ */
+export function localRoadPresenta(
+  context: CityContext,
+  road: Road,
+): { domain: string; seatRole: string; recibe: string } | null {
+  try {
+    const endpoint = JSON.parse(
+      readFileSync(join(runtimeDirForCity(context.appHome, road.id), 'endpoint.json'), 'utf8'),
+    ) as HubEndpoint;
+    if (endpoint.cityId !== road.id || endpoint.cityAddress !== road.address) return null;
+    const dicho = endpoint.presenta;
+    if (!dicho || typeof dicho.seatRole !== 'string' || typeof dicho.domain !== 'string')
+      return null;
+    // Untrusted text from another process: bounded and shaped before it is
+    // handed to anybody who might put it in a prompt.
+    const limpio = (valor: string): string =>
+      /^[a-z0-9-]{1,80}$/.test(valor.trim().toLowerCase()) ? valor.trim().toLowerCase() : '';
+    const seatRole = limpio(dicho.seatRole);
+    const domain = limpio(dicho.domain);
+    // Bounded again on the way in. The publisher bounds it too, and that is
+    // the point: the writer is another process, and a reader that trusts a
+    // length because the writer promised one is trusting the wrong side.
+    const recibe = limpiaRemite(typeof dicho.recibe === 'string' ? dicho.recibe : '');
+    return seatRole || domain ? { domain, seatRole, recibe } : null;
+  } catch {
+    return null;
   }
 }
 

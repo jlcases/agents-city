@@ -12,7 +12,7 @@ import { requireChair } from '../committee/guards.js';
 import { deliverApprovedReception, recordReceptionMessage } from '../reception.js';
 import { wrapUntrusted } from '../untrusted.js';
 import { EnvelopeRouter } from './envelopes.js';
-import { localRoadOnline, sendLocalRoad } from './local-roads.js';
+import { localRoadOnline, localRoadPresenta, sendLocalRoad } from './local-roads.js';
 import { remoteRoadBridge } from './remote-roads.js';
 import { managedReceptionBridge } from '../managed-connect/reception-bridge.js';
 
@@ -132,10 +132,35 @@ export function roadController(context: CityContext, router: EnvelopeRouter) {
   ): Promise<unknown> => {
     if (name === 'road.roster') {
       requireChair(actor, role);
-      return roads().map((road) => ({
-        ...road,
-        online: road.local ? localRoadOnline(context, road) : remote.online(road.address),
-      }));
+      return roads().map((road) => {
+        const online = road.local ? localRoadOnline(context, road) : remote.online(road.address);
+        // What the far city says about itself wins over what whoever opened
+        // this road assumed — and the entry says which of the two you are
+        // reading, because "cpto because they say so" and "cpto because I
+        // wrote it down once" are not the same claim, and only one of them is
+        // safe to act on.
+        const dicho = road.local && online ? localRoadPresenta(context, road) : null;
+        // Per field, not per entry. A city can publish a good domain and a role
+        // that is not a role — and then one `segun` for the whole row would say
+        // "the city itself" over a role the city never validly claimed. Whoever
+        // is deciding "does this reach that role" needs to know whether THE
+        // ROLE is confirmed, and the domain's provenance does not answer that.
+        const suRol = dicho?.seatRole ?? '';
+        const suDominio = dicho?.domain ?? '';
+        const nota = 'this city’s own note';
+        const ella = 'the city itself';
+        return {
+          ...road,
+          ...(suRol ? { role: suRol } : {}),
+          ...(suDominio ? { domain: suDominio } : {}),
+          // What that city says reaches it. A claim, in their words, and the
+          // only thing here that turns "a ux is connected" into "this concerns
+          // them". Absent when they did not say.
+          ...(dicho?.recibe ? { recibe: dicho.recibe } : {}),
+          online,
+          segun: { role: suRol ? ella : nota, domain: suDominio ? ella : nota },
+        };
+      });
     }
     if (name === 'road.inbox') {
       requireChair(actor, role);

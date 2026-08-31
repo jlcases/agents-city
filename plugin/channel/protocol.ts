@@ -56,6 +56,30 @@ export interface HubEndpoint {
   roadToken: string;
   /** Read-only browser credential, rotated whenever the local hub restarts. */
   spectatorToken: string;
+  /**
+   * What this city says it is — written by the city itself, read by anybody
+   * with a road to it.
+   *
+   * A road already carries a `role` and a `domain`, but the city that OPENED
+   * the road wrote them: they are one person's guess about somebody else, made
+   * once, and they go stale the day that person changes role without anybody
+   * noticing. Deciding whether a change needs another role's attention on a
+   * guess is deciding it on hearsay.
+   *
+   * This is the other direction. The city publishes its own, next to the
+   * identity a road already trusts to decide the city is alive at all.
+   */
+  presenta?: {
+    domain: string;
+    seatRole: string;
+    /**
+     * What this city says reaches that role, in its own words and bounded.
+     *
+     * Empty when the role file says nothing. Silence is a fact a reader can
+     * act on; an invented summary is not.
+     */
+    recibe?: string;
+  };
 }
 
 export const isoNow = (): string => new Date().toISOString();

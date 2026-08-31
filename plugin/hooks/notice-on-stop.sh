@@ -69,7 +69,13 @@ import json, sys
 repo, seat = sys.argv[1:3]
 razon = f"""Before you finish: you changed things in {repo}, and nobody has judged yet whether they touch another role's property.
 
-Judge it yourself — you have the diff in front of you, and no pattern can decide this. Compare what you changed against the "What reaches you" section of each roles/<role>.md, and against the unit map to work out whose it is when a property has more than one owner.
+Judge it yourself — you have the diff in front of you, and no pattern can decide this.
+
+Ask the roster who is actually reachable. Each road it returns carries the role and domain of the city at the far end, and `recibe`: what that city says reaches it, in its own words. Compare your diff against THAT, not against a local copy of a catalogue — a role file in this city describes this city, and the question is whether your change concerns somebody else.
+
+Two things the roster tells you that matter. `segun.role` says whether that role came from the city itself or from a note this city wrote down once, and a note goes stale the day somebody changes role — weigh it accordingly. And a road with no `recibe` has not said what reaches it; that is missing information, not permission.
+
+Use the unit map for whose it is when a property has more than one owner.
 
 Almost always the right answer is that there is nothing to send. If so, say it in one line and finish.
 

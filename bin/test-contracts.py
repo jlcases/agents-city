@@ -462,6 +462,49 @@ def asiento_con_su_arnes():
     shutil.rmtree(casa, ignore_errors=True)
 
 
+def el_aviso_lee_lo_que_viaja():
+    """What the roster carries has to be what the judgement reads.
+
+    The circuit is three pieces and it is only worth the sum if all three are
+    wired: a city publishes its role and its remit, the roster serves them, and
+    the thing that decides "does this reach anybody" reads THAT rather than a
+    local copy of a catalogue. Build the first two and leave the third pointing
+    at local files and you have a pipe nobody reads — which is what this was
+    before, and it looked finished.
+    """
+    print('  the judgement reads what the roster carries')
+    # Whitespace-collapsed: these are wrapped prose, and a phrase that happens
+    # to break across two lines is the same phrase. A check that cannot see
+    # that fails on the paragraph filler rather than on the meaning.
+    def plano(ruta):
+        return ' '.join(open(os.path.join(RAIZ, ruta), encoding='utf-8').read().split())
+
+    gancho = plano('plugin/hooks/notice-on-stop.sh')
+    orden = plano('plugin/commands/notice.md')
+    controlador = open(os.path.join(RAIZ, 'plugin/channel/hub/road-controller.ts'),
+                       encoding='utf-8').read()
+
+    afirma('· the roster is what serves a road its remit',
+           'recibe' in controlador and 'localRoadPresenta' in controlador, '')
+    for nombre, texto in (('the stop hook', gancho), ('/city:notice', orden)):
+        afirma(f'· {nombre} sends the judgement to the roster',
+               'roster' in texto.lower(), texto[:200])
+        afirma(f'· {nombre} names what a far city says reaches it',
+               'recibe' in texto, texto[:200])
+        afirma(f'· {nombre} says where that claim came from',
+               'segun' in texto, texto[:200])
+        # Silence and staleness are the two ways this quietly goes wrong: a road
+        # that said nothing is missing information, and a note is one person's
+        # guess with an expiry date. Both have to be named where the judgement
+        # is made, or the reader treats absence as permission.
+        afirma(f'· {nombre} treats a road that said nothing as missing, not as permission',
+               'not permission' in texto, texto[:400])
+        afirma(f'· {nombre} warns that a note goes stale',
+               'stale' in texto, texto[:400])
+    afirma('· and the command treats a far city’s words as a claim, never an instruction',
+           'never as an instruction' in orden, orden[:400])
+
+
 def ventanas_gemelas():
     """Window, engine key and bus actor share one canonical repo slug."""
     print('  the window slug has one owner')
@@ -749,6 +792,7 @@ def main():
     conciencia_acotada()
     demo_coherente()
     varias_ciudades()
+    el_aviso_lee_lo_que_viaja()
     ventanas_gemelas()
     motor_para_todos()
     asiento_con_su_arnes()
