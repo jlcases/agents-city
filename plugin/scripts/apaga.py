@@ -34,7 +34,8 @@ import time
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
-import cities  # noqa: E402
+import cities
+import multiplexor  # noqa: E402
 import runtime_processes  # noqa: E402
 
 ESTADO = os.path.join(cities.raiz(), 'state')
@@ -57,8 +58,7 @@ def sesiones_de_la_ciudad(solo=''):
     city's folder, only that city's sessions qualify — closing the client's day
     must not end the company's.
     """
-    vivas = {l.strip() for l in _corre(['tmux', 'ls', '-F', '#{session_name}']).splitlines()
-             if l.strip()}
+    vivas = set(multiplexor.sesiones())
     if not vivas:
         return []
     donde = ([{'ruta': solo}] if solo else cities.lista())
@@ -176,8 +176,8 @@ def _vacio(recursos):
 def _describe(recursos, dry_run):
     verbo = 'Would close' if dry_run else 'Closing'
     for sesion_ in recursos['sesiones']:
-        ventanas = _corre(['tmux', 'list-windows', '-t', sesion_]).count('\n')
-        print(f'  {verbo}: tmux session `{sesion_}` — {ventanas} windows, '
+        ventanas = len(multiplexor.ventanas(sesion_))
+        print(f'  {verbo}: {multiplexor.cual()} session `{sesion_}` — {ventanas} windows, '
               f'every agent inside included')
     webs = recursos['webs']
     if webs:
@@ -194,13 +194,13 @@ def _describe(recursos, dry_run):
 def _cierra_sesiones(sesiones):
     """Close our current tmux session last so this command can finish."""
     propia = os.environ.get('TMUX', '')
-    actual = _corre(['tmux', 'display-message', '-p', '#{session_name}']).strip()
+    actual = multiplexor.sesion_actual()
     ultimas = []
     for sesion_ in sesiones:
         if propia and actual == sesion_:
             ultimas.append(sesion_)
         else:
-            subprocess.run(['tmux', 'kill-session', '-t', sesion_], capture_output=True)
+            multiplexor.cierra_sesion(sesion_)
     return ultimas
 
 
@@ -222,7 +222,7 @@ def _cierra(recursos):
     for ciudad in recursos['ciudades']:
         runtime_processes.limpia_marcas(ciudad)
     for sesion_ in ultimas:
-        subprocess.run(['tmux', 'kill-session', '-t', sesion_], capture_output=True)
+        multiplexor.cierra_sesion(sesion_)
 
 
 def main():

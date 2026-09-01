@@ -23,6 +23,7 @@ import sys
 GUIONES = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, GUIONES)
 import arnes  # noqa: E402  what we do to the CLIs somebody already had
+import multiplexor  # noqa: E402  the window server this machine will use
 from dataclasses import dataclass
 from typing import Callable
 
@@ -187,13 +188,14 @@ def revisa_entorno():
 
     fuera = []
     fuera.append(('python', True, _sys.version.split()[0]))
-    # Every one of these spells its version flag differently, and tmux answers
-    # `--version` with an error that reads like a working version string.
+    # Every one of these spells its version flag differently, and the window
+    # server answers `--version` with an error that reads like a working version
+    # string.
     #
     # Five independent subprocesses: asked together, the wait is the slowest one
     # rather than the sum of five. A doctor that takes half a second to say
     # everything is fine gets run; one that takes two does not.
-    programas = (('tmux', '-V', True), ('bash', '--version', True),
+    programas = ((multiplexor.binario(), '-V', True), ('bash', '--version', True),
                  ('git', '--version', True), ('node', '--version', True),
                  ('gh', '--version', False))
     from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
