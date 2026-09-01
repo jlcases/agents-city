@@ -213,6 +213,41 @@ jobs:
           herdr server stop 2>&1 | Out-String
           exit $codigo
 
+      # A city, opened. This is the check the `os` field rests on: not that the
+      # pieces work, but that the door a person uses opens windows on a machine
+      # with no tmux and no POSIX shell.
+      - name: a city opens on Windows
+        shell: pwsh
+        run: |
+          irm https://herdr.dev/install.ps1 | iex
+          $env:PATH = "$env:USERPROFILE\.herdr\bin;$env:LOCALAPPDATA\herdr\bin;$env:PATH"
+          Start-Process -FilePath herdr -ArgumentList 'server' -PassThru `
+            -RedirectStandardOutput hs.out -RedirectStandardError hs.err | Out-Null
+          Start-Sleep -Seconds 5
+          $env:AGENTS_CITY_MUX = 'herdr'
+          $env:AGENTS_CITY_HOME = Join-Path $env:TEMP 'agents-city-home'
+          $ciudad = Join-Path $env:AGENTS_CITY_HOME 'runner\home'
+          New-Item -ItemType Directory -Force -Path $ciudad | Out-Null
+          "id: city_open`nname: Home`nslug: home`nowner: runner" |
+            Set-Content -Path (Join-Path $ciudad 'city.yml') -Encoding utf8
+          "---`nuser: runner`nagent: runner/lead`n---" |
+            Set-Content -Path (Join-Path $ciudad 'runner.md') -Encoding utf8
+          $env:AGENTS_CITY_DATA = $ciudad
+          $env:AGENTS_CITY_USER = 'runner'
+          # No --claude: this is about windows opening, not about an agent
+          # starting, and there is no agent CLI on this runner.
+          $abrir = Start-Process -FilePath python `
+            -ArgumentList 'plugin/scripts/sesion.py','runner','--no-sync' `
+            -PassThru -RedirectStandardOutput abrir.out -RedirectStandardError abrir.err
+          Start-Sleep -Seconds 20
+          Get-Content abrir.out, abrir.err -ErrorAction SilentlyContinue
+          $ventanas = python -c "import sys; sys.path.insert(0, 'plugin/scripts'); import multiplexor as m; print(','.join(m.ventanas('runner-home')))"
+          "windows: $ventanas"
+          if ($ventanas -notmatch 'seat') { throw "the chair's window never opened" }
+          if (-not $abrir.HasExited) { Stop-Process -Id $abrir.Id -Force }
+          herdr server stop 2>&1 | Out-String
+          exit 0
+
       # And a command that is still a shell program says so, by name, instead of
       # the product claiming it does not run here at all.
       - name: a shell-only command refuses with the reason

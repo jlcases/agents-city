@@ -23,6 +23,7 @@ if GUIONES not in sys.path:
     sys.path.insert(0, GUIONES)
 
 import city_env  # noqa: E402
+import runtime_processes  # noqa: E402
 
 CANAL = os.path.join(os.path.dirname(GUIONES), 'channel')
 CLIENTE = os.path.join(CANAL, 'client.js')
@@ -97,7 +98,7 @@ def respaldo(argv, entorno):
         ['node', ADAPTADOR, '--data', entorno.get('AGENTS_CITY_DATA', ''),
          '--actor', actor, '--target', objetivo, '--runtime', motor],
         stdout=registro, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-        start_new_session=True, env=hijo)
+        **runtime_processes.DESPEGADO, env=hijo)
     return 0
 
 

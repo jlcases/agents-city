@@ -57,6 +57,7 @@ import cities          # noqa: E402  which city, and what its session is called
 import city_env        # noqa: E402  one resolver for every door
 import conciencia      # noqa: E402  the plugin, ensured wherever a city opens
 import multiplexor as mux  # noqa: E402  the window server, whichever it is
+import runtime_processes  # noqa: E402  how a child is cut loose from a terminal
 import workspace       # noqa: E402
 
 #: Seconds the chair's Claude gets to settle before the first agent starts, and
@@ -633,7 +634,7 @@ def arranca_el_broker(c):
     broker.para(c.datos)
     subprocess.Popen(  # noqa: S603
         [sys.executable, os.path.join(GUIONES, 'broker.py'), 'serve', '--data', c.datos],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **runtime_processes.DESPEGADO)
     for _ in range(10):
         url = broker.url_de(c.datos) or ''
         if url:

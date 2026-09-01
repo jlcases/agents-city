@@ -1442,7 +1442,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
             [guion, datos],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            **runtime_processes.DESPEGADO,
         )
         return self.responde({"ok": True, "mapa": ""})
 
@@ -1464,7 +1464,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
             ),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            **runtime_processes.DESPEGADO,
         )
         return self.responde(
             {"ok": True, "attach": f"tmux attach -t {cities.sesion(quien, datos)}"}

@@ -930,13 +930,13 @@ def puerta_npm():
         afirma(f'· {nombre} is listed in the help',
                f"    {nombre.ljust(11)}" in salida, '')
         if o.get('py'):
-            # A `py` entry that points at a shell door would look cross-platform
-            # and spawn bash through Python, which is the bug this shape exists
-            # to make impossible.
-            cabeza = open(os.path.join(RAIZ, destino), 'rb').read(30)
-            afirma(f'· {nombre} runs Python, not a shell wearing a .py name',
-                   destino.endswith('.py') and not cabeza.startswith(b'#!/usr/bin/env bash'),
-                   destino)
+            # Judged by what the file IS, not by what it is called: a `py` entry
+            # pointing at a shell door would look cross-platform and spawn bash
+            # through Python, and `bin/hall` is Python with no extension at all.
+            cabeza = open(os.path.join(RAIZ, destino), 'rb').read(40)
+            afirma(f'· {nombre} really is Python, whatever it is called',
+                   b'python' in cabeza.split(b'\n')[0].lower()
+                   or destino.endswith('.py'), repr(cabeza[:40]))
 
 
 def documentacion_publica():

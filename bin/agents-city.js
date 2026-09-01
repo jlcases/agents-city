@@ -38,7 +38,7 @@ const RAIZ = path.dirname(__dirname);
  *   sh    a door with shell logic of its own, and therefore POSIX for now
  */
 const ORDENES = {
-  hall: { sh: 'bin/hall', di: 'the town hall: manage your city from the browser' },
+  hall: { py: 'bin/hall', di: 'the town hall: manage your city from the browser' },
   seat: {
     py: 'plugin/scripts/seat.py',
     di: 'your chair: domain, seat role, repo-agent roles, goal, tmux',

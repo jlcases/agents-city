@@ -22,7 +22,10 @@ live section against that.
 """
 
 import json
+import os
 import subprocess
+
+import runtime_processes
 
 #: Where the CLI puts what it answers. Errors come back as JSON on stderr with
 #: exit status 1, so a failure is readable rather than a guess.
@@ -61,8 +64,7 @@ def _servidor():
     try:
         subprocess.Popen(  # noqa: S603
             [binario(), 'server'], stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-            start_new_session=True)
+            stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, **runtime_processes.DESPEGADO)
     except (OSError, subprocess.SubprocessError):
         return False
     import time  # noqa: PLC0415
@@ -217,23 +219,27 @@ def estado_del_panel(objetivo):
     r = _pide('pane', 'process-info', '--pane', panel)
     if r is None:
         return False, ''
-    # The field this arrives under is the backend's business, and it has moved
-    # before. Take the first that answers, and keep the raw object out of the
-    # caller's way.
-    info = r.get('process') or r.get('process_info') or r
-    if isinstance(info, dict):
-        for clave in ('foreground_command', 'foreground', 'command', 'name',
-                      'process', 'exe', 'argv0'):
-            valor = info.get(clave)
-            if isinstance(valor, str) and valor:
-                return True, valor
-            if isinstance(valor, dict):
-                for dentro in ('command', 'name', 'exe'):
-                    if isinstance(valor.get(dentro), str) and valor[dentro]:
-                        return True, valor[dentro]
-            if isinstance(valor, list) and valor and isinstance(valor[0], str):
-                return True, valor[0]
-    return True, ''
+    # The shape, from the binary rather than from a guess:
+    #
+    #   result.process_info.foreground_processes[0].argv[0]
+    #
+    # It is a LIST, because a pane's foreground is a process group and the thing
+    # a caller wants to know — "is a shell sitting here, or is an agent working"
+    # — is the first of them. The basename, because `C:\Windows\System32\
+    # cmd.exe` and `/bin/zsh` should both answer the question the same way.
+    info = r.get('process_info') or r.get('process') or r
+    delante = (info or {}).get('foreground_processes') or []
+    primero = delante[0] if delante and isinstance(delante[0], dict) else {}
+    argv = primero.get('argv') or []
+    crudo = ''
+    if argv and isinstance(argv[0], str):
+        crudo = argv[0]
+    elif isinstance(primero.get('name'), str):
+        crudo = primero['name']
+    elif isinstance(info, dict) and isinstance(info.get('command'), str):
+        crudo = info['command']
+    nombre = os.path.basename(crudo.replace('\\', '/')) if crudo else ''
+    return True, (nombre[:-4] if nombre.lower().endswith('.exe') else nombre)
 
 
 def pantalla(objetivo, lineas=30):
