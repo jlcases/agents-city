@@ -277,7 +277,9 @@ def refresca_roster(ficha, datos):
         agentes = workspace.agentes(texto, datos)
     except (OSError, ValueError):
         return
-    card.cambia_agentes(ficha, [workspace.como_ficha(a) for a in agentes])
+    card.cambia_agentes(
+        ficha, [workspace.como_ficha(a, workspace.ajustes_de(texto, a.slug)) for a in agentes]
+    )
 
 
 def _crecimiento_cacheado(a, datos, vida=90):
@@ -1199,7 +1201,8 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         ficha_previa = os.path.join(datos, f"{quien}.md")
         try:
             texto_previo = card.lee(ficha_previa).get("texto") or ""
-            roster = [workspace.como_ficha(a) for a in workspace.agentes(texto_previo, datos)]
+            roster = [workspace.como_ficha(a, workspace.ajustes_de(texto_previo, a.slug))
+                      for a in workspace.agentes(texto_previo, datos)]
         except (OSError, ValueError):
             roster = []
         # Absent means unchanged, present means replace. This endpoint rewrites
@@ -1543,7 +1546,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
         # the new one joins them. Nothing that was working stops working. The
         # keys come from workspace, which owns what a roster looks like on a
         # card — the wizard writes the very same ones after its seven questions.
-        roster = [workspace.como_ficha(x) for x in ya]
+        roster = [workspace.como_ficha(x, workspace.ajustes_de(texto, x.slug)) for x in ya]
         roster.append(
             {"nombre": nombre, "slug": slug, "clase": clase, "rol": rol,
              "mounts": [], "motor": {}, "skills": []}
