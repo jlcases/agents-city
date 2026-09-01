@@ -106,6 +106,15 @@ def el_atajo():
                    str(sorted(os.listdir(os.path.join(ruta, "Contents", "Resources")))))
             afirma("· double-clicking it opens a terminal, where a tmux city can live",
                    "osascript" in guion and "Terminal" in guion, guion)
+        elif sys.platform == "win32":
+            # A `.lnk` is a COM object — bytes, not text — and it points at the
+            # `.cmd` beside it, which is where the command a person runs lives.
+            afirma("· Windows gets something it can double-click",
+                   ruta.endswith((".lnk", ".cmd")), ruta)
+            guion = open(os.path.join(os.path.dirname(ruta), "Aurora Games.cmd"),
+                         encoding="utf-8").read()
+            afirma("· carrying the city's name where a person reads it",
+                   "Aurora Games" in os.path.basename(ruta), ruta)
         else:
             guion = open(ruta, encoding='utf-8').read()
             afirma("· carrying the city's name where a person reads it",
@@ -114,8 +123,12 @@ def el_atajo():
                    "Name=Aurora Games" in guion and "Icon=" in guion, guion)
             afirma("· that opens in a terminal, where a tmux city can live",
                    "Terminal=true" in guion, guion)
+        # Quoted for the shell that will read it: `cmd.exe` does not strip
+        # single quotes, so the POSIX spelling reaches the front door there as
+        # two arguments and the city is never found.
+        comillas = '"' if sys.platform == "win32" else "'"
         afirma("· running exactly the command a person would type",
-               "agents-city seat --city 'Aurora Games'" in guion, guion)
+               f"agents-city seat --city {comillas}Aurora Games{comillas}" in guion, guion)
 
         # The hall variant, for somebody who wants the map and not the tmux.
         atajos.quita(datos)
@@ -229,7 +242,8 @@ def caminos_infelices():
         comprueba(
             "· a quote in a city name is quoted for the shell, never passed raw",
             atajos.orden_de_ciudad(raro),
-            "agents-city seat --city 'Ana'\\''s City'",
+            'agents-city seat --city "Ana\'s City"' if sys.platform == "win32"
+            else "agents-city seat --city 'Ana'\\''s City'",
         )
         ruta, mal = atajos.crea(raro, carpeta=elegido)
         guion = (
@@ -364,8 +378,11 @@ def windows_bajo_wsl():
         guion = open(ruta, encoding="utf-8").read()
         afirma("· without interop it still writes a double-clickable .cmd",
                ruta.endswith(".cmd") and os.path.isfile(ruta), ruta)
+        # The WSL door crosses into Linux, so what it carries is quoted the way
+        # the shell on the far side reads it — whichever machine wrote it.
         afirma("· that crosses back into WSL to open the city",
-               "wsl.exe" in guion and "agents-city seat --city 'Aurora Games'" in guion, guion)
+               "wsl.exe" in guion and "Aurora Games" in guion
+               and "agents-city seat --city" in guion, guion)
         afirma("· in a login shell, so the PATH holds the command it runs",
                "bash -lic" in guion, guion)
         afirma("· with CRLF line endings, which is what cmd.exe reads",

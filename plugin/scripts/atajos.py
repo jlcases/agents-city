@@ -268,6 +268,15 @@ def orden_de_ciudad(datos, hall=False):
 
 
 def _entrecomilla(valor):
+    """The city's name as one argument, for the shell that will read the command.
+
+    `cmd.exe` does not strip single quotes: `--city 'Aurora Games'` reaches the
+    front door there as two arguments, `'Aurora` and `Games'`, and the city is
+    never found. Double quotes are what that shell removes, and a double quote
+    inside a name is doubled.
+    """
+    if sys.platform == "win32":
+        return '"' + str(valor).replace('"', '""') + '"'
     return "'" + str(valor).replace("'", "'\\''") + "'"
 
 

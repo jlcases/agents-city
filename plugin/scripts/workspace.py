@@ -258,10 +258,29 @@ def desmonta(data, slug, etiqueta):
     made every mount on that machine impossible to remove.
     """
     enlace = os.path.join(workspace_de(data, slug), MOUNTS_DIR, _slug(etiqueta))
-    if os.path.islink(enlace) or (sys.platform == 'win32' and os.path.isdir(enlace)):
+    if es_montaje(enlace):
         _quita_enlace(enlace)
         return True
     return False
+
+
+def es_montaje(ruta):
+    """Is this entry a mount — a symlink, or the junction Windows gives instead?
+
+    `islink` answers False for a junction, so asking it alone made every mount
+    on Windows invisible: they were created, and then nothing could see them,
+    remove them, or hand them to the cage.
+    """
+    if os.path.islink(ruta):
+        return True
+    if sys.platform != 'win32' or not os.path.isdir(ruta):
+        return False
+    # A junction is a reparse point that is not a symlink, and Windows reports
+    # the tag on `lstat`. Nothing else in a mounts folder carries one.
+    try:
+        return bool(getattr(os.lstat(ruta), 'st_reparse_tag', 0))
+    except OSError:
+        return False
 
 
 def mounts_en_disco(data, slug):
@@ -274,7 +293,7 @@ def mounts_en_disco(data, slug):
     salida = []
     for e in etiquetas:
         enlace = os.path.join(carpeta, e)
-        if os.path.islink(enlace):
+        if es_montaje(enlace):
             salida.append((e, rutas.canonicaliza(enlace)))
     return salida
 
