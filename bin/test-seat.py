@@ -1383,12 +1383,12 @@ def arranque_escalonado():
     # A house does need that, and keeps the gateway.
     afirma(
         "· the chair opens Claude Code itself, not a prompt in front of it",
-        "city-runtime.sh gateway seat" not in asiento and "claude" in asiento,
+        "runtimes.py gateway seat" not in asiento and "claude" in asiento,
         asiento[:400],
     )
     afirma(
         "· and an agent house still runs behind the gateway, so work can reach it",
-        "city-runtime.sh gateway api" in api, api[:400],
+        "runtimes.py gateway api" in api, api[:400],
     )
     afirma(
         "· neither uses Channels or an admin prompt",
@@ -1410,7 +1410,7 @@ def arranque_escalonado():
     )
     afirma(
         "· a known non-Claude runtime starts its native gateway without fallback",
-        "city-runtime.sh gateway docs" in docs
+        "runtimes.py gateway docs" in docs
         and "fallback" not in docs
         and "adapter.js" not in docs,
         docs[:300],
@@ -1492,7 +1492,7 @@ def arranque_escalonado():
     afirma(
         "· clearing the key puts plain Claude Code back in the seat",
         "claude" in asiento
-        and "city-runtime.sh gateway seat" not in asiento
+        and "runtimes.py gateway seat" not in asiento
         and "--channels" not in asiento,
         asiento[:160],
     )
@@ -1504,7 +1504,7 @@ def arranque_escalonado():
     api_tui = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· happy: `ui.api: tui` opens that house's own Claude Code, not a prompt in front of it",
-        "city-runtime.sh gateway api" not in api_tui and "claude" in api_tui,
+        "runtimes.py gateway api" not in api_tui and "claude" in api_tui,
         api_tui[:300],
     )
     aviso = subprocess.run(
@@ -1530,14 +1530,14 @@ def arranque_escalonado():
         (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· non-happy: and clearing the key puts the gateway back, which is the default",
-        "city-runtime.sh gateway api" in api_pasarela, api_pasarela[:300],
+        "runtimes.py gateway api" in api_pasarela, api_pasarela[:300],
     )
     card.pon_campo(ficha, "ui.api", "ventana-preciosa")
     api_raro = next(
         (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· non-happy: a value that is neither tui nor gateway is not a third mode",
-        "city-runtime.sh gateway api" in api_raro, api_raro[:300],
+        "runtimes.py gateway api" in api_raro, api_raro[:300],
     )
     card.pon_campo(ficha, "ui.api", "")
 
@@ -1547,7 +1547,7 @@ def arranque_escalonado():
     asiento = next((l for l in corre() if ":seat" in l), "")
     afirma(
         "· and `ui.seat: gateway` puts the city's own prompt back",
-        "city-runtime.sh gateway seat" in asiento, asiento[:200],
+        "runtimes.py gateway seat" in asiento, asiento[:200],
     )
     card.pon_campo(ficha, "ui.seat", "")
 

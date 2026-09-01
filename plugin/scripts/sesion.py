@@ -283,7 +283,7 @@ class Ciudad:
         self.seat_name = self.sesion
         self.casa = os.environ.get('AGENTS_CITY_HOME') or os.path.expanduser('~/.agents-city')
         self.cliente = os.path.join(os.path.dirname(GUIONES), 'channel', 'client.js')
-        self.runtime = os.path.join(GUIONES, 'city-runtime.sh')
+        self.runtime = [sys.executable, os.path.join(GUIONES, 'runtimes.py')]
         # Claude's half of the deal, asked for rather than respelled. `arnes.json`
         # declares what this product adds to somebody else's CLI, and the drift
         # guard reads the declaration — so a second spelling here would pass that
@@ -396,7 +396,7 @@ class Ciudad:
         return f'{self.sync_line()}{pares} '
 
     def gateway_line(self, actor, cwd, orden, auto=None):
-        piezas = [self.runtime, 'gateway', actor, cwd, orden,
+        piezas = [*self.runtime, 'gateway', actor, cwd, orden,
                   str(self.o.yolo and 1 or 0 if auto is None else auto)]
         return ' '.join(shlex.quote(p) for p in piezas) + ' '
 
@@ -504,8 +504,10 @@ def donde_trabajan(c):
             montajes.append(':'.join(workspace.sincroniza(a, c.datos)))
         return nombres, rutas, montajes, faltan
 
-    localiza = os.path.join(GUIONES, 'find-repos.sh')
+    import busca  # noqa: PLC0415 - only the legacy `repos:` path indexes the disk
+
     carpeta = os.environ.get('CITY_CODE_DIR') or os.path.expanduser('~/codigo')
+    indice = dict(busca.repos())
     for bruto in (c.o.solo or c.campo('repos')).split(','):
         r = bruto.strip()
         if not r:
@@ -513,7 +515,10 @@ def donde_trabajan(c):
         # 1) the usual place; 2) wherever it is kept, found by its remote.
         ruta = os.path.join(carpeta, r)
         if not os.path.isdir(ruta):
-            ruta = corre([localiza, r]).stdout.strip()
+            # Wherever it is kept, found by its remote. The scanner is asked in
+            # this process: the shim that wrapped it was a second interpreter
+            # start per missing repo, and a card with ten of them paid ten.
+            ruta = indice.get(r, '')
         if not ruta or not os.path.isdir(ruta):
             faltan.append(r)
             continue
@@ -563,7 +568,7 @@ def abre_la_silla(c):
             # between agents. A TUI without them would be a quieter product with
             # a hole in it.
             c.lanza(objetivo, 'seat', c.datos, entorno + c.auth + orden)
-            corre_hablando([c.runtime, 'fallback', 'seat', objetivo, 'claude'])
+            corre_hablando(c.runtime + ['fallback', 'seat', objetivo, 'claude'])
         else:
             c.lanza(objetivo, 'seat', c.datos, entorno + c.auth
                     + c.gateway_line('seat', c.datos, orden, c.seat_auto))
@@ -574,7 +579,7 @@ def abre_la_silla(c):
     elif cual == 'terminal':
         orden = otro[len('terminal:'):]
         c.lanza(objetivo, 'seat', c.datos, c.entorno_de('seat') + orden)
-        corre_hablando([c.runtime, 'fallback', 'seat', objetivo, orden.split(' ')[0]])
+        corre_hablando(c.runtime + ['fallback', 'seat', objetivo, orden.split(' ')[0]])
     else:
         c.dice(objetivo, f'No native Agents City gateway for: {otro}. '
                          f'Use terminal:{otro} only if you explicitly accept '
@@ -663,7 +668,7 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
                 # cities, so refusing a house the same option while granting it
                 # there was backwards on risk, not careful about it.
                 c.lanza(objetivo, win, ruta, prefijo + entorno + c.auth + orden)
-                corre_hablando([c.runtime, 'fallback', win, objetivo, 'claude'])
+                corre_hablando(c.runtime + ['fallback', win, objetivo, 'claude'])
             else:
                 c.lanza(objetivo, win, ruta, prefijo + entorno + c.auth
                         + c.gateway_line(win, ruta, orden))
@@ -681,7 +686,7 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
         elif cual == 'terminal':
             orden = otro[len('terminal:'):]
             c.lanza(objetivo, win, ruta, entorno + jaula + orden)
-            corre_hablando([c.runtime, 'fallback', win, objetivo, orden.split(' ')[0]])
+            corre_hablando(c.runtime + ['fallback', win, objetivo, orden.split(' ')[0]])
         else:
             c.dice(objetivo, f'No native Agents City gateway for: {otro}. '
                              f'Use terminal:{otro} only if you explicitly accept '
@@ -782,7 +787,7 @@ def main(argv=None):
         pass
     # Trust every folder up front, so no window sits waiting on the dialog.
     corre([sys.executable, os.path.join(GUIONES, 'trust-repos.py'), c.datos, *rutas])
-    corre([c.runtime, 'ensure'])
+    corre(c.runtime + ['ensure'])
 
     if not c.ya:
         comodidades()
