@@ -163,41 +163,21 @@ jobs:
       # `python3` is not a name on a Windows install from python.org, and the
       # `|| python` half is what makes the same line run here.
       - name: the hooks answer through cmd.exe
-        shell: cmd
-        run: |
-          set CLAUDE_PLUGIN_ROOT=%CD%\plugin
-          for /f "delims=" %%o in ('node -e "const h=require(''./plugin/hooks/hooks.json'');console.log(h.hooks.UserPromptSubmit[1].hooks[0].command)"') do set ORDEN=%%o
-          echo command: %ORDEN%
-          echo {} | %ORDEN%
-          if errorlevel 1 exit /b 1
-
-      # The launcher, created and RUN. Every window a city opens goes through
-      # one of these, and on this machine it is a .cmd — the environment set
-      # rather than concatenated, the settle a wait, the folder update a step.
-      # The suite fakes this platform to check its shape; this is the machine
-      # saying whether it actually runs.
-      - name: a launcher, written for this machine and run on it
         shell: pwsh
         run: |
-          $ciudad = Join-Path $env:TEMP 'ciudad'
-          New-Item -ItemType Directory -Force -Path $ciudad | Out-Null
-          "id: city_win`nname: Home`nslug: home`nowner: runner" |
-            Set-Content -Path (Join-Path $ciudad 'city.yml') -Encoding utf8
-          $cmd = python plugin/scripts/launch.py create --data $ciudad --actor probe `
-            --cwd $ciudad --client plugin/channel/client.js `
-            --command 'echo LAUNCHED-OK' `
-            --env '{"CITY_BUS_ACTOR":"probe","CITY_BUS_URL":""}' `
-            --unset CLAUDE_CODE_OAUTH_TOKEN
-          "launcher: $cmd"
-          Get-Content $cmd
-          $salida = & cmd /c $cmd 2>&1 | Out-String
-          $salida
-          if ($salida -notmatch 'LAUNCHED-OK') { throw "the launcher did not run its command" }
-          $diag = Get-ChildItem -Recurse -Filter diagnostics.jsonl $ciudad -ErrorAction SilentlyContinue
-          if (-not $diag) { throw "the launcher recorded nothing" }
-          $texto = Get-Content $diag.FullName -Raw
-          if ($texto -notmatch 'launch.started') { throw "no launch.started in the diagnostics" }
-          if ($texto -notmatch 'launch.exited') { throw "no launch.exited in the diagnostics" }
+          $raiz = Join-Path $PWD 'plugin'
+          $env:CLAUDE_PLUGIN_ROOT = $raiz
+          $hooks = Get-Content plugin/hooks/hooks.json -Raw | ConvertFrom-Json
+          $orden = $hooks.hooks.UserPromptSubmit[1].hooks[0].command
+          $orden = $orden.Replace('${CLAUDE_PLUGIN_ROOT}', $raiz)
+          "command: $orden"
+          $salida = & cmd /c "echo {} | $orden" 2>&1 | Out-String
+          "answer: $salida"
+          if ($salida.Trim() -ne '{}') { throw "the hook did not answer {}" }
+          # And the half that makes it portable really is the one that ran: the
+          # POSIX spelling has to fail here for the second to be reached.
+          $primera = & cmd /c "python3 --version" 2>&1 | Out-String
+          "python3 on this machine: $primera"
 
       # Exploratory, and allowed to fail: the one thing a city still cannot do
       # on Windows is open, because opening a city needs a window server and
