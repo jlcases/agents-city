@@ -2,6 +2,7 @@
 """Real tmux E2E for short launchers: full command and visible failure."""
 import json
 import os
+import pty
 import shlex
 import shutil
 import subprocess
@@ -158,6 +159,34 @@ def main():
                and 'agents-city-diagnostic/1' in logs.stdout
                and 'agents-city-activity/1' in logs.stdout,
                logs.stderr or logs.stdout)
+
+        # A terminal answers questions. The shell profile asks for its
+        # attributes, the multiplexer negotiates, and the reply comes back as
+        # bytes on the input — arriving, often, in the gap between the window
+        # opening and the agent starting to read. Nobody typed them; the agent
+        # reads them as the first thing you said. Twice now that showed up as
+        # `62;4c` sitting in the seat's own prompt.
+        oido = os.path.join(base, 'oido.txt')
+        escucha = f'IFS= read -t 2 -r linea; printf %s "$linea" > {shlex.quote(oido)}'
+        _, oyente = create_launcher(env, city, 'repo', repo, escucha)
+        respuesta = b'\x1b[>62;4c\n'
+        maestro, esclavo = pty.openpty()
+        try:
+            antes = subprocess.run(['stty', '-g'], stdin=esclavo, capture_output=True,
+                                   text=True, timeout=5).stdout.strip()
+            os.write(maestro, respuesta)
+            time.sleep(.3)
+            subprocess.run([oyente], stdin=esclavo, cwd=repo, env=env,
+                           capture_output=True, timeout=30)
+            despues = subprocess.run(['stty', '-g'], stdin=esclavo, capture_output=True,
+                                     text=True, timeout=5).stdout.strip()
+        finally:
+            os.close(maestro)
+            os.close(esclavo)
+        afirma('· happy: what the terminal answered nobody is never heard as typing',
+               read(oido) == '', repr(read(oido)))
+        afirma('· non-happy: and the terminal is handed over exactly as it was found',
+               bool(antes) and antes == despues, f'{antes} -> {despues}')
     finally:
         subprocess.run(['tmux', 'kill-session', '-t', session], capture_output=True)
         detiene_hubs_de_ciudad(city)
