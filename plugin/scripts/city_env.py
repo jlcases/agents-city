@@ -30,7 +30,7 @@ def fichero():
     """The keys in ~/.claude/channels/city-bus/.env, or an empty dict."""
     d = {}
     try:
-        with open(os.path.join(CANAL, '.env')) as f:
+        with open(os.path.join(CANAL, '.env'), encoding='utf-8') as f:
             for linea in f:
                 if '=' in linea and not linea.strip().startswith('#'):
                     k, v = linea.split('=', 1)

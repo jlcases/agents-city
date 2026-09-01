@@ -512,7 +512,7 @@ def lee_clave(fichero, clave, defecto=""):
     try:
         import re as _re
 
-        m = _re.search(rf"^{clave}:[ \t]*(.*)$", open(fichero).read(), _re.M)
+        m = _re.search(rf"^{clave}:[ \t]*(.*)$", open(fichero, encoding='utf-8').read(), _re.M)
         return (m.group(1).strip() if m else defecto) or defecto
     except OSError:
         return defecto

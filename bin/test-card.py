@@ -170,9 +170,9 @@ def escritura():
     print('  writing')
 
     d, r = ficha(ENTERA)
-    antes = open(r).read()
+    antes = open(r, encoding='utf-8').read()
     afirma('· changing the repos changes the repos', card.cambia_repos(r, ['z', 'a']))
-    despues = open(r).read()
+    despues = open(r, encoding='utf-8').read()
     comprueba('· sorted, in the frontmatter', card.lee(r)['repos'], ['a', 'z'])
     afirma('· and nothing else moved — the goal is untouched',
            card.lee(r)['objetivo']['title'] == 'Every parcel has an owner')
@@ -195,7 +195,7 @@ def escritura():
         '· repo-role surgery writes one explicit role per selected agent',
         card.cambia_roles_repos(r, ['portfolio', 'docs'], {'portfolio': 'po', 'docs': 'blank'}),
     )
-    despues = open(r).read()
+    despues = open(r, encoding='utf-8').read()
     comprueba(
         '· changed repo roles round-trip, including the deliberate blank',
         card.roles_repos(despues, ['portfolio', 'docs']),
@@ -261,8 +261,9 @@ def cirugia():
         '# ana\n\nRole: **cpto** — in the city, the **architect**. '
         'The domain is in `roles/cpto.md`.\n'))
     # A round left its mark; changing the goal must not erase it.
-    t = open(r).read() + '\n## Round history\n\n### 2026-08-20 — round\n- kira: pinned on purpose\n'
-    open(r, 'w').write(t)
+    t = (open(r, encoding='utf-8').read()
+         + '\n## Round history\n\n### 2026-08-20 — round\n- kira: pinned on purpose\n')
+    open(r, 'w', encoding='utf-8').write(t)
     afirma('· cambia_objetivo rewrites the goal',
            card.cambia_objetivo(r, {'title': 'Nuevo', 'signal': 'prosa', 'command': '',
                                     'manual': 'lo juzga el consejo', 'baseline': '',
@@ -299,17 +300,17 @@ def motores():
     d, r = ficha(ENTERA)
     afirma('· a default engine can be set', card.pon_campo(r, 'model', 'opus'))
     afirma('· and one window tuned', card.pon_campo(r, 'model.dbt', 'haiku'))
-    t = open(r).read()
+    t = open(r, encoding='utf-8').read()
     comprueba('· both are readable by the exact keys the session script asks for',
               (card.campo(t, 'model'), card.campo(t, 'model.dbt')), ('opus', 'haiku'))
     afirma('· replacing overwrites instead of duplicating',
            card.pon_campo(r, 'model', 'sonnet')
-           and open(r).read().count('model:') == 1)
+           and open(r, encoding='utf-8').read().count('model:') == 1)
     afirma('· empty removes the key', card.pon_campo(r, 'model.dbt', '')
-           and 'model.dbt' not in open(r).read())
+           and 'model.dbt' not in open(r, encoding='utf-8').read())
     afirma('· a dotted window key never matches the plain default',
-           card.campo(open(r).read(), 'model.dbt') == ''
-           and card.campo(open(r).read(), 'model') == 'sonnet')
+           card.campo(open(r, encoding='utf-8').read(), 'model.dbt') == ''
+           and card.campo(open(r, encoding='utf-8').read(), 'model') == 'sonnet')
     afirma('· a hostile key is refused, not written',
            card.pon_campo(r, 'model.$(rm -rf)', 'x') is False)
     afirma('· and the goal survived all of it',

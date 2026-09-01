@@ -213,7 +213,12 @@ function main() {
 
   // The settings the bash doors used to establish by sourcing city-env.sh.
   // Asked of the one resolver, in the one shape a non-shell can read.
-  let entorno = { ...process.env, PYTHONUNBUFFERED: '1' };
+  // PYTHONUTF8 makes `open()` and stdout default to UTF-8 whatever code page
+  // the console is on. Without it, on Windows, a card with an em dash is
+  // written in cp1252 and read back as UTF-8 by the next door along.
+  let entorno = {
+    ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+  };
   if (orden.entorno) {
     const py = interprete();
     if (py) {

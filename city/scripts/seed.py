@@ -121,7 +121,7 @@ def gente(datos):
     accepted too, because plenty of people will reach for one."""
     fuera = []
     for f in sorted(glob.glob(f'{datos}/*.md') + glob.glob(f'{datos}/team/*.md')):
-        t = open(f).read()
+        t = open(f, encoding='utf-8').read()
         def g(k, d='', _t=t):
             m = re.search(rf'^{k}:\s*(.+)$', _t, re.M)
             return m.group(1).strip() if m else d
@@ -422,7 +422,7 @@ def main():
         # other's SQL mid-flight and load somebody else's city.
         descriptor, ruta = tempfile.mkstemp(prefix='agents-city-seed-', suffix='.sql')
         try:
-            with os.fdopen(descriptor, 'w') as archivo:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as archivo:
                 archivo.write(salida)
             orden = [*lanzador(), 'wrangler@4', 'd1', 'execute', 'city', modo]
             if a.local and a.persist_to:

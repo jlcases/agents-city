@@ -177,11 +177,18 @@ def monta(data, slug, origen, nombre=None):
     destino = rutas.canonicaliza(origen)
     if not os.path.exists(destino):
         raise ValueError(f'nothing to mount at {destino}')
-    # The mount pipeline (sync-all output, the cage --mounts list) is
-    # colon-separated, so a colon in the real path would split into bogus
-    # roots. Refuse it rather than hand the cage a wrong ancestor.
-    if ':' in destino:
-        raise ValueError(f'mount path contains a colon, which is not supported: {destino}')
+    # The mount pipeline (sync-all output, the cage --mounts list) joins paths
+    # with the platform's own path separator, so a path CONTAINING it would
+    # split into bogus roots. Refuse it rather than hand the cage a wrong
+    # ancestor.
+    #
+    # It was a hardcoded colon, which is the separator on POSIX and part of
+    # every absolute path on Windows — so `C:\Users\...` was refused and no
+    # agent on Windows could mount anything at all. `os.pathsep` is `;` there,
+    # which is exactly the distinction being made.
+    if os.pathsep in destino:
+        raise ValueError(
+            f'mount path contains {os.pathsep!r}, which separates them: {destino}')
     ws = crea_workspace(data, slug)
     carpeta = os.path.join(ws, MOUNTS_DIR)
     if nombre:
@@ -480,7 +487,7 @@ def _cmd_sync(args):
     objetivo = _slug(args.agent)
     for a in agentes(_lee_ficha(args.card), args.data):
         if a.slug == objetivo:
-            print(':'.join(sincroniza(a, args.data)))
+            print(os.pathsep.join(sincroniza(a, args.data)))
             return 0
     return 0  # unknown agent: no targets, not an error
 
@@ -496,7 +503,7 @@ def _cmd_sync_all(args):
         print('--card is required', file=sys.stderr)
         return 2
     for a in agentes(_lee_ficha(args.card), args.data):
-        targets = ':'.join(sincroniza(a, args.data))
+        targets = os.pathsep.join(sincroniza(a, args.data))
         print('\t'.join([a.slug, a.workspace, targets]))
     return 0
 
@@ -524,7 +531,7 @@ def _cmd_mounts(args):
 def _cmd_targets(args):
     agente = Agente(args.agent, _slug(args.agent), '', 'claude', CLASE_DEFECTO,
                     workspace_de(args.data, _slug(args.agent)), [], legacy=False)
-    print(':'.join(mount_targets(agente, args.data)))
+    print(os.pathsep.join(mount_targets(agente, args.data)))
     return 0
 
 

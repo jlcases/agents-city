@@ -80,7 +80,7 @@ def leeRol(ident):
     f = os.path.join(AQUI, "..", "plugin", "roles", "examples", f"{ident}.md")
     if not os.path.exists(f):
         return ""
-    t = open(f).read()
+    t = open(f, encoding='utf-8').read()
     m = re.search(r"## Domain\n\n(.+?)(?:\n\n|$)", t, re.S)
     return " ".join(re.sub(r"\*\*|`", "", m.group(1)).split())[:70] if m else ""
 
@@ -573,7 +573,7 @@ def escribe(d):
         "# district instead of landing among the shared ones.",
         "lab: []",
     ]
-    open(f"{destino}/parcels.yml", "w").write("\n".join(p) + "\n")
+    open(f"{destino}/parcels.yml", "w", encoding='utf-8').write("\n".join(p) + "\n")
     hechos.append(f"parcels.yml — {len(d['repos'])} repos, one house each, ready to split")
 
     ejemplos = os.path.join(AQUI, "..", "plugin", "roles", "examples")
@@ -581,7 +581,9 @@ def escribe(d):
     for r in d["roles"]:
         src = os.path.join(ejemplos, f"{r}.md")
         if os.path.exists(src):
-            open(f"{destino}/roles/{r}.md", "w").write(open(src).read())
+            with open(src, encoding="utf-8") as origen:
+                with open(f"{destino}/roles/{r}.md", "w", encoding="utf-8") as copia:
+                    copia.write(origen.read())
             copiados += 1
     hechos.append(f"roles/ — {copiados} role files, yours to edit")
 
@@ -636,14 +638,14 @@ def escribe(d):
                 + ["_Agreed with the architect during setup._", ""]
                 + cuerpo[cuerpo.index("## Round history") :]
             )
-        open(f"{destino}/{u}.md", "w").write(
+        open(f"{destino}/{u}.md", "w", encoding='utf-8').write(
             "---\n" + "\n".join(fm) + "\n---\n\n" + "\n".join(cuerpo)
         )
     hechos.append(f"{len(d['gente'])} cards — one per person, goals empty on purpose")
 
     # The work domain, so the seeder and every runtime share one context.
     dominio = domains.canonico(d.get("domain") or d.get("kind") or "software")
-    open(f"{destino}/city.yml", "w").write(
+    open(f"{destino}/city.yml", "w", encoding='utf-8').write(
         "# The work domain of this city. Written by the wizard; edit freely.\n"
         "#\n"
         "# `grows_with` is prose, for humans. `grow_command` is the one that matters:\n"
@@ -668,7 +670,7 @@ def escribe(d):
         if not ruta or not os.path.isdir(ruta):
             continue
         dueno = next((g["user"] for g in d["gente"] if g["role"] == "dev"), "")
-        open(os.path.join(ruta, ".city.yml"), "w").write(
+        open(os.path.join(ruta, ".city.yml"), "w", encoding="utf-8").write(
             f"# This folder in the city. Read by the agent that works here.\n"
             f"parcel: {nombre}\n"
             f"unit: none          # which business unit this serves\n"
@@ -677,7 +679,7 @@ def escribe(d):
         )
         agentes = os.path.join(ruta, "AGENTS.md")
         if not os.path.exists(agentes):
-            open(agentes, "w").write(
+            open(agentes, "w", encoding='utf-8').write(
                 f"# {nombre}\n\n"
                 f"This folder is a parcel in our Agents City. What that means in practice:\n\n"
                 f"- It serves one business unit. Which one is in `.city.yml`, next to this file.\n"

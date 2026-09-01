@@ -1672,7 +1672,7 @@ def main():
         # A fake binary makes the light deterministic on any machine, CI included.
         cajon = tempfile.mkdtemp()
         falso = os.path.join(cajon, "kimi")
-        with open(falso, "w") as f:
+        with open(falso, "w", encoding='utf-8') as f:
             f.write('#!/bin/sh\necho "kimi 9.9.9"\n')
         os.chmod(falso, 0o755)
         ruta_previa = os.environ["PATH"]

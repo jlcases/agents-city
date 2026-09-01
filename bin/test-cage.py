@@ -78,7 +78,7 @@ def excepciones_y_errores():
     base, casa, repo = entorno_falso()
     try:
         ficha = os.path.join(base, "win.token")
-        with open(ficha, "w") as f:
+        with open(ficha, "w", encoding='utf-8') as f:
             f.write("cb_x\n")
         p = cage.perfil(repo, casa=casa, fichero_token=ficha)
         afirma("the window's own broker token file is re-allowed read-only",
@@ -179,7 +179,7 @@ def jaula_viva():
     base, casa, repo = entorno_falso()
     try:
         ruta = os.path.join(base, "cage.sb")
-        with open(ruta, "w") as f:
+        with open(ruta, "w", encoding='utf-8') as f:
             f.write(cage.perfil(repo, casa=casa))
         r = _enjaulado(ruta, "/bin/cat", os.path.join(casa, ".ssh", "id_ed25519"))
         afirma("live: the planted SSH key is unreadable inside the cage",
@@ -270,7 +270,7 @@ def argv_de_linux():
         # the seal that hides the directory it lives in — last mount wins.
         token = os.path.join(casa, ".agents-city", ".runtime", "broker", "web.token")
         os.makedirs(os.path.dirname(token), exist_ok=True)
-        open(token, "w").write("t")
+        open(token, "w", encoding='utf-8').write("t")
         conficha = cage.argv_bwrap(repo, casa=casa, fichero_token=token)
         i_sello = max(i for i, a in enumerate(conficha)
                       if a.endswith(os.path.join(".runtime", "broker")))

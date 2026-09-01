@@ -89,7 +89,8 @@ def respaldo(argv, entorno):
     registro = subprocess.DEVNULL
     if sitio:
         os.makedirs(os.path.join(sitio, 'adapters'), exist_ok=True)
-        registro = open(os.path.join(sitio, 'adapters', f'{actor}.log'), 'a')  # noqa: SIM115
+        registro = open(os.path.join(sitio, 'adapters', f'{actor}.log'), 'a',
+                        encoding='utf-8')  # noqa: SIM115
     hijo = dict(os.environ, CITY_BUS_ACTOR=actor, CITY_AGENT_RUNTIME=motor,
                 **de_quien(actor, entorno))
     subprocess.Popen(  # noqa: S603

@@ -99,7 +99,7 @@ def todo():
         ficha = broker.acuna(datos, "web", repo, solo_fichero=True)
         afirma("mint writes the token file with 0600",
                oct(os.stat(ficha).st_mode & 0o777) == "0o600", ficha)
-        token = open(ficha).read().strip()
+        token = open(ficha, encoding='utf-8').read().strip()
         guardados = json.load(open(os.path.join(broker.estado_de(datos), "tokens.json")))
         afirma("only the hash of the token is stored, never the token",
                token not in json.dumps(guardados) and len(guardados) == 1)
@@ -144,7 +144,7 @@ def todo():
         comprueba("an unknown verb is a 404", estado, 404)
 
         registro = os.path.join(broker.estado_de(datos), "audit.log")
-        lineas = open(registro).read().splitlines()
+        lineas = open(registro, encoding='utf-8').read().splitlines()
         afirma("every request, refused ones included, landed in the audit log",
                sum(1 for l in lineas if '"/v1/' in l) >= 7, f"{len(lineas)} lines")
         comprueba("the audit chain verifies intact", broker.verifica(broker.estado_de(datos)), 0)
@@ -152,7 +152,7 @@ def todo():
         falseada = json.loads(manipuladas[2])
         falseada["ok"] = not falseada["ok"]
         manipuladas[2] = json.dumps(falseada, sort_keys=True)
-        with open(registro, "w") as f:
+        with open(registro, "w", encoding='utf-8') as f:
             f.write("\n".join(manipuladas) + "\n")
         afirma("one rewritten entry breaks the chain at the next line",
                broker.verifica(broker.estado_de(datos)) == 4,
@@ -231,7 +231,7 @@ def secretos_y_evidencia():
             def read(self, *_):
                 return b'{"ok":true}'
 
-        def _fake_open(req, timeout=0):
+        def _fake_open(req, timeout=0, encoding='utf-8'):
             capturado["url"] = req.full_url
             capturado["auth"] = req.headers.get("X-api-key") or req.headers.get("Authorization")
             return _Resp()

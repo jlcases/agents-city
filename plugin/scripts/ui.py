@@ -19,7 +19,7 @@ TTY = sys.stdin.isatty() and sys.stdout.isatty()
 _GUION = None
 if os.environ.get('AGENTS_CITY_ANSWERS'):
     import json as _json
-    with open(os.environ['AGENTS_CITY_ANSWERS']) as _f:
+    with open(os.environ['AGENTS_CITY_ANSWERS'], encoding='utf-8') as _f:
         _GUION = _json.load(_f)
     TTY = False
 

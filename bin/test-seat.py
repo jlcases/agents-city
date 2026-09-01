@@ -99,7 +99,7 @@ def camino_feliz():
         ficha, "ana", "cpto", roster(("api", "code", "data-engineer"), ("web", "code", "seo"))
     )
 
-    texto = open(ficha).read()
+    texto = open(ficha, encoding='utf-8').read()
     afirma("· the card starts with frontmatter", texto.startswith("---\n"))
     for campo, valor in (
         ("user", "ana"),
@@ -335,7 +335,7 @@ def caminos_infelices():
 
     d2, r2 = tempfile.mkdtemp(), None
     r2 = os.path.join(d2, "x.md")
-    open(r2, "w").write("---\nuser: a\nrepos: []\ngoals_defined: false\n---\n")
+    open(r2, "w", encoding='utf-8').write("---\nuser: a\nrepos: []\ngoals_defined: false\n---\n")
     afirma("· so a per-worktree engine can be set", _card.pon_campo(r2, f"model.{slug}", "haiku"))
     shutil.rmtree(wt)
     shutil.rmtree(d2)
@@ -356,12 +356,12 @@ def caminos_infelices():
     )
     comprueba(
         "· and reads back verbatim, flags included",
-        _c2.campo(open(fmix).read(), "runs.dbt"),
+        _c2.campo(open(fmix, encoding='utf-8').read(), "runs.dbt"),
         "echo OTRO_AGENTE && sleep 5",
     )
     afirma(
         "· while claude stays the default for windows without it",
-        _c2.campo(open(fmix).read(), "runs.etl") == "",
+        _c2.campo(open(fmix, encoding='utf-8').read(), "runs.etl") == "",
     )
     # The launcher reads the card once and asks it for each window's key, so
     # this follows the key rather than a spelling: what matters is that
@@ -745,7 +745,7 @@ def puesto_completo():
     }
     ficha = os.path.join(casa, "ana.md")
     S.escribe_ficha(ficha, "ana", "cpto", roster(("api",)), meta)
-    texto = open(ficha).read()
+    texto = open(ficha, encoding='utf-8').read()
     afirma("· a card with a goal says so in its frontmatter", "goals_defined: true" in texto)
     vuelta = card.objetivo(texto, "ana")
     for k in ("title", "signal", "command", "baseline", "target", "by"):
@@ -757,13 +757,13 @@ def puesto_completo():
     S.escribe_ficha(ficha, "ana", "cpto", roster(("api",)), sin)
     afirma(
         '· "manual" is shown to a reader but is not read back as a command',
-        card.objetivo(open(ficha).read(), "ana")["command"] == "",
-        repr(card.objetivo(open(ficha).read(), "ana")["command"]),
+        card.objetivo(open(ficha, encoding='utf-8').read(), "ana")["command"] == "",
+        repr(card.objetivo(open(ficha, encoding='utf-8').read(), "ana")["command"]),
     )
 
     # No goal at all.
     S.escribe_ficha(ficha, "ana", "cpto", roster(("api",)), None)
-    texto = open(ficha).read()
+    texto = open(ficha, encoding='utf-8').read()
     afirma("· no goal says goals_defined: false", "goals_defined: false" in texto)
     comprueba("· and reads back as no goal", card.objetivo(texto, "ana"), None)
 
@@ -790,7 +790,7 @@ def puesto_completo():
     )
     del_wizard = open(os.path.join(otro, "ana.md")).read()
     S.escribe_ficha(ficha, "ana", "cpto", [], meta)
-    del_seat = open(ficha).read()
+    del_seat = open(ficha, encoding='utf-8').read()
     for etiqueta in (
         "### O1 — ",
         "- **What**:",
@@ -948,7 +948,7 @@ def dos_puertas():
 
     # And it can do the actual job there: write a card, with no bin/ in sight.
     guion = os.path.join(jaula, "run.py")
-    open(guion, "w").write(f"""
+    open(guion, "w", encoding='utf-8').write(f"""
 import sys
 sys.path.insert(0, {os.path.join(copia, "scripts")!r})
 import ui
@@ -960,7 +960,7 @@ s = u.spec_from_loader('seat', m.SourceFileLoader('seat', {seat_aislado!r}))
 mod = u.module_from_spec(s); s.loader.exec_module(mod)
 ficha = {os.path.join(jaula, "datos", "ana.md")!r}
 mod.escribe_ficha(ficha, 'ana', 'cpto')
-print(open(ficha).read())
+print(open(ficha, encoding='utf-8').read())
 """)
     os.makedirs(os.path.join(jaula, "datos"), exist_ok=True)
     r = subprocess.run(["python3", guion], capture_output=True, text=True, cwd=jaula)
@@ -1173,19 +1173,15 @@ def el_settings_sobrevive_a_la_shell(asiento, api):
                   ajustes.get("crossSessionInbound"), "refuse")
 
 
-def arranque_escalonado():
-    """Claude windows must not all start in the same millisecond.
+def la_aritmetica_del_arranque():
+    """The settle, the stagger and the folder update, asked of the functions.
 
-    Every Claude session on a machine shares one OAuth credential, and refreshing
-    it rotates a single-use refresh token: the first process wins and the rest are
-    left holding one the server already invalidated. It surfaces as "you have no
-    quota" on an account with plenty, and only logging out and back in clears it
-    (claude-code#24317, #25609, #27933, #48786). One window per repo made this
-    product the worst possible caller.
+    They used to be extracted from the shell with `sed` and eval'd back — which
+    means a test that passes while nothing calls the function, and breaks
+    because somebody moved a brace. Split out from the launch checks below
+    because it needs no city, no card and no window server: it is arithmetic.
     """
     print("  claude windows start one at a time")
-
-    guion = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
     # The arithmetic and the sync line, asked of the functions themselves.
     # They used to be extracted from the shell with `sed` and eval'd back — which
     # meant the test could pass while the script called them with the wrong
@@ -1232,6 +1228,130 @@ def arranque_escalonado():
         sesion.Opciones(["--no-sync"]).sync is False, "",
     )
 
+
+def planes_de(registro):
+    """Every launch in this log, read back as the plan it is.
+
+    Production gives the window server only a short private launcher path. This
+    reads that test-owned launcher as what it carries — the environment as a
+    mapping, the settle as a number, and the runtime's own command line. It used
+    to be one string with all three concatenated into it, so every check was a
+    substring search over a shell sentence; asking the parts is both stricter and
+    readable.
+    """
+    planes = []
+    for line in open(registro, encoding='utf-8').read().splitlines():
+        if "send-keys" not in line or " -l -- " not in line:
+            continue
+        pieces = shlex.split(line)
+        try:
+            target = pieces[pieces.index("-t") + 1]
+            launcher = pieces[-1]
+            script = open(launcher, encoding="utf-8").read()
+        except (OSError, ValueError, IndexError):
+            continue
+        plan = {"target": target, "script": script, "env": {}, "unset": set(),
+                "wait": 0, "command": ""}
+        for row in script.splitlines():
+            if row.startswith("export "):
+                clave, _, valor = row[len("export "):].partition("=")
+                plan["env"][clave] = (shlex.split(valor) or [""])[0]
+            elif row.startswith("unset "):
+                plan["unset"].add(row[len("unset "):].strip())
+            elif row.strip().startswith("sleep "):
+                plan["wait"] = int(row.strip().split()[1])
+            elif row.startswith("COMMAND_B64="):
+                codificado = shlex.split(row)[0].split("=", 1)[1]
+                plan["command"] = base64.b64decode(codificado).decode("utf-8")
+        planes.append(plan)
+    return planes
+
+
+def de(planes, actor):
+    """The plan for one window, or an empty one — so a missing window fails the
+    check that names it rather than raising somewhere else."""
+    return next((p for p in planes if p["env"].get("CITY_BUS_ACTOR") == actor),
+                {"target": "", "script": "", "env": {}, "unset": set(),
+                 "wait": 0, "command": ""})
+
+
+def la_cara_de_cada_ventana(ficha, corre, de, guion, casa, datos, codigo, fbin):
+    """Which interface each window opens with, chair and house alike.
+
+    It is the point of the product — orchestrate somebody's CLI, do not replace
+    it — and `ui_de` was written as a general function consulted for exactly one
+    window. Split out from the launch checks so each function asks one question.
+    """
+    print("  the face each window opens with")
+    # And the same choice, for a house. It is the point of the product — orchestrate
+    # somebody's CLI, do not replace it — and until now `ui_de` was a general
+    # function consulted for exactly one window.
+    card.pon_campo(ficha, "ui.api", "tui")
+    lineas = corre(CITY_SETTLE="0", CITY_STAGGER="0")
+    pApiTui = de(lineas, "api")
+    api_tui = pApiTui["command"]
+    afirma(
+        "· happy: `ui.api: tui` opens that house's own Claude Code, not a prompt in front of it",
+        "runtimes.py gateway api" not in api_tui and "claude" in api_tui,
+        api_tui[:300],
+    )
+    aviso = subprocess.run(
+        ["bash", guion, "ana", "--claude", "--no-sync"],
+        capture_output=True, text=True, cwd=casa,
+        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
+                 PATH=fbin + os.pathsep + os.environ["PATH"],
+                 CITY_SETTLE="0", CITY_STAGGER="0"),
+    ).stderr
+    afirma(
+        "· and the city says out loud what that costs, rather than hiding it",
+        "api uses the explicit terminal fallback" in aviso
+        and "native delivery is unavailable" in aviso,
+        aviso[-400:],
+    )
+    afirma(
+        "· non-happy: while its cage and its bus identity are exactly as before",
+        pApiTui["env"].get("CITY_BUS_ACTOR") == "api"
+        and pApiTui["env"].get("CITY_AGENT_ROLE") == "data-engineer",
+        str(pApiTui["env"])[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+    api_pasarela = de(corre(CITY_SETTLE="0", CITY_STAGGER="0"), "api")["command"]
+    afirma(
+        "· non-happy: and clearing the key puts the gateway back, which is the default",
+        "runtimes.py gateway api" in api_pasarela, api_pasarela[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "ventana-preciosa")
+    api_raro = de(corre(CITY_SETTLE="0", CITY_STAGGER="0"), "api")["command"]
+    afirma(
+        "· non-happy: a value that is neither tui nor gateway is not a third mode",
+        "runtimes.py gateway api" in api_raro, api_raro[:300],
+    )
+    card.pon_campo(ficha, "ui.api", "")
+
+    # The old shape is still one card key away, for anybody who wants the bus
+    # able to drive their chair.
+    card.pon_campo(ficha, "ui.seat", "gateway")
+    asiento = de(corre(), "seat")["command"]
+    afirma(
+        "· and `ui.seat: gateway` puts the city's own prompt back",
+        "runtimes.py gateway seat" in asiento, asiento[:200],
+    )
+    card.pon_campo(ficha, "ui.seat", "")
+
+
+def arranque_escalonado():
+    """Claude windows must not all start in the same millisecond.
+
+    Every Claude session on a machine shares one OAuth credential, and refreshing
+    it rotates a single-use refresh token: the first process wins and the rest are
+    left holding one the server already invalidated. It surfaces as "you have no
+    quota" on an account with plenty, and only logging out and back in clears it
+    (claude-code#24317, #25609, #27933, #48786). One window per repo made this
+    product the worst possible caller.
+    """
+    print("  claude windows start one at a time")
+
+    guion = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
     # And now the real script, with a tmux that writes down what it is told
     # instead of running it. `has-session` has to fail, or the script decides the
     # day is already open and attaches to it.
@@ -1252,7 +1372,7 @@ def arranque_escalonado():
     # A tmux that writes down what it is told. FAKE_SESSION/FAKE_WINDOWS let a
     # test say "this city is already open, with these windows in it", which is
     # the only way to exercise the reconcile path without a real tmux server.
-    open(falso, "w").write(
+    open(falso, "w", encoding='utf-8').write(
         '#!/bin/bash\nprintf "%s\\n" "$*" >> '
         + registro
         + '\nif [ "$1" = "has-session" ]; then [ -n "${FAKE_SESSION:-}" ] || exit 1; exit 0; fi'
@@ -1262,14 +1382,14 @@ def arranque_escalonado():
     )
     os.chmod(falso, 0o755)
     falso_node = os.path.join(fbin, "node")
-    open(falso_node, "w").write(
+    open(falso_node, "w", encoding='utf-8').write(
         '#!/bin/bash\ncase "$*" in *runtime-dir*) echo "'
         + os.path.join(casa, "runtime")
         + '";; esac\nexit 0\n'
     )
     os.chmod(falso_node, 0o755)
     falso_claude = os.path.join(fbin, "claude")
-    open(falso_claude, "w").write(
+    open(falso_claude, "w", encoding='utf-8').write(
         '#!/bin/bash\n'
         'if [ "${1:-} ${2:-}" = "auth status" ]; then\n'
         '  if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then\n'
@@ -1284,7 +1404,7 @@ def arranque_escalonado():
     stale_oauth = "STALE_TEST_TOKEN_MUST_NEVER_REACH_A_CHILD"
 
     def corre(**extra):
-        open(registro, "w").close()
+        open(registro, "w", encoding='utf-8').close()
         entorno = dict(os.environ)
         entorno.update({
             "HOME": casa,
@@ -1302,26 +1422,7 @@ def arranque_escalonado():
             cwd=casa,
             env=entorno,
         )
-        # Production now gives tmux only a short private launcher path. Decode
-        # that test-owned launcher to keep asserting the exact command contract
-        # without regressing to giant simulated keystrokes.
-        commands = []
-        for line in open(registro).read().splitlines():
-            if "send-keys" not in line or " -l -- " not in line:
-                continue
-            pieces = shlex.split(line)
-            try:
-                target = pieces[pieces.index("-t") + 1]
-                launcher = pieces[-1]
-                script = open(launcher, encoding="utf-8").read()
-                assignment = next(row for row in script.splitlines()
-                                  if row.startswith("COMMAND_B64="))
-                encoded = shlex.split(assignment)[0].split("=", 1)[1]
-                command = base64.b64decode(encoded).decode("utf-8")
-                commands.append(f"send-keys -t {target} {command}")
-            except (OSError, ValueError, IndexError, StopIteration):
-                continue
-        return commands
+        return planes_de(registro)
 
     lineas = corre(CITY_SETTLE="8", CITY_STAGGER="1")
     afirma(
@@ -1329,42 +1430,39 @@ def arranque_escalonado():
         len(lineas) >= 3,
         f"{len(lineas)} send-keys: {lineas}",
     )
-    api = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
-    docs = next((l for l in lineas if "CITY_BUS_ACTOR=docs" in l), "")
-    asiento = next((l for l in lineas if "CITY_BUS_ACTOR=seat" in l), "")
+    pApi, pDocs, pAsiento = de(lineas, "api"), de(lineas, "docs"), de(lineas, "seat")
+    api, docs, asiento = pApi["command"], pDocs["command"], pAsiento["command"]
     afirma(
         "· the api window is sent a wait, and it comes before claude",
-        "sleep 8; " in api
-        and api.index("sleep") < api.index("claude")
-        and "CITY_AGENT_ROLE=data-engineer" in api,
-        api[:160],
+        pApi["wait"] == 8
+        # And it is waited BEFORE the runtime starts, not after: the whole point
+        # is not colliding with the chair's token refresh.
+        and pApi["script"].index("sleep") < pApi["script"].index('eval "$command_text"')
+        and pApi["env"].get("CITY_AGENT_ROLE") == "data-engineer",
+        f'{pApi["wait"]} {pApi["env"].get("CITY_AGENT_ROLE")!r}',
     )
     afirma(
         "· the seat goes first and waits for nobody",
-        bool(asiento) and "sleep" not in asiento,
-        asiento[:160],
+        bool(asiento) and pAsiento["wait"] == 0, str(pAsiento["wait"]),
     )
     afirma(
         "· another vendor's window never waits — it is not in this race",
-        bool(docs) and "sleep" not in docs and "CITY_AGENT_ROLE=seo" in docs,
-        docs[:160],
+        bool(docs) and pDocs["wait"] == 0 and pDocs["env"].get("CITY_AGENT_ROLE") == "seo",
+        f'{pDocs["wait"]} {pDocs["env"].get("CITY_AGENT_ROLE")!r}',
     )
     afirma(
         "· every runtime carries its authenticated bus actor",
-        "CITY_BUS_ACTOR=seat" in asiento
-        and "CITY_BUS_ACTOR=api" in api
-        and "CITY_BUS_ACTOR=docs" in docs,
+        all(p["env"].get("CITY_BUS_ACTOR") == a
+            for p, a in ((pAsiento, "seat"), (pApi, "api"), (pDocs, "docs"))),
     )
-    # Asked of the parsed command rather than of its spelling: the values are
-    # quoted now, because a city folder with a space in its name used to produce
-    # windows that launched somewhere else entirely.
-    def sin_carretera(linea):
-        piezas = shlex.split(linea)
-        return "CITY_BUS_URL=" in piezas and "CITY_BUS_TOKEN=" in piezas
-
+    # Asked of the environment as a mapping. It used to be a shell prefix in
+    # front of the command, string-matched — which could not tell an empty value
+    # from an absent one, and that is the entire distinction being made here.
     afirma(
         "· repo windows receive neither remote road URL nor token",
-        sin_carretera(api) and sin_carretera(docs), api[:200],
+        all(p["env"].get("CITY_BUS_URL") == "" and p["env"].get("CITY_BUS_TOKEN") == ""
+            for p in (pApi, pDocs)),
+        f'{pApi["env"].get("CITY_BUS_URL")!r} {pApi["env"].get("CITY_BUS_TOKEN")!r}',
     )
     claude_contract = (asiento + "\n" + api).replace("\\", "")
     el_settings_sobrevive_a_la_shell(asiento, api)
@@ -1400,13 +1498,15 @@ def arranque_escalonado():
         and "--dangerously-load-development-channels" not in api,
         (asiento + "\n" + api)[:500],
     )
-    auth_unset = "env -u CLAUDE_CODE_OAUTH_TOKEN -u ANTHROPIC_API_KEY"
+    # The overrides are removed by the launcher, as names, rather than by an
+    # `env -u …` prefix in front of the command — because a prefix is a shell
+    # sentence and a name is a fact.
     afirma(
         "· a stale inherited OAuth token cannot override the healthy Team login",
-        auth_unset in asiento
-        and auth_unset in api
-        and stale_oauth not in "\n".join(lineas),
-        (asiento + "\n" + api)[:700],
+        {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} <= pAsiento["unset"]
+        and {"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} <= pApi["unset"]
+        and stale_oauth not in "\n".join(p["script"] for p in lineas),
+        f'{sorted(pAsiento["unset"])}',
     )
     afirma(
         "· a known non-Claude runtime starts its native gateway without fallback",
@@ -1436,15 +1536,15 @@ def arranque_escalonado():
         )
     afirma(
         "· and it does not consume a turn either, so no gap is wasted",
-        "sleep 9" not in " ".join(lineas),
-        " ".join(lineas)[:200],
+        all(p["wait"] != 9 for p in lineas),
+        str([p["wait"] for p in lineas]),
     )
 
     lineas = corre(CITY_SETTLE="0", CITY_STAGGER="0")
     afirma(
         "· zeros really do open everything at once",
-        lineas and not any("sleep" in l for l in lineas),
-        str(lineas)[:200],
+        bool(lineas) and not any(p["wait"] for p in lineas),
+        str([p["wait"] for p in lineas]),
     )
 
     # An owner deliberately using API/environment auth can opt out. Agents City
@@ -1452,15 +1552,14 @@ def arranque_escalonado():
     # launcher command or logs.
     environment_lines = corre(
         CITY_SETTLE="0", CITY_STAGGER="0", CITY_CLAUDE_AUTH="environment")
-    environment_claude = "\n".join(
-        line for line in environment_lines
-        if "CITY_BUS_ACTOR=seat" in line or "CITY_BUS_ACTOR=api" in line)
+    conEntorno = [p for p in environment_lines
+                  if p["env"].get("CITY_BUS_ACTOR") in ("seat", "api")]
     afirma(
         "· non-happy: explicit environment auth is preserved without leaking it",
-        bool(environment_claude)
-        and "env -u CLAUDE_CODE_OAUTH_TOKEN" not in environment_claude
-        and stale_oauth not in environment_claude,
-        environment_claude[:500],
+        bool(conEntorno)
+        and all("CLAUDE_CODE_OAUTH_TOKEN" not in p["unset"] for p in conEntorno)
+        and all(stale_oauth not in p["script"] for p in conEntorno),
+        str([sorted(p["unset"]) for p in conEntorno])[:300],
     )
 
     # A city with no Claude in it: the seat runs another CLI too. Then nobody has
@@ -1469,8 +1568,8 @@ def arranque_escalonado():
     # happens.
     card.pon_campo(ficha, "runs.seat", "codex")
     lineas = corre(CITY_SETTLE="8", CITY_STAGGER="1")
-    asiento = next((l for l in lineas if ":seat" in l), "")
-    api = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
+    pAsiento, pApi = de(lineas, "seat"), de(lineas, "api")
+    asiento, api = pAsiento["command"], pApi["command"]
     afirma(
         "· the seat honours runs.seat instead of always launching claude",
         "codex" in asiento and "claude" not in asiento,
@@ -1478,17 +1577,17 @@ def arranque_escalonado():
     )
     afirma(
         "· and it keeps the identity that makes it a seat",
-        "CITY_BUS_ACTOR=seat" in asiento,
-        asiento[:160],
+        pAsiento["env"].get("CITY_BUS_ACTOR") == "seat",
+        str(pAsiento["env"])[:200],
     )
     afirma(
         "· with no Claude ahead of it, the first repo window waits for nobody",
-        bool(api) and "sleep" not in api,
+        bool(api) and pApi["wait"] == 0,
         api[:160],
     )
     card.pon_campo(ficha, "runs.seat", "")
     lineas = corre(CITY_SETTLE="8", CITY_STAGGER="1")
-    asiento = next((l for l in lineas if ":seat" in l), "")
+    asiento = de(lineas, "seat")["command"]
     afirma(
         "· clearing the key puts plain Claude Code back in the seat",
         "claude" in asiento
@@ -1496,60 +1595,7 @@ def arranque_escalonado():
         and "--channels" not in asiento,
         asiento[:160],
     )
-    # And the same choice, for a house. It is the point of the product — orchestrate
-    # somebody's CLI, do not replace it — and until now `ui_de` was a general
-    # function consulted for exactly one window.
-    card.pon_campo(ficha, "ui.api", "tui")
-    lineas = corre(CITY_SETTLE="0", CITY_STAGGER="0")
-    api_tui = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
-    afirma(
-        "· happy: `ui.api: tui` opens that house's own Claude Code, not a prompt in front of it",
-        "runtimes.py gateway api" not in api_tui and "claude" in api_tui,
-        api_tui[:300],
-    )
-    aviso = subprocess.run(
-        ["bash", guion, "ana", "--claude", "--no-sync"],
-        capture_output=True, text=True, cwd=casa,
-        env=dict(os.environ, HOME=casa, AGENTS_CITY_DATA=datos, CITY_CODE_DIR=codigo,
-                 PATH=fbin + os.pathsep + os.environ["PATH"],
-                 CITY_SETTLE="0", CITY_STAGGER="0"),
-    ).stderr
-    afirma(
-        "· and the city says out loud what that costs, rather than hiding it",
-        "api uses the explicit terminal fallback" in aviso
-        and "native delivery is unavailable" in aviso,
-        aviso[-400:],
-    )
-    afirma(
-        "· non-happy: while its cage and its bus identity are exactly as before",
-        "CITY_BUS_ACTOR=api" in api_tui and "CITY_AGENT_ROLE=data-engineer" in api_tui,
-        api_tui[:300],
-    )
-    card.pon_campo(ficha, "ui.api", "")
-    api_pasarela = next(
-        (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
-    afirma(
-        "· non-happy: and clearing the key puts the gateway back, which is the default",
-        "runtimes.py gateway api" in api_pasarela, api_pasarela[:300],
-    )
-    card.pon_campo(ficha, "ui.api", "ventana-preciosa")
-    api_raro = next(
-        (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
-    afirma(
-        "· non-happy: a value that is neither tui nor gateway is not a third mode",
-        "runtimes.py gateway api" in api_raro, api_raro[:300],
-    )
-    card.pon_campo(ficha, "ui.api", "")
-
-    # The old shape is still one card key away, for anybody who wants the bus
-    # able to drive their chair.
-    card.pon_campo(ficha, "ui.seat", "gateway")
-    asiento = next((l for l in corre() if ":seat" in l), "")
-    afirma(
-        "· and `ui.seat: gateway` puts the city's own prompt back",
-        "runtimes.py gateway seat" in asiento, asiento[:200],
-    )
-    card.pon_campo(ficha, "ui.seat", "")
+    la_cara_de_cada_ventana(ficha, corre, de, guion, casa, datos, codigo, fbin)
 
     # ── a city that is already open ──────────────────────────────────────────
     #
@@ -1565,7 +1611,7 @@ def arranque_escalonado():
     # were left alone.
     def crudo(**extra):
         corre(**extra)
-        return open(registro).read()
+        return open(registro, encoding='utf-8').read()
 
     primera = crudo(CITY_SETTLE="0", CITY_STAGGER="0")
     afirma(
@@ -1607,9 +1653,8 @@ def arranque_escalonado():
     lineas = corre(FAKE_SESSION="1", FAKE_WINDOWS="seat api", CITY_SETTLE="0", CITY_STAGGER="0")
     afirma(
         "· non-happy: no runtime is started in a chair that is already sitting",
-        not any("CITY_BUS_ACTOR=seat" in l for l in lineas)
-        and any("CITY_BUS_ACTOR=docs" in l for l in lineas),
-        str(lineas)[:400],
+        not de(lineas, "seat")["command"] and bool(de(lineas, "docs")["command"]),
+        str([p["env"].get("CITY_BUS_ACTOR") for p in lineas]),
     )
 
     log = crudo(FAKE_SESSION="1", FAKE_WINDOWS="seat api docs", CITY_SETTLE="0", CITY_STAGGER="0")
@@ -1631,9 +1676,8 @@ def arranque_escalonado():
     lineas = corre(FAKE_SESSION="1", FAKE_WINDOWS="api docs", CITY_SETTLE="0", CITY_STAGGER="0")
     afirma(
         "· and only the chair — the houses are left running",
-        any("CITY_BUS_ACTOR=seat" in l for l in lineas)
-        and not any("CITY_BUS_ACTOR=api" in l for l in lineas),
-        str(lineas)[:400],
+        bool(de(lineas, "seat")["command"]) and not de(lineas, "api")["command"],
+        str([p["env"].get("CITY_BUS_ACTOR") for p in lineas]),
     )
 
     # A card that moved on under a window that is already open. This is the trap
@@ -1671,8 +1715,8 @@ def arranque_escalonado():
     )
     afirma(
         "· non-happy: and nothing is closed on the owner's behalf",
-        "kill-window" not in open(registro).read(),
-        open(registro).read()[-300:],
+        "kill-window" not in open(registro, encoding='utf-8').read(),
+        open(registro, encoding='utf-8').read()[-300:],
     )
     card.pon_campo(ficha, "ui.api", "")
     sin_desfase = subprocess.run(
@@ -1721,8 +1765,8 @@ def arranque_escalonado():
     )
     afirma(
         "· and the killing is left to the person whose work it is",
-        "kill-window" not in open(registro).read(),
-        open(registro).read()[:400],
+        "kill-window" not in open(registro, encoding='utf-8').read(),
+        open(registro, encoding='utf-8').read()[:400],
     )
 
     shutil.rmtree(casa)
@@ -1932,6 +1976,7 @@ def main():
     ficha_de_agentes()
     agentes_no_felices()
     motores_del_puesto()
+    la_aritmetica_del_arranque()
     arranque_escalonado()
     caminos_infelices()
     maquinas_hostiles()

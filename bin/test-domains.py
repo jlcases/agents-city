@@ -90,10 +90,10 @@ def ciudad():
     datos = tempfile.mkdtemp()
     try:
         city_yml = os.path.join(datos, "city.yml")
-        open(city_yml, "w").write("id: city_keep\nowner: ana\nkind: product\n")
+        open(city_yml, "w", encoding='utf-8').write("id: city_keep\nowner: ana\nkind: product\n")
         comprueba("· a legacy city reads its work domain", domains.de_ciudad(datos), "software")
         domains.selecciona(datos, "healthcare")
-        texto = open(city_yml).read()
+        texto = open(city_yml, encoding='utf-8').read()
         afirma(
             "· selecting a domain preserves stable identity metadata",
             "id: city_keep" in texto and "owner: ana" in texto,
@@ -116,7 +116,7 @@ def ciudad():
         )
 
         rol = os.path.join(datos, "roles", "clinical-director.md")
-        open(rol, "w").write("my local clinical policy\n")
+        open(rol, "w", encoding='utf-8').write("my local clinical policy\n")
         comprueba(
             "· selecting the same pack never overwrites city edits",
             domains.materializa(datos, "healthcare", "clinical-director"),
@@ -124,7 +124,7 @@ def ciudad():
         )
         comprueba(
             "· the edited role stays exactly as written",
-            open(rol).read(),
+            open(rol, encoding='utf-8').read(),
             "my local clinical policy\n",
         )
         comprueba(

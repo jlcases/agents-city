@@ -10,7 +10,18 @@ Each suite runs as its own process, so module state is per-suite by construction
 import os
 import signal
 import subprocess
+import sys
 import time
+
+# A Windows console starts on a legacy code page, and this file's own summary is
+# written with `✓`, `✗` and `—`. A suite that crashes while printing the word
+# "failed" cannot fail honestly — which is how the first Windows run reported a
+# UnicodeEncodeError instead of the three real bugs underneath it.
+for _flujo in (sys.stdout, sys.stderr):
+    try:
+        _flujo.reconfigure(encoding='utf-8')
+    except (AttributeError, OSError, ValueError):
+        pass
 
 FALLOS, HECHAS = [], 0
 

@@ -1275,7 +1275,7 @@ def ajusta_seat_reach(a, datos, nueva):
 
 def configura(a, ficha, nueva, datos, usuario):
     """The seven questions, or the setting being re-asked. False means quit."""
-    previo = open(ficha).read() if not nueva else ""
+    previo = open(ficha, encoding='utf-8').read() if not nueva else ""
 
     def campo(k, defecto=""):
         return card.campo(previo, k, defecto)

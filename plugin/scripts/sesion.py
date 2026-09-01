@@ -37,6 +37,7 @@ wrong directory. And its checks could only be "does the file contain this text",
 because there was nothing else to ask a script.
 """
 
+import json
 import os
 import re
 import shlex
@@ -114,6 +115,21 @@ def sync_line():
         'git pull --ff-only -q origin "$b" 2>/dev/null && echo "  ✓ $b up to date" '
         '|| echo "  ⚠ could not update"; } || echo "  · no main/master on origin"; fi; '
     )
+
+
+def cita(valor):
+    """One argument, quoted for the shell that will actually read it.
+
+    Two different readers: the pane's shell, which is `sh` on a Mac and
+    `cmd.exe` on Windows, and `shlex.quote` speaks only the first. A launcher
+    path with a space in it is not exotic: `C:/Users/Jose Luis/...` is the
+    default shape of a Windows home.
+    """
+    if sys.platform != 'win32':
+        return shlex.quote(valor)
+    if valor and not any(c in valor for c in ' \t"^&|<>()'):
+        return valor
+    return '"' + str(valor).replace('"', '""') + '"'
 
 
 def di(*texto):
@@ -200,8 +216,8 @@ def resuelve(o):
 
 # ══ the deal, and what each window is allowed ════════════════════════════════
 
-def prefijo_auth_claude():
-    """`env -u …` for each city child, when the owner's Claude.ai login works.
+def auth_a_quitar():
+    """The provider overrides to remove from each city child, or nothing.
 
     Claude authentication can also arrive through the parent shell or the window
     server. A stale token there takes precedence over a healthy login and is not
@@ -209,19 +225,17 @@ def prefijo_auth_claude():
     are never deleted or rewritten; the overrides are dropped per child process.
     """
     if os.environ.get('CITY_CLAUDE_AUTH', 'auto') == 'environment':
-        return ''
+        return ()
     from shutil import which  # noqa: PLC0415
     if not which('claude'):
-        return ''
+        return ()
     limpio = dict(os.environ)
     for clave in PROVEEDOR:
         limpio.pop(clave, None)
     estado = corre(['claude', 'auth', 'status'], env=limpio).stdout
     sano = ('"loggedIn"' in estado and 'true' in estado
             and '"authMethod"' in estado and '"claude.ai"' in estado)
-    if not sano:
-        return ''
-    return 'env ' + ' '.join(f'-u {c}' for c in PROVEEDOR) + ' '
+    return PROVEEDOR if sano else ()
 
 
 def calienta_la_jaula():
@@ -236,7 +250,7 @@ def calienta_la_jaula():
     os.environ['CITY_CAGE_BWRAP'] = '1' if cage.bwrap_sirve() else '0'
 
 
-def jaula_de(ventana, ruta, fichero_token='', montajes=''):
+def jaula_de(ventana, ruta, fichero_token='', montajes=()):
     """The launch prefix that bounds what this window can touch, or ''.
 
     An empty prefix is a normal answer: no cage on this machine, or CITY_CAGE=0.
@@ -244,10 +258,9 @@ def jaula_de(ventana, ruta, fichero_token='', montajes=''):
     on purpose, and swallowing that refusal launched the window uncaged and
     silent, which is the one outcome nobody would notice.
     """
-    extra = tuple(x for x in (montajes or '').split(':') if x)
     try:
         return cage.linea(ruta, ventana, fichero_token=fichero_token or None,
-                          extra_escritura=extra)
+                          extra_escritura=tuple(montajes or ()))
     except Exception as error:  # noqa: BLE001 - reported, never silent
         di(f'  {ventana} launches WITHOUT a cage: {error}')
         return ''
@@ -300,7 +313,7 @@ class Ciudad:
         silla = cities.lee_clave(self.datos, 'seat_yolo') if o.yolo else ''
         self.seat_auto = 1 if str(silla) == '1' else 0
         self.seat_yolo_flag = ' --dangerously-skip-permissions' if self.seat_auto else ''
-        self.auth = prefijo_auth_claude() if o.claude else ''
+        self.quitar = auth_a_quitar() if o.claude else ()
         self.settle = entero(os.environ.get('CITY_SETTLE'), SETTLE)
         self.stagger = entero(os.environ.get('CITY_STAGGER'), STAGGER)
         self.ya = mux.hay_sesion(self.sesion)
@@ -361,9 +374,6 @@ class Ciudad:
 
     # ── what a window is told, and how it is started ─────────────────────────
 
-    def sync_line(self):
-        return sync_line() if self.o.sync else ''
-
     def entorno_de(self, actor, rol=''):
         """What every window is told about the city it belongs to.
 
@@ -376,9 +386,11 @@ class Ciudad:
         operating role and has the remote-road variables blanked, because a road
         is the chair's to hold; the chair carries its bus agent instead.
 
-        Every value is quoted. The shell built these by concatenation, so a city
-        folder whose name contains a space produced a window that launched
-        somewhere else entirely, in silence.
+        A mapping, not text in front of a command. The shell built these by
+        concatenation with no quoting, so a city folder whose name contains a
+        space produced a window that launched somewhere else entirely, in
+        silence — and an environment written as shell is an environment only a
+        shell can set.
         """
         comun = {
             'AGENTS_CITY_DATA': self.datos, 'AGENTS_CITY_HOME': self.casa,
@@ -391,36 +403,48 @@ class Ciudad:
         else:
             propio = {'CITY_BUS_ACTOR': actor, 'CITY_AGENT_ROLE': rol,
                       'CITY_RUNTIME_KIND': 'repo', 'CITY_BUS_URL': '', 'CITY_BUS_TOKEN': ''}
-        pares = ' '.join(f'{k}={shlex.quote(v)}' for k, v in
-                         list(comun.items()) + list(propio.items()))
-        return f'{self.sync_line()}{pares} '
+        return dict(comun, **propio)
 
     def gateway_line(self, actor, cwd, orden, auto=None):
         piezas = [*self.runtime, 'gateway', actor, cwd, orden,
                   str(self.o.yolo and 1 or 0 if auto is None else auto)]
-        return ' '.join(shlex.quote(p) for p in piezas) + ' '
+        return ' '.join(cita(p) for p in piezas) + ' '
 
-    def lanza(self, objetivo, actor, cwd, orden):
+    def lanza(self, objetivo, actor, cwd, orden, entorno=None, espera=0):
         """Put the command in a private launcher and type only its short path.
 
         Terminal emulators and window servers both have finite input queues.
         Sending a 1-2 KB shell program as simulated keystrokes can cut it at an
         arbitrary byte — we have seen `--da`, `--dangerously`, and a lone `-`.
+
+        The environment, the settle and the folder update travel as what they
+        are — a mapping, a number, a flag — and the launcher writes them in the
+        language of the machine it will run on. What is left in `orden` is the
+        runtime's own command line, which was always the only part about the
+        agent.
         """
-        hecho = corre([sys.executable, os.path.join(GUIONES, 'launch.py'), 'create',
-                       '--data', self.datos, '--actor', actor, '--cwd', cwd,
-                       '--client', self.cliente, '--command', orden])
+        pedido = [sys.executable, os.path.join(GUIONES, 'launch.py'), 'create',
+                  '--data', self.datos, '--actor', actor, '--cwd', cwd,
+                  '--client', self.cliente, '--command', orden,
+                  '--env', json.dumps(entorno or {})]
+        if self.quitar:
+            pedido += ['--unset', ','.join(self.quitar)]
+        if espera:
+            pedido += ['--wait', str(int(espera))]
+        if self.o.sync:
+            pedido.append('--sync')
+        hecho = corre(pedido)
         ruta = hecho.stdout.strip()
         if not ruta:
             di(f'  {actor}: could not write its launcher')
             return False
-        mux.corre('send-literal', target=objetivo, text=shlex.quote(ruta))
+        mux.corre('send-literal', target=objetivo, text=cita(ruta))
         mux.corre('send-enter', target=objetivo)
         return True
 
     def dice(self, objetivo, mensaje):
         """Say something in a window that is not going to run an agent."""
-        mux.corre('send-literal', target=objetivo, text=f'echo {shlex.quote(mensaje)}')
+        mux.corre('send-literal', target=objetivo, text=f'echo {cita(mensaje)}')
         mux.corre('send-enter', target=objetivo)
 
     def retraso(self, turno):
@@ -501,7 +525,7 @@ def donde_trabajan(c):
             rutas.append(a.workspace)
             # A typo'd or missing mount source must not degrade in silence, the
             # way the legacy path reports a missing repo.
-            montajes.append(':'.join(workspace.sincroniza(a, c.datos)))
+            montajes.append(workspace.sincroniza(a, c.datos))
         return nombres, rutas, montajes, faltan
 
     import busca  # noqa: PLC0415 - only the legacy `repos:` path indexes the disk
@@ -526,7 +550,7 @@ def donde_trabajan(c):
         # One canonical slug is also the window name, engine-key suffix and bus
         # actor.
         nombres.append(card.ventana(r))
-        montajes.append('')
+        montajes.append([])
     return nombres, rutas, montajes, faltan
 
 
@@ -567,18 +591,18 @@ def abre_la_silla(c):
             # tools, and those two are what make the city bus the only route
             # between agents. A TUI without them would be a quieter product with
             # a hole in it.
-            c.lanza(objetivo, 'seat', c.datos, entorno + c.auth + orden)
+            c.lanza(objetivo, 'seat', c.datos, orden, entorno)
             corre_hablando(c.runtime + ['fallback', 'seat', objetivo, 'claude'])
         else:
-            c.lanza(objetivo, 'seat', c.datos, entorno + c.auth
-                    + c.gateway_line('seat', c.datos, orden, c.seat_auto))
+            c.lanza(objetivo, 'seat', c.datos,
+                    c.gateway_line('seat', c.datos, orden, c.seat_auto), entorno)
     elif cual in NATIVOS:
-        c.lanza(objetivo, 'seat', c.datos, c.entorno_de('seat')
-                + c.gateway_line('seat', c.datos,
-                                 c.con_motor('seat', cual, otro), c.seat_auto))
+        c.lanza(objetivo, 'seat', c.datos,
+                c.gateway_line('seat', c.datos, c.con_motor('seat', cual, otro),
+                               c.seat_auto), c.entorno_de('seat'))
     elif cual == 'terminal':
         orden = otro[len('terminal:'):]
-        c.lanza(objetivo, 'seat', c.datos, c.entorno_de('seat') + orden)
+        c.lanza(objetivo, 'seat', c.datos, orden, c.entorno_de('seat'))
         corre_hablando(c.runtime + ['fallback', 'seat', objetivo, orden.split(' ')[0]])
     else:
         c.dice(objetivo, f'No native Agents City gateway for: {otro}. '
@@ -636,29 +660,29 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
         # This window's cage and, when the broker runs, its own single-repo
         # token. The token travels as a file path, never on the command line,
         # and the cage re-allows reading exactly that file.
-        fichero_token, entorno_broker = '', ''
+        fichero_token, entorno_broker = '', {}
         if url_broker:
             fichero_token = broker.acuna(c.datos, win, ruta, solo_fichero=True) or ''
             if fichero_token:
-                entorno_broker = (f'CITY_BROKER_URL={shlex.quote(url_broker)} '
-                                  f'CITY_BROKER_TOKEN_FILE={shlex.quote(fichero_token)} ')
-        jaula = jaula_de(win, ruta, fichero_token, montajes[i] if i < len(montajes) else '')
-        jaula_env = 'env CITY_OUTER_CAGE=1 ' if jaula else ''
+                entorno_broker = {'CITY_BROKER_URL': url_broker,
+                                  'CITY_BROKER_TOKEN_FILE': fichero_token}
+        jaula = jaula_de(win, ruta, fichero_token,
+                         montajes[i] if i < len(montajes) else ())
+        jaula_env = {'CITY_OUTER_CAGE': '1'} if jaula else {}
         objetivo = f'{c.sesion}:{win}'
         mux.corre('new-window', session=c.sesion, window=win, cwd=ruta)
         if not c.o.claude:
             continue
         otro = c.campo(f'runs.{win}')
         cual = runtime_de(otro) if otro else 'claude'
-        entorno = c.entorno_de(win, rol) + entorno_broker
+        entorno = dict(c.entorno_de(win, rol), **entorno_broker)
         if cual == 'claude':
             espera = c.retraso(turno)
             turno += 1
-            prefijo = f'sleep {espera}; ' if espera else ''
             base = otro or 'claude'
-            orden = (c.con_motor(win, 'claude', f'{base} --name {c.sesion}-{win}')
-                     + c.trato + c.yolo_flag)
-            entorno += jaula + jaula_env
+            orden = jaula + (c.con_motor(win, 'claude', f'{base} --name {c.sesion}-{win}')
+                             + c.trato + c.yolo_flag)
+            entorno.update(jaula_env)
             if c.ui_de(win, 'gateway') == 'tui':
                 # The person's own Claude Code instead. The cost is stated rather
                 # than hidden: delivery falls back to a protected paste into the
@@ -667,11 +691,11 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
                 # the chair is the one actor that receives text from OTHER
                 # cities, so refusing a house the same option while granting it
                 # there was backwards on risk, not careful about it.
-                c.lanza(objetivo, win, ruta, prefijo + entorno + c.auth + orden)
+                c.lanza(objetivo, win, ruta, orden, entorno, espera)
                 corre_hablando(c.runtime + ['fallback', win, objetivo, 'claude'])
             else:
-                c.lanza(objetivo, win, ruta, prefijo + entorno + c.auth
-                        + c.gateway_line(win, ruta, orden))
+                c.lanza(objetivo, win, ruta, c.gateway_line(win, ruta, orden),
+                        entorno, espera)
         elif cual in NATIVOS:
             # Native servers have their own credentials and do not share Claude's
             # OAuth race. Codex stays outside the outer cage ON macOS ONLY: its
@@ -681,11 +705,14 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
             # exemption meant a Codex window on Linux could read ~/.ssh outright
             # while every other window in the same city had it sealed.
             fuera = cual == 'codex' and sys.platform == 'darwin'
-            c.lanza(objetivo, win, ruta, entorno + ('' if fuera else jaula + jaula_env)
-                    + c.gateway_line(win, ruta, c.con_motor(win, cual, otro)))
+            if not fuera:
+                entorno.update(jaula_env)
+            c.lanza(objetivo, win, ruta,
+                    ('' if fuera else jaula)
+                    + c.gateway_line(win, ruta, c.con_motor(win, cual, otro)), entorno)
         elif cual == 'terminal':
             orden = otro[len('terminal:'):]
-            c.lanza(objetivo, win, ruta, entorno + jaula + orden)
+            c.lanza(objetivo, win, ruta, jaula + orden, entorno)
             corre_hablando(c.runtime + ['fallback', win, objetivo, orden.split(' ')[0]])
         else:
             c.dice(objetivo, f'No native Agents City gateway for: {otro}. '

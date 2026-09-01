@@ -107,7 +107,7 @@ def el_atajo():
             afirma("· double-clicking it opens a terminal, where a tmux city can live",
                    "osascript" in guion and "Terminal" in guion, guion)
         else:
-            guion = open(ruta).read()
+            guion = open(ruta, encoding='utf-8').read()
             afirma("· carrying the city's name where a person reads it",
                    "Name=Aurora Games" in guion, guion)
             afirma("· it is a desktop entry with a name and an icon",
@@ -123,7 +123,7 @@ def el_atajo():
         guion_hall = (
             open(os.path.join(ruta_hall, "Contents", "MacOS", "abrir-ciudad")).read()
             if sys.platform == "darwin"
-            else open(ruta_hall).read()
+            else open(ruta_hall, encoding='utf-8').read()
         )
         afirma("· --hall makes the same door open the browser instead",
                "agents-city hall --city" in guion_hall, guion_hall)
@@ -235,7 +235,7 @@ def caminos_infelices():
         guion = (
             open(os.path.join(ruta, "Contents", "MacOS", "abrir-ciudad")).read()
             if sys.platform == "darwin"
-            else open(ruta).read()
+            else open(ruta, encoding='utf-8').read()
         )
         afirma(
             "· and the written door never carries the unquoted form",

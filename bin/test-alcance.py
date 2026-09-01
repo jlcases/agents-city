@@ -67,7 +67,7 @@ def ciudad():
     agentes[0]["mounts"] = [api]
     agentes[1]["mounts"] = [docs]
     S.escribe_ficha(ficha, "ana", "cpto", agentes)
-    for a in workspace.agentes(open(ficha).read(), datos):
+    for a in workspace.agentes(open(ficha, encoding='utf-8').read(), datos):
         workspace.sincroniza(a, datos)
     return base, datos, api, docs
 
@@ -447,7 +447,7 @@ def nunca_se_lleva_la_ciudad_por_delante(base, api):
         agentes = roster(("api", "code", "dev"))
         agentes[0]["mounts"] = [destino]
         S.escribe_ficha(ficha, "ana", "cpto", agentes)
-        for a in workspace.agentes(open(ficha).read(), datos):
+        for a in workspace.agentes(open(ficha, encoding='utf-8').read(), datos):
             workspace.sincroniza(a, datos)
         return datos
 

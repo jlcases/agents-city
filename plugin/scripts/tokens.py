@@ -42,7 +42,7 @@ ESTADO = os.path.join(city_env.CANAL, 'tokens-state.json')
 def estado_previo():
     """{path: {"m": "<size>:<mtime>", "r": {"<day>|<model>": [in, out, cr, cw]}}}"""
     try:
-        with open(ESTADO) as f:
+        with open(ESTADO, encoding='utf-8') as f:
             d = json.load(f)
         return d if isinstance(d, dict) else {}
     except Exception:
@@ -51,7 +51,7 @@ def estado_previo():
 
 def guarda_estado(d):
     os.makedirs(os.path.dirname(ESTADO), exist_ok=True)
-    with open(ESTADO, 'w') as f:
+    with open(ESTADO, 'w', encoding='utf-8') as f:
         json.dump(d, f)
 
 
@@ -78,7 +78,7 @@ def suma(fichero):
     """
     dias = defaultdict(lambda: {'input': 0, 'output': 0, 'cache_read': 0, 'cache_write': 0})
     try:
-        fh = open(fichero, errors='replace')
+        fh = open(fichero, errors='replace', encoding='utf-8')
     except OSError:
         return {}
     with fh:

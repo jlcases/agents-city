@@ -355,16 +355,36 @@ def la_puerta_de_windows():
     afirma(f'· {len(conShell)} of {len(ordenes)} commands are still shell programs',
            len(conShell) <= 5, str(conShell))
 
-    # 3. The launcher every window runs. It is bash, and the command it runs is
-    #    composed as a POSIX shell line — an env prefix in front of a command —
-    #    which is the deepest of these and the one that is not a rename.
+    # 3. Every file this product reads or writes is UTF-8, said out loud. A
+    #    bare `open()` takes the console's code page on Windows, which is how a
+    #    card with an em dash was written in cp1252 and read back as UTF-8 by
+    #    the next door along — the first thing a Windows runner found.
+    sinDecir = []
+    for carpeta in ('plugin/scripts', 'plugin/hooks', 'bin', 'city/scripts'):
+        for ruta in sorted(glob.glob(os.path.join(RAIZ, carpeta, '*.py'))):
+            if os.path.basename(ruta).startswith('test'):
+                continue
+            for n, linea in enumerate(open(ruta, encoding='utf-8'), 1):
+                if ('open(' not in linea or 'encoding' in linea or '#' == linea.strip()[:1]
+                        or any(x in linea for x in ("'rb'", '"rb"', "'wb'", '"wb"',
+                                                    'urlopen', 'Popen', '.open('))):
+                    continue
+                # A call that continues on the next line says it there.
+                if linea.rstrip().endswith((',', '(')):
+                    continue
+                sinDecir.append(f'{os.path.relpath(ruta, RAIZ)}:{n}')
+    afirma('· every file this product reads or writes says it is UTF-8',
+           not sinDecir, 'a bare open() takes the console code page: '
+                         + ', '.join(sinDecir[:8]))
+
+    # 4. The launcher every window runs. Written in the language of the machine
+    #    it will run on — and what it carries is a plan, not a shell sentence.
     lanzador = open(os.path.join(RAIZ, 'plugin', 'scripts', 'launch.py'),
                     encoding='utf-8').read()
-    afirma('· the generated launcher is still a shell program',
-           "'#!/usr/bin/env bash'" in lanzador,
-           'if this stopped being true, this check should be deleted, not passed')
+    afirma('· the launcher is written for the machine it will run on',
+           "'#!/usr/bin/env bash'" in lanzador and '@echo off' in lanzador, '')
 
-    # 4. And the promise on the tin matches all of that.
+    # 5. And the promise on the tin matches all of that.
     afirma('· package.json still says where this runs, and it is the truth',
            paquete.get('os') == ['darwin', 'linux'],
            'removing the os field means the four above are done — they are not')
@@ -692,7 +712,7 @@ def asiento_con_su_arnes():
     afirma('· both shapes of the chair come out of one place',
            silla.count("c.ui_de('seat'") == 1, silla)
     afirma('· the tui branch runs the command itself',
-           "c.lanza(objetivo, 'seat', c.datos, entorno + c.auth + orden)" in silla, silla)
+           "c.lanza(objetivo, 'seat', c.datos, orden, entorno)" in silla, silla)
     afirma('· the gateway branch is still there, one card key away',
            "c.gateway_line('seat', c.datos, orden, c.seat_auto)" in silla, silla)
     afirma('· and the flags are built once, before the branch, so they cannot differ',
