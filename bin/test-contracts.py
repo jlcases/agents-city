@@ -430,8 +430,18 @@ def bash_que_no_es_la_de_macos():
     """
     print('  shell that runs on a bash newer than 2007')
     trampa = re.compile(r'\$\{#[A-Za-z_][A-Za-z0-9_]*\[[@*]\][-:+]')
+    # Every shell this repo ships, found rather than listed — including the
+    # extensionless front doors in bin/ and the commit gate, which a glob on
+    # `*.sh` never saw and which are the scripts a person runs by hand.
     ficheros = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
     ficheros += sorted(glob.glob(os.path.join(RAIZ, 'bus', 'scripts', '*.sh')))
+    for ruta in sorted(glob.glob(os.path.join(RAIZ, 'bin', '*'))) + [
+            os.path.join(RAIZ, '.githooks', 'pre-commit')]:
+        if not os.path.isfile(ruta):
+            continue
+        cabeza = open(ruta, 'rb').read(60)
+        if cabeza.startswith(b'#!') and (b'bash' in cabeza or b'/sh' in cabeza):
+            ficheros.append(ruta)
     culpables = []
     for ruta in ficheros:
         with open(ruta, encoding='utf-8') as f:
@@ -444,12 +454,13 @@ def bash_que_no_es_la_de_macos():
     afirma('· no shipped script uses a length expansion with a default',
            not culpables,
            '${#a[@]-0} is a macOS-only illusion: ' + ', '.join(culpables))
-    # And the idiom that IS portable stays in use, so this does not read as a
-    # rule against defaults in general.
-    lanzador = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
-                    encoding='utf-8').read()
-    afirma('· and empty arrays are still expanded the way bash 3.2 needs',
-           '[@]+"${' in lanzador, '')
+    # And the idiom that IS portable stays in use somewhere, so this does not
+    # read as a rule against defaults in general. It used to be pinned to the
+    # session script; that is Python now, and the shell that still has arrays is
+    # the commit gate.
+    portes = [r for r in ficheros if '${#' in open(r, encoding='utf-8').read()]
+    afirma('· and a length expansion is still used the way bash 3.2 needs',
+           bool(portes), 'no shipped script measures an array any more')
 
 
 def demo_coherente():
@@ -498,9 +509,9 @@ def varias_ciudades():
                          capture_output=True, text=True).stdout.strip()
     comprueba('· the tmux script (via the CLI) agrees with the module',
               cli, cities.sesion('jl', rankia))
-    afirma('· and city-session.sh actually delegates instead of copying the rule',
-           'cities.py" sesion' in open(os.path.join(
-               RAIZ, 'plugin', 'scripts', 'city-session.sh')).read())
+    afirma('· and the launcher actually delegates instead of copying the rule',
+           'cities.sesion(self.usuario, self.datos)' in open(os.path.join(
+               RAIZ, 'plugin', 'scripts', 'sesion.py')).read())
 
     comprueba('· a name resolves to its folder',
               cities.resuelve(rankia), os.path.realpath(rankia))
@@ -521,52 +532,52 @@ def motor_para_todos():
     dropdown whose value never reaches a process is a lie with a nice font.
     """
     print('  the engine reaches every runtime')
-    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+    import sesion  # noqa: PLC0415
+
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'), encoding='utf-8').read()
     afirma('· a native runtime command goes through con_motor, not raw',
-           'con_motor "$win" "$KIND" "$OTRO"' in fuente, '')
-    afirma('· and so does the seat when it runs one',
-           'con_motor seat "$SEAT_RUNTIME" "$SEAT_OTRO"' in fuente, '')
+           "c.con_motor(win, cual, otro)" in fuente, '')
+    afirma('· and so does the chair when it runs one',
+           "c.con_motor('seat', cual, otro)" in fuente, '')
 
-    # The two functions, lifted out and exercised against a stub card reader.
+    # And the function itself, against a real card in a real city — no stub
+    # reader standing in for the one thing being tested.
     casa = tempfile.mkdtemp()
-    # A stand-in for read-card.py, in the language the launcher invokes it in.
-    lector = os.path.join(casa, 'leer.py')
-    # It answers the batched form too, because that is what the launcher asks:
-    # a stub that only knows the one-field call would test a door nobody uses.
-    open(lector, 'w', encoding='utf-8').write(
-        'import sys\n'
-        "CARD = {'model.dbt': 'gpt-5.6-sol', 'effort.dbt': 'max'}\n"
-        "campos = sys.argv[3:] if sys.argv[1:2] == ['--varios'] else sys.argv[-1:]\n"
-        "print('\\n'.join(CARD.get(c, '') for c in campos))\n"
-    )
-    trozo = fuente[fuente.index('motor_de() {'):fuente.index('runtime_de() {')]
-    guion = os.path.join(casa, 'motor.sh')
-    open(guion, 'w', encoding='utf-8').write(
-        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\n'
-        'printf "%s\\n" "$(con_motor "$1" "$2" "$3")"\n'
-    )
-
-    def con(ventana, motor, orden):
-        return subprocess.run(['bash', guion, ventana, motor, orden],
-                              capture_output=True, text=True).stdout.strip()
-
-    comprueba('· claude gets both flags',
-              con('dbt', 'claude', 'claude'), 'claude --model gpt-5.6-sol --effort max')
-    comprueba('· codex gets both too — its gateway reads them off the command',
-              con('dbt', 'codex', 'codex'), 'codex --model gpt-5.6-sol --effort max')
-    comprueba('· opencode gets the model and no effort it cannot read',
-              con('dbt', 'opencode', 'opencode'), 'opencode --model gpt-5.6-sol')
-    comprueba('· and neither does kimi',
-              con('dbt', 'kimi', 'kimi'), 'kimi --model gpt-5.6-sol')
-    comprueba('· a window with nothing on the card gets no flags at all',
-              con('otra', 'codex', 'codex'), 'codex')
-    # A command that already says it wins: somebody who wrote the flag meant it.
-    comprueba('· an explicit --model on the card is never doubled',
-              con('dbt', 'codex', 'codex --model o3'), 'codex --model o3 --effort max')
-    comprueba('· nor an explicit --effort',
-              con('dbt', 'codex', 'codex --effort low'),
-              'codex --effort low --model gpt-5.6-sol')
-    shutil.rmtree(casa, ignore_errors=True)
+    datos = os.path.join(casa, 'ciudad')
+    os.makedirs(datos)
+    open(os.path.join(datos, 'city.yml'), 'w').write(
+        'id: city_motor\nname: Home\nslug: home\nowner: ana\n')
+    open(os.path.join(datos, 'ana.md'), 'w').write(
+        '---\nuser: ana\nagent: ana/lead\n'
+        'model.dbt: gpt-5.6-sol\neffort.dbt: max\n---\n')
+    previo = dict(os.environ)
+    os.environ.update({'AGENTS_CITY_DATA': datos, 'AGENTS_CITY_USER': 'ana'})
+    for clave in ('CITY_MODEL', 'CITY_EFFORT', 'CITY_UI'):
+        os.environ.pop(clave, None)
+    try:
+        c = sesion.Ciudad(sesion.Opciones([]))
+        con = c.con_motor
+        comprueba('· claude gets both flags',
+                  con('dbt', 'claude', 'claude'), 'claude --model gpt-5.6-sol --effort max')
+        comprueba('· codex gets both too — its gateway reads them off the command',
+                  con('dbt', 'codex', 'codex'), 'codex --model gpt-5.6-sol --effort max')
+        comprueba('· opencode gets the model and no effort it cannot read',
+                  con('dbt', 'opencode', 'opencode'), 'opencode --model gpt-5.6-sol')
+        comprueba('· and neither does kimi',
+                  con('dbt', 'kimi', 'kimi'), 'kimi --model gpt-5.6-sol')
+        comprueba('· a window with nothing on the card gets no flags at all',
+                  con('otra', 'codex', 'codex'), 'codex')
+        # A command that already says it wins: somebody who wrote the flag meant it.
+        comprueba('· an explicit --model on the card is never doubled',
+                  con('dbt', 'codex', 'codex --model o3'), 'codex --model o3 --effort max')
+        comprueba('· nor an explicit --effort',
+                  con('dbt', 'codex', 'codex --effort low'),
+                  'codex --effort low --model gpt-5.6-sol')
+    finally:
+        os.environ.clear()
+        os.environ.update(previo)
+        shutil.rmtree(casa, ignore_errors=True)
 
 
 def asiento_con_su_arnes():
@@ -584,72 +595,75 @@ def asiento_con_su_arnes():
     is the failure this checks for.
     """
     print('  the chair keeps its own interface')
-    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
-    cuerpo = fuente[fuente.index('lanza_asiento_claude() {'):fuente.index('# The seat runs Claude')]
-    afirma('· both shapes of the chair come out of one function',
-           fuente.count('lanza_asiento_claude "') == 2, '')
+    import inspect  # noqa: PLC0415
+
+    sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+    import sesion  # noqa: PLC0415
+
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'), encoding='utf-8').read()
+    silla = inspect.getsource(sesion.abre_la_silla)
+    casas = inspect.getsource(sesion.abre_las_casas)
+
+    afirma('· both shapes of the chair come out of one place',
+           silla.count("c.ui_de('seat'") == 1, silla)
     afirma('· the tui branch runs the command itself',
-           'lanza "$SESSION:seat" seat "$EQUIPO" "$entorno${CLAUDE_AUTH_PREFIX}$orden"' in cuerpo,
-           cuerpo)
+           "c.lanza(objetivo, 'seat', c.datos, entorno + c.auth + orden)" in silla, silla)
     afirma('· the gateway branch is still there, one card key away',
-           'gateway_line seat "$EQUIPO" "$orden"' in cuerpo, cuerpo)
+           "c.gateway_line('seat', c.datos, orden, c.seat_auto)" in silla, silla)
     afirma('· and the flags are built once, before the branch, so they cannot differ',
-           cuerpo.count('$SETTINGS') == 0 and cuerpo.count('NO_PEER_TOOLS') == 0, cuerpo)
-    # Every Claude command in the file is built the same way: the engine
-    # through `con_motor` (which carries the "an explicit flag wins" guard) and
-    # the deal through `$CLAUDE_TRATO` (which is asked of the declaration). A
-    # branch that skips either is a window that silently runs differently.
-    ordenes = [l for l in fuente.split('\n')
-               if 'CLAUDE_SEAT="' in l or 'CLAUDE_REPO="' in l
-               or 'lanza_asiento_claude "' in l]
-    afirma('· every Claude launch in the file was found', len(ordenes) == 5, str(ordenes))
-    for linea in ordenes:
-        if linea.strip().startswith('lanza_asiento_claude "$CLAUDE_SEAT"'):
-            continue  # this one passes a command already built above
-        afirma(f'· the engine goes through con_motor: {linea.strip()[:40]}…',
-               'con_motor' in linea, linea)
-        afirma(f'· and the deal through the declaration: {linea.strip()[:40]}…',
-               '$CLAUDE_TRATO' in linea, linea)
+           silla.index('orden =') < silla.index("c.ui_de('seat'"), silla)
     afirma('· the chair still opens with its yolo flag',
-           any('$SEAT_YOLO_FLAG' in l for l in ordenes), str(ordenes))
-    afirma('· and the deal is asked of arnes.py, not respelled here',
-           'arnes.py" flags claude' in fuente
-           and "crossSessionInbound" not in fuente
-           and "SendMessage,ListAgents" not in fuente, '')
+           'c.seat_yolo_flag' in silla, silla)
+
+    # Every Claude command is built the same way: the engine through
+    # `con_motor`, which carries the "an explicit flag wins" guard, and the deal
+    # through the declaration. A branch that skips either is a window that
+    # silently runs differently.
+    for nombre, cuerpo in (('the chair', silla), ('a house', casas)):
+        afirma(f'· {nombre}: the engine goes through con_motor',
+               'con_motor' in cuerpo, cuerpo[:200])
+        afirma(f'· {nombre}: and the deal through the declaration',
+               'c.trato' in cuerpo, cuerpo[:200])
+    afirma('· and the deal is asked of arnes, not respelled here',
+           "arnes.banderas('claude')" in fuente
+           and 'crossSessionInbound' not in fuente
+           and 'SendMessage,ListAgents' not in fuente, '')
 
     # A house is not a chair, and its DEFAULT must keep it reachable from the
     # bus: work arrives without anybody sitting in that window. The choice is
-    # now offered — `ui.<house>: tui` opens the person's own Claude Code — so
-    # what this checks is the default, not the absence of a choice.
-    casa_claude = fuente[fuente.index('lanza_casa_claude() {'):fuente.index("# The chair's Claude")]
+    # offered — `ui.<house>: tui` opens the person's own Claude Code — so what
+    # this checks is the default, not the absence of a choice.
     afirma('· a house defaults to the gateway, which is what makes work reach it',
-           'ui_de "$win" gateway' in casa_claude
-           and 'gateway_line "$win" "$ruta" "$orden"' in casa_claude, casa_claude[:400])
+           "c.ui_de(win, 'gateway')" in casas
+           and 'c.gateway_line(win, ruta, orden)' in casas, casas[:400])
     afirma('· and a house that keeps its own CLI is given a way to be handed work',
-           '"$RUNTIME" fallback "$win"' in casa_claude, casa_claude[:400])
+           "'fallback', win, objetivo" in casas, casas[:400])
 
-    # `ui.<window>`, lifted out and exercised.
+    # `ui.<window>` itself, against a real card rather than a stub reader.
     casa = tempfile.mkdtemp()
-    lector = os.path.join(casa, 'leer.py')
-    open(lector, 'w', encoding='utf-8').write(
-        'import sys\n'
-        "print({'ui.seat': 'gateway', 'ui.raro': 'nonsense'}.get(sys.argv[-1], ''))\n"
-    )
-    trozo = fuente[fuente.index('ui_de() {'):fuente.index('runtime_de() {')]
-    guion = os.path.join(casa, 'ui.sh')
-    open(guion, 'w', encoding='utf-8').write(
-        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\nprintf "%s\\n" "$(ui_de "$1" "$2")"\n'
-    )
-
-    def ui(ventana, defecto):
-        return subprocess.run(['bash', guion, ventana, defecto],
-                              capture_output=True, text=True).stdout.strip()
-
-    comprueba('· a card that says gateway gets the gateway', ui('seat', 'tui'), 'gateway')
-    comprueba('· a card that says nothing gets the default', ui('otra', 'tui'), 'tui')
-    comprueba('· and a house defaults the other way', ui('otra', 'gateway'), 'gateway')
-    comprueba('· a card that says nonsense is not obeyed', ui('raro', 'tui'), 'tui')
-    shutil.rmtree(casa, ignore_errors=True)
+    datos = os.path.join(casa, 'ciudad')
+    os.makedirs(datos)
+    open(os.path.join(datos, 'city.yml'), 'w').write(
+        'id: city_ui\nname: Home\nslug: home\nowner: ana\n')
+    open(os.path.join(datos, 'ana.md'), 'w').write(
+        '---\nuser: ana\nagent: ana/lead\nui.seat: gateway\nui.raro: nonsense\n---\n')
+    previo = dict(os.environ)
+    os.environ.update({'AGENTS_CITY_DATA': datos, 'AGENTS_CITY_USER': 'ana'})
+    os.environ.pop('CITY_UI', None)
+    try:
+        c = sesion.Ciudad(sesion.Opciones([]))
+        comprueba('· a card that says gateway gets the gateway',
+                  c.ui_de('seat', 'tui'), 'gateway')
+        comprueba('· a card that says nothing gets the default',
+                  c.ui_de('otra', 'tui'), 'tui')
+        comprueba('· and a house defaults the other way',
+                  c.ui_de('otra', 'gateway'), 'gateway')
+        comprueba('· a card that says nonsense is not obeyed',
+                  c.ui_de('raro', 'tui'), 'tui')
+    finally:
+        os.environ.clear()
+        os.environ.update(previo)
+        shutil.rmtree(casa, ignore_errors=True)
 
 
 def el_aviso_lee_lo_que_viaja():
@@ -699,10 +713,10 @@ def ventanas_gemelas():
     """Window, engine key and bus actor share one canonical repo slug."""
     print('  the window slug has one owner')
 
-    sesion = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
+    sesion = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'),
                   encoding='utf-8').read()
-    afirma('· city-session delegates instead of copying the slug rule',
-           'python3 "$LEER" --window "$r"' in sesion)
+    afirma('· the launcher delegates instead of copying the slug rule',
+           'card.ventana(r)' in sesion and 'def ventana' not in sesion)
     lector = os.path.join(RAIZ, 'plugin', 'scripts', 'read-card.py')
     for nombre in ('MiApp@feature/X', 'Data_Pipeline', 'API', 'a/b_c@d',
                    'web.app', 'two words', 'plain'):
