@@ -52,6 +52,23 @@ def make(args):
         'cd_status=$?',
         'if [ "$cd_status" -eq 0 ]; then',
         '  command_text="$(printf %s "$COMMAND_B64" | base64 --decode)"',
+        # Anything sitting in the terminal's input at this instant was not typed
+        # by anybody. This window was created a moment ago and fed exactly one
+        # line; what is left in the buffer is the terminal ANSWERING somebody
+        # else's question — a shell profile asking for its attributes, a
+        # multiplexer negotiating — and the reply lands while nothing is reading
+        # it. Then the app below starts, reads it, and the first thing you see is
+        # `62;4c` typed into your own prompt. Reported twice, as garbage in the
+        # seat's prompt, and both times it was a reply nobody had claimed.
+        #
+        # `min 0 time 0` makes the read return whatever is there, immediately,
+        # and nothing when there is nothing — so a window with a clean buffer
+        # loses no time and no keystroke.
+        '  if [ -t 0 ] && tty_modo=$(stty -g 2>/dev/null); then',
+        '    stty -icanon min 0 time 0 2>/dev/null',
+        '    dd bs=4096 count=1 >/dev/null 2>&1',
+        '    stty "$tty_modo" 2>/dev/null',
+        '  fi',
         '  eval "$command_text"',
         '  status=$?',
         'else',
