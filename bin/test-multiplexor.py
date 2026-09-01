@@ -18,6 +18,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import tempfile
 import sys
 import uuid
 
@@ -45,7 +46,12 @@ CAMPOS = {'session': 'alice-home', 'window': 'prod', 'target': 'alice-home:prod'
 
 
 def js_argv(verbos):
-    """The same verbs, built by the TypeScript executor."""
+    """The same verbs, built by the TypeScript executor.
+
+    Pinned to tmux, because this comparison is about the TABLE: a backend whose
+    addressing needs a lookup has no command line to compare, and asking it for
+    one is how this check crashed the first time a second backend existed.
+    """
     # As a file URL: Node refuses to import a bare Windows path like
     # `D:\a\repo\multiplexor.ts`, and the two executors then "disagree"
     # because one of them never ran.
@@ -56,7 +62,8 @@ def js_argv(verbos):
              f"for (const v of {json.dumps(verbos)}) fuera[v] = argv(v, campos);"
              f"console.log(JSON.stringify(fuera));")
     r = subprocess.run(NODO + ['--input-type=module', '-e', guion],
-                       capture_output=True, text=True, timeout=60)
+                       capture_output=True, text=True, timeout=60,
+                       env=dict(os.environ, AGENTS_CITY_MUX='tmux'))
     try:
         return json.loads(r.stdout)
     except ValueError:
@@ -90,30 +97,31 @@ def la_tabla(tabla, backends):
 
 def los_dos_ejecutores(verbos):
     """Two languages, one table, and no room to disagree."""
-    delPython = {v: multiplexor.argv(v, **dict(CAMPOS, exacto=True)) for v in verbos}
+    delPython = {v: multiplexor.argv(v, 'tmux', **dict(CAMPOS, exacto=True))
+                 for v in verbos}
     delNodo = js_argv(verbos)
     comprueba('· happy: Python and TypeScript build the identical command line, per verb',
               delNodo, delPython)
 
 def lo_que_pide_el_llamador(backends):
     """What a caller asks for, and what it is told it cannot have."""
+    conExacto = multiplexor.argv('windows', 'tmux', session='alice-home', exacto=True)
+    sinExacto = multiplexor.argv('windows', 'tmux', session='alice-home')
     afirma('· happy: an exact session match is asked for when the caller wants one',
-           '=alice-home' in multiplexor.argv('windows', session='alice-home', exacto=True),
-           str(multiplexor.argv('windows', session='alice-home', exacto=True)))
+           '=alice-home' in conExacto, str(conExacto))
     afirma('· non-happy: and is not smuggled in when it is not',
-           '=alice-home' not in multiplexor.argv('windows', session='alice-home'),
-           str(multiplexor.argv('windows', session='alice-home')))
+           '=alice-home' not in sinExacto, str(sinExacto))
 
     # ── a capability this backend does not have ──────────────────────────────
     fallo = ''
     try:
-        multiplexor.argv('split-the-atom', session='x')
+        multiplexor.argv('split-the-atom', 'tmux', session='x')
     except multiplexor.SinVerbo as error:
         fallo = str(error)
     afirma('· non-happy: a verb the backend lacks is named, not spawned',
            'tmux' in fallo and 'split-the-atom' in fallo, fallo)
     afirma('· non-happy: and running it is a plain failure, not an exception',
-           multiplexor.corre('split-the-atom') == (False, ''), '')
+           multiplexor.corre('split-the-atom', 'tmux') == (False, ''), '')
     afirma('· non-happy: the TypeScript executor answers the same way',
            js_argv(['split-the-atom']).get('split-the-atom') is None, '')
 
@@ -167,11 +175,14 @@ def contra_uno_de_verdad():
         return False
     marca = 'agents-city-mux-' + uuid.uuid4().hex[:8]
     vecina = marca + '-2'
+    aqui = tempfile.mkdtemp(prefix='agents-city-mux-')
     try:
+        # Asked of the seam, not of a command line: this section is the one that
+        # has to pass against whichever window server is actually installed, and
+        # a table is only how ONE of them is addressed.
         for nombre, ventana in ((marca, 'seat'), (vecina, 'intruder')):
-            subprocess.run(multiplexor.argv('new-session', session=nombre, cwd='/tmp',
-                                            window=ventana),
-                           capture_output=True, check=True, timeout=10)
+            afirma(f'· happy: a city can be opened on {multiplexor.cual()}',
+                   multiplexor.crea_sesion(nombre, aqui, ventana), nombre)
         afirma('· happy: a session that exists is found',
                multiplexor.hay_sesion(marca), '')
         afirma('· non-happy: and one that does not, is not',
@@ -193,6 +204,7 @@ def contra_uno_de_verdad():
     finally:
         for nombre in (marca, vecina):
             multiplexor.cierra_sesion(nombre)
+        shutil.rmtree(aqui, ignore_errors=True)
     afirma('· happy: closing a session leaves nothing behind',
            not multiplexor.hay_sesion(marca), '')
     return True
