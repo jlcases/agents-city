@@ -22,6 +22,26 @@ function open(token: string, agent: string): Promise<{ ws: WebSocket; msgs: any[
   });
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait for something to become true, rather than for a number of milliseconds.
+ *
+ * A fixed sleep is a bet on how loaded the machine is, and this suite lost that
+ * bet where it costs most: the rate-limit check sends thirty-five messages and
+ * then slept 900ms, so on a busy runner the refusal had simply not arrived yet.
+ * A release was blocked by it — the tag ran, the suite went red, and nothing
+ * was wrong with the product.
+ *
+ * Fast when it is fast, patient when it is not.
+ */
+async function hasta(ok: () => boolean, ms = 8000): Promise<boolean> {
+  const limite = Date.now() + ms;
+  while (Date.now() < limite) {
+    if (ok()) return true;
+    await wait(50);
+  }
+  return ok();
+}
 function rejected(path: string, token = ''): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const url = new URL(path, BASE);
@@ -156,10 +176,11 @@ a.ws.send(
     envelope: internal,
   }),
 );
-await wait(300);
 check(
   'an internal committee envelope cannot cross the internet boundary',
-  a.msgs.some((m) => m.type === 'error' && m.request_id === 'typed-2' && /scope/.test(m.error)),
+  await hasta(() =>
+    a.msgs.some((m) => m.type === 'error' && m.request_id === 'typed-2' && /scope/.test(m.error)),
+  ),
 );
 
 const spoofed = roadEnvelope('alice/other', 'bob/infra', 'must fail too');
@@ -172,34 +193,34 @@ a.ws.send(
     envelope: spoofed,
   }),
 );
-await wait(300);
 check(
   'the authenticated seat cannot spoof another city in an envelope',
-  a.msgs.some((m) => m.type === 'error' && m.request_id === 'typed-3' && /sender/.test(m.error)),
+  await hasta(() =>
+    a.msgs.some((m) => m.type === 'error' && m.request_id === 'typed-3' && /sender/.test(m.error)),
+  ),
 );
 
 // respuesta en sentido contrario
 b.ws.send(JSON.stringify({ type: 'send', to: 'alice/lead', text: 'recibido' }));
-await wait(400);
 check(
   'a reply travels the other way',
-  a.msgs.some((m) => m.type === 'msg' && m.text === 'recibido' && m.from === 'bob/infra'),
+  await hasta(() =>
+    a.msgs.some((m) => m.type === 'msg' && m.text === 'recibido' && m.from === 'bob/infra'),
+  ),
 );
 
 // destinatario inexistente: ahora se encola en vez de fallar
 a.ws.send(JSON.stringify({ type: 'send', to: 'nadie/x', text: 'eco' }));
-await wait(400);
 check(
   'recipient offline -> queued',
-  a.msgs.some((m) => m.type === 'queued' && m.to === 'nadie/x'),
+  await hasta(() => a.msgs.some((m) => m.type === 'queued' && m.to === 'nadie/x')),
 );
 
 // a uno mismo
 a.ws.send(JSON.stringify({ type: 'send', to: 'alice/lead', text: 'yo' }));
-await wait(300);
 check(
   'message to yourself -> error',
-  a.msgs.some((m) => m.type === 'error' && /that is you/.test(m.error)),
+  await hasta(() => a.msgs.some((m) => m.type === 'error' && /that is you/.test(m.error))),
 );
 
 // broadcast
@@ -224,18 +245,16 @@ check(
 
 // size
 a.ws.send(JSON.stringify({ type: 'send', to: 'bob/infra', text: 'x'.repeat(64_001) }));
-await wait(400);
 check(
   'an enormous message is refused',
-  a.msgs.some((m) => m.type === 'error' && /maximum/.test(m.error)),
+  await hasta(() => a.msgs.some((m) => m.type === 'error' && /maximum/.test(m.error))),
 );
 
 // empty
 a.ws.send(JSON.stringify({ type: 'send', to: 'bob/infra', text: '   ' }));
-await wait(300);
 check(
   'an empty message is refused',
-  a.msgs.some((m) => m.type === 'error' && /empty/.test(m.error)),
+  await hasta(() => a.msgs.some((m) => m.type === 'error' && /empty/.test(m.error))),
 );
 
 // the same agent reconnecting closes the previous session
@@ -252,10 +271,9 @@ const d = await open(BOB, 'bob/tmp'); // the token is bob's, so the name has to 
 await wait(200);
 for (let i = 0; i < 35; i++)
   d.ws.send(JSON.stringify({ type: 'send', to: 'alice/lead', text: `n${i}` }));
-await wait(900);
 check(
   'the rate limit fires',
-  d.msgs.some((m) => m.type === 'error' && /rate limit/.test(m.error)),
+  await hasta(() => d.msgs.some((m) => m.type === 'error' && /rate limit/.test(m.error))),
 );
 
 for (const s of [a.ws, b2.ws, c.ws, d.ws])
