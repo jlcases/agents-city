@@ -438,14 +438,14 @@ class Ciudad:
         if not ruta:
             di(f'  {actor}: could not write its launcher')
             return False
-        mux.corre('send-literal', target=objetivo, text=cita(ruta))
-        mux.corre('send-enter', target=objetivo)
+        mux.escribe(objetivo, cita(ruta))
+        mux.enter(objetivo)
         return True
 
     def dice(self, objetivo, mensaje):
         """Say something in a window that is not going to run an agent."""
-        mux.corre('send-literal', target=objetivo, text=f'echo {cita(mensaje)}')
-        mux.corre('send-enter', target=objetivo)
+        mux.escribe(objetivo, f'echo {cita(mensaje)}')
+        mux.enter(objetivo)
 
     def retraso(self, turno):
         return retraso(turno, self.settle, self.stagger)
@@ -465,6 +465,11 @@ def runtime_de(bruto):
 
 def comodidades():
     """Additions, so they sit alongside whatever the owner already runs.
+
+    Every one of these is a tmux option, and a window server that does not have
+    them answers that it does not have them — the seam names a missing verb
+    rather than spelling nonsense at it. herdr carries its own configuration and
+    its own key bindings, so on that backend this is a no-op by construction.
 
     Applied only when a city is being OPENED. A session already up has whatever
     its owner has set since — a mouse toggle, a status bar, a style — and
@@ -670,7 +675,7 @@ def abre_las_casas(c, nombres, rutas, montajes, url_broker, turno):
                          montajes[i] if i < len(montajes) else ())
         jaula_env = {'CITY_OUTER_CAGE': '1'} if jaula else {}
         objetivo = f'{c.sesion}:{win}'
-        mux.corre('new-window', session=c.sesion, window=win, cwd=ruta)
+        mux.crea_ventana(c.sesion, win, ruta)
         if not c.o.claude:
             continue
         otro = c.campo(f'runs.{win}')
@@ -782,15 +787,14 @@ def cuenta_lo_que_paso(c, nombres, abiertas, faltan):
             di(f"  {w}: the card says tui, and the open window is the city's gateway")
         di('Nothing was closed — there may be work in them. To apply:')
         for w in desfasadas:
-            di('  ' + ' '.join(mux.argv('kill-window', target=f'{c.sesion}:{w}'))
-               + '   (then open the city again)')
+            di(f'  {mux.orden_de_cerrar(f"{c.sesion}:{w}")}   (then open the city again)')
     sobran = [w for w in c.ventanas_ya if w != 'seat' and w not in nombres]
     if sobran:
         di()
         di(f"These windows are no longer on the card: {' '.join(sobran)}")
         di('Nothing was closed — one of them may be mid-task. When you are sure:')
         for w in sobran:
-            di('  ' + ' '.join(mux.argv('kill-window', target=f'{c.sesion}:{w}')))
+            di('  ' + mux.orden_de_cerrar(f'{c.sesion}:{w}'))
     return destacada
 
 
@@ -818,18 +822,22 @@ def main(argv=None):
 
     if not c.ya:
         comodidades()
-        mux.corre('new-session', session=c.sesion, window='seat', cwd=c.datos)
+        mux.crea_sesion(c.sesion, c.datos, 'seat')
     elif 'seat' not in c.ventanas_ya:
         # The session outlived its own chair — somebody closed that one window.
         # The city is not a city without it.
-        mux.corre('new-window', session=c.sesion, window='seat', cwd=c.datos)
+        mux.crea_ventana(c.sesion, 'seat', c.datos)
 
     # Where the cards live, told to the session rather than assumed. A window
     # inherits the environment of the window SERVER, not of whoever ran this, so
     # on any machine where a server was already up AGENTS_CITY_DATA never reached
     # the windows and the plugin inside them looked in the default place. Set on
-    # the session, and also written in front of each command, because the two
-    # cost nothing and the failure is silent.
+    # the session, and also written into each launcher, because the two cost
+    # nothing and the failure is silent.
+    #
+    # A backend without a session environment answers that it has none, and the
+    # launcher's own copy is what carries it there — which is the half that was
+    # always doing the work.
     for clave, valor in (('AGENTS_CITY_DATA', c.datos), ('AGENTS_CITY_HOME', c.casa),
                          ('AGENTS_CITY_USER', c.usuario), ('CITY_ADDRESS', c.direccion),
                          ('CITY_SEAT_NAME', c.seat_name)):
@@ -840,8 +848,8 @@ def main(argv=None):
     abiertas = abre_las_casas(c, nombres, rutas, montajes, url_broker, turno)
     destacada = cuenta_lo_que_paso(c, nombres, abiertas, faltan)
 
-    mux.corre('select-window', target=f'{c.sesion}:{destacada}')
-    orden = mux.argv('attach-here', session=c.sesion)
+    mux.selecciona(f'{c.sesion}:{destacada}')
+    orden = mux.orden_de_attach(c.sesion, aqui=True)
     os.execvp(orden[0], orden)
     return 0
 

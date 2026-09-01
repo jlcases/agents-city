@@ -79,7 +79,7 @@ def la_tabla(tabla, backends):
     conocidos = set(CAMPOS) | {'exact'}
     sueltos = []
     for backend in backends.values():
-        for verbo, plantilla in backend['verbs'].items():
+        for verbo, plantilla in (backend.get('verbs') or {}).items():
             for pieza in plantilla:
                 for trozo in pieza.split('<')[1:]:
                     clave = trozo.split('>')[0]
@@ -134,6 +134,23 @@ def lo_que_pide_el_llamador(backends):
     afirma('· happy: the installer is told how to install it, per package manager',
            set(multiplexor.como_instalar()) >= {'brew', 'apt-get'},
            str(multiplexor.como_instalar()))
+
+    # A backend that cannot be a table declares a driver instead, and the driver
+    # has to answer everything the table would have. tmux is addressed by writing
+    # a name into the command; herdr answers JSON and hands back opaque ids, so
+    # every call needs a lookup first — and a lookup is not a command line.
+    conDriver = {n: b for n, b in backends.items() if b.get('driver')}
+    afirma('· happy: a backend that a table cannot express declares a driver',
+           bool(conDriver), str(sorted(backends)))
+    for nombre, b in sorted(conDriver.items()):
+        modulo = multiplexor.driver(nombre)
+        afirma(f'· {nombre}: its driver is there', modulo is not None, b.get('driver'))
+        faltan = [v for v in multiplexor.DEL_DRIVER if not hasattr(modulo, v)]
+        afirma(f'· {nombre}: and answers every verb the table would have',
+               not faltan, str(faltan))
+        afirma(f'· non-happy: {nombre} is not chosen on a machine that lacks it',
+               multiplexor.cual() != nombre or shutil.which(b['bin']) is not None,
+               'chosen without being installed')
 
 def contra_uno_de_verdad():
     """Two real sessions, one of them named to trap the prefix match."""

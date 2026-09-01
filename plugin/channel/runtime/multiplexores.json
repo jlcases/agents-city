@@ -21,21 +21,89 @@
   "backends": {
     "tmux": {
       "bin": "tmux",
-      "detect": ["-V"],
+      "detect": [
+        "-V"
+      ],
       "exact": "=",
       "verbs": {
-        "attach": ["attach-session", "-t", "<session>"],
-        "attach-here": ["attach-session", "-d", "-t", "<session>"],
-        "bind-command": ["bind-key", "-n", "<key>", "<command>"],
-        "bind-window": ["bind-key", "-n", "<key>", "select-window", "-t", "<window>"],
-        "capture": ["capture-pane", "-p", "-t", "<target>", "-S", "-<lines>"],
-        "current-session": ["display-message", "-p", "#{session_name}"],
-        "has-session": ["has-session", "-t", "<exact><session>"],
-        "kill-session": ["kill-session", "-t", "<session>"],
-        "kill-window": ["kill-window", "-t", "<target>"],
-        "load-buffer": ["load-buffer", "-b", "<buffer>", "-"],
-        "new-session": ["new-session", "-d", "-s", "<session>", "-c", "<cwd>", "-n", "<window>"],
-        "new-window": ["new-window", "-t", "<session>", "-n", "<window>", "-c", "<cwd>"],
+        "attach": [
+          "attach-session",
+          "-t",
+          "<session>"
+        ],
+        "attach-here": [
+          "attach-session",
+          "-d",
+          "-t",
+          "<session>"
+        ],
+        "bind-command": [
+          "bind-key",
+          "-n",
+          "<key>",
+          "<command>"
+        ],
+        "bind-window": [
+          "bind-key",
+          "-n",
+          "<key>",
+          "select-window",
+          "-t",
+          "<window>"
+        ],
+        "capture": [
+          "capture-pane",
+          "-p",
+          "-t",
+          "<target>",
+          "-S",
+          "-<lines>"
+        ],
+        "current-session": [
+          "display-message",
+          "-p",
+          "#{session_name}"
+        ],
+        "has-session": [
+          "has-session",
+          "-t",
+          "<exact><session>"
+        ],
+        "kill-session": [
+          "kill-session",
+          "-t",
+          "<session>"
+        ],
+        "kill-window": [
+          "kill-window",
+          "-t",
+          "<target>"
+        ],
+        "load-buffer": [
+          "load-buffer",
+          "-b",
+          "<buffer>",
+          "-"
+        ],
+        "new-session": [
+          "new-session",
+          "-d",
+          "-s",
+          "<session>",
+          "-c",
+          "<cwd>",
+          "-n",
+          "<window>"
+        ],
+        "new-window": [
+          "new-window",
+          "-t",
+          "<session>",
+          "-n",
+          "<window>",
+          "-c",
+          "<cwd>"
+        ],
         "pane-state": [
           "list-panes",
           "-t",
@@ -43,23 +111,95 @@
           "-F",
           "#{pane_dead}\t#{pane_current_command}"
         ],
-        "paste-buffer": ["paste-buffer", "-d", "-p", "-r", "-b", "<buffer>", "-t", "<target>"],
-        "select-window": ["select-window", "-t", "<target>"],
-        "send-enter": ["send-keys", "-t", "<target>", "Enter"],
-        "send-literal": ["send-keys", "-t", "<target>", "-l", "--", "<text>"],
-        "sessions": ["ls", "-F", "#{session_name}"],
-        "set-environment": ["set-environment", "-t", "<session>", "<name>", "<value>"],
-        "set-option": ["set-option", "-t", "<session>", "<name>", "<value>"],
-        "set-option-global": ["set-option", "-g", "<name>", "<value>"],
-        "set-option-window": ["set-option", "-gw", "<name>", "<value>"],
-        "version": ["-V"],
-        "windows": ["list-windows", "-t", "<exact><session>", "-F", "#{window_name}"]
+        "paste-buffer": [
+          "paste-buffer",
+          "-d",
+          "-p",
+          "-r",
+          "-b",
+          "<buffer>",
+          "-t",
+          "<target>"
+        ],
+        "select-window": [
+          "select-window",
+          "-t",
+          "<target>"
+        ],
+        "send-enter": [
+          "send-keys",
+          "-t",
+          "<target>",
+          "Enter"
+        ],
+        "send-literal": [
+          "send-keys",
+          "-t",
+          "<target>",
+          "-l",
+          "--",
+          "<text>"
+        ],
+        "sessions": [
+          "ls",
+          "-F",
+          "#{session_name}"
+        ],
+        "set-environment": [
+          "set-environment",
+          "-t",
+          "<session>",
+          "<name>",
+          "<value>"
+        ],
+        "set-option": [
+          "set-option",
+          "-t",
+          "<session>",
+          "<name>",
+          "<value>"
+        ],
+        "set-option-global": [
+          "set-option",
+          "-g",
+          "<name>",
+          "<value>"
+        ],
+        "set-option-window": [
+          "set-option",
+          "-gw",
+          "<name>",
+          "<value>"
+        ],
+        "version": [
+          "-V"
+        ],
+        "windows": [
+          "list-windows",
+          "-t",
+          "<exact><session>",
+          "-F",
+          "#{window_name}"
+        ]
       },
       "install": {
         "brew": "tmux",
         "apt-get": "tmux",
         "dnf": "tmux",
         "pacman": "tmux"
+      }
+    },
+    "herdr": {
+      "bin": "herdr",
+      "detect": [
+        "--version"
+      ],
+      "driver": "herdr",
+      "_": "Code, not a table. herdr answers JSON and addresses everything by opaque ids it hands back \u2014 w1, w1:t1, w1:p1 \u2014 so every call needs a lookup first, and a lookup is not a command line. `mux_herdr.py` is that backend; this entry is what makes the seam choose it.",
+      "install": {
+        "brew": "herdr",
+        "winget": "Herdr.Herdr",
+        "sh": "curl -fsSL https://herdr.dev/install.sh | sh"
       }
     }
   }

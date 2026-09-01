@@ -184,37 +184,29 @@ jobs:
       # tmux has none here. herdr does. What this asks is whether it installs
       # and answers on a headless runner at all — a driver written against a
       # binary nobody has run is a promise, not a feature.
-      - name: can a window server exist on this machine at all
-        continue-on-error: true
+      # The window server this product uses where tmux does not exist. Not a
+      # probe any more: herdr is installed, its headless server started, and the
+      # multiplexer suite runs its LIVE section against it — the same checks the
+      # Linux runner runs against tmux, including the one about a neighbour
+      # whose name starts the same.
+      - name: a real window server, and the seam driving it
         shell: pwsh
         run: |
           irm https://herdr.dev/install.ps1 | iex
           $env:PATH = "$env:USERPROFILE\.herdr\bin;$env:LOCALAPPDATA\herdr\bin;$env:PATH"
           herdr --version
-          # Every command goes to a socket, and the first probe found no server
-          # listening. There is a headless one; whether it lives on a runner
-          # with no console is the whole question.
           $srv = Start-Process -FilePath herdr -ArgumentList 'server' -PassThru `
                    -RedirectStandardOutput herdr-server.out `
                    -RedirectStandardError herdr-server.err
           Start-Sleep -Seconds 5
-          "server pid: $($srv.Id)  alive: $(-not $srv.HasExited)"
           herdr status server
-          herdr workspace list
-          herdr workspace create --cwd $env:TEMP --label probe
-          herdr workspace list
-          herdr tab list
-          herdr pane list
-          # The exact flags, from the binary rather than from documentation: a
-          # driver written against remembered syntax is a driver that lies.
-          foreach ($c in @(
-              'workspace create','workspace close','tab create','tab list','tab close',
-              'tab focus','pane list','pane read','pane send-text','pane send-keys',
-              'pane run','pane process-info','pane close','session list')) {
-            "===== herdr $c --help"
-            & herdr $c.Split(' ') --help 2>&1 | Out-String
-          }
+          $env:AGENTS_CITY_MUX = 'herdr'
+          $env:CITY_MUX_REQUIRED = '1'
+          python bin/test-multiplexor.py
+          $codigo = $LASTEXITCODE
           Get-Content herdr-server.out, herdr-server.err -ErrorAction SilentlyContinue
+          herdr server stop 2>&1 | Out-String
+          exit $codigo
 
       # And a command that is still a shell program says so, by name, instead of
       # the product claiming it does not run here at all.
@@ -222,9 +214,13 @@ jobs:
         shell: pwsh
         run: |
           $salida = node bin/agents-city.js hall 2>&1 | Out-String
+          $codigo = $LASTEXITCODE
           $salida
-          if ($LASTEXITCODE -eq 0) { throw "hall should refuse on Windows, not pretend" }
+          if ($codigo -eq 0) { throw "hall should refuse on Windows, not pretend" }
           if ($salida -notmatch 'WSL') { throw "the refusal must say what to do" }
+          # The refusal IS the pass, so the step must not inherit its exit code:
+          # pwsh steps end on $LASTEXITCODE, and this one is 1 on purpose.
+          exit 0
 
   # The cage is a macOS seatbelt profile checked against the live kernel, and
   # the broker guards what the cage seals. Linux cannot exercise either, so the

@@ -68,6 +68,26 @@ def _backend(cual_=None):
     return nombre, (_tabla().get('backends') or {}).get(nombre) or {}
 
 
+def driver(cual_=None):
+    """The module that drives this backend, when a table cannot.
+
+    tmux is addressed by writing a name into the command, which is exactly what
+    a table of command lines expresses. A backend that answers JSON and hands
+    back opaque ids needs a lookup before every call, and a lookup is not a
+    command line — so it declares a driver and this imports it.
+    """
+    _, b = _backend(cual_)
+    nombre = b.get('driver')
+    if not nombre:
+        return None
+    import importlib  # noqa: PLC0415
+
+    try:
+        return importlib.import_module(f'mux_{nombre}')
+    except ImportError:
+        return None
+
+
 def binario(cual_=None):
     _, b = _backend(cual_)
     return b.get('bin') or ''
@@ -81,6 +101,15 @@ def como_instalar(cual_=None):
     """`{gestor: paquete}` for the installer that offers to put it there."""
     _, b = _backend(cual_)
     return dict(b.get('install') or {})
+
+
+#: The verbs a driver answers instead of the table. Named here so a backend that
+#: declares a driver and forgets one is a failure with a name.
+DEL_DRIVER = ('sesiones', 'hay_sesion', 'sesion_actual', 'ventanas', 'cierra_sesion',
+              'orden_de_cerrar',
+              'crea_sesion', 'crea_ventana', 'cierra_ventana', 'selecciona',
+              'escribe', 'enter', 'estado_del_panel', 'pantalla',
+              'orden_de_attach', 'como_instalar', 'binario')
 
 
 def puede(verbo, cual_=None):
@@ -132,27 +161,42 @@ def corre(verbo, cual_=None, entrada=None, segundos=10, **campos):
 
 def sesiones():
     """Every session on this machine, ours and everybody else's."""
+    d = driver()
+    if d:
+        return d.sesiones()
     ok, salida = corre('sessions', segundos=5)
     return [l.split(':')[0].strip() for l in salida.splitlines() if l.strip()] if ok else []
 
 
 def hay_sesion(sesion):
+    d = driver()
+    if d:
+        return d.hay_sesion(sesion)
     ok, _ = corre('has-session', session=sesion, exacto=True, segundos=5)
     return ok
 
 
 def sesion_actual():
+    d = driver()
+    if d:
+        return d.sesion_actual()
     ok, salida = corre('current-session', segundos=5)
     return salida.strip() if ok else ''
 
 
 def ventanas(sesion):
     """The window names alive in one session, exactly that session."""
+    d = driver()
+    if d:
+        return d.ventanas(sesion)
     ok, salida = corre('windows', session=sesion, exacto=True, segundos=3)
     return [l.strip() for l in salida.split() if l.strip()] if ok else []
 
 
 def cierra_sesion(sesion):
+    d = driver()
+    if d:
+        return d.cierra_sesion(sesion)
     ok, _ = corre('kill-session', session=sesion)
     return ok
 
@@ -166,6 +210,9 @@ def estado_del_panel(objetivo):
     completely different one — and a delivery gate that inspects the wrong
     window decides "ready" about the wrong thing.
     """
+    d = driver()
+    if d:
+        return d.estado_del_panel(objetivo)
     ok, salida = corre('pane-state', target=objetivo, segundos=5)
     if not ok:
         return False, ''
@@ -175,8 +222,97 @@ def estado_del_panel(objetivo):
 
 
 def pantalla(objetivo, lineas=30):
+    d = driver()
+    if d:
+        return d.pantalla(objetivo, lineas)
     ok, salida = corre('capture', target=objetivo, lines=lineas, segundos=5)
     return salida if ok else ''
+
+
+# ── the verbs that open and address a city ──────────────────────────────────
+#
+# Each one is a table lookup on tmux and a resolution on a driver backend. They
+# exist so the launcher says what it wants — "open this window" — rather than
+# spelling a command line that only one window server understands.
+
+def crea_sesion(sesion, cwd, ventana):
+    d = driver()
+    if d:
+        return d.crea_sesion(sesion, cwd, ventana)
+    ok, _ = corre('new-session', session=sesion, cwd=cwd, window=ventana)
+    return ok
+
+
+def crea_ventana(sesion, ventana, cwd):
+    d = driver()
+    if d:
+        return d.crea_ventana(sesion, ventana, cwd)
+    ok, _ = corre('new-window', session=sesion, window=ventana, cwd=cwd)
+    return ok
+
+
+def cierra_ventana(objetivo):
+    d = driver()
+    if d:
+        return d.cierra_ventana(objetivo)
+    ok, _ = corre('kill-window', target=objetivo)
+    return ok
+
+
+def selecciona(objetivo):
+    d = driver()
+    if d:
+        return d.selecciona(objetivo)
+    ok, _ = corre('select-window', target=objetivo)
+    return ok
+
+
+def escribe(objetivo, texto):
+    """Type one line into a window, literally, without running it."""
+    d = driver()
+    if d:
+        return d.escribe(objetivo, texto)
+    ok, _ = corre('send-literal', target=objetivo, text=texto)
+    return ok
+
+
+def enter(objetivo):
+    d = driver()
+    if d:
+        return d.enter(objetivo)
+    ok, _ = corre('send-enter', target=objetivo)
+    return ok
+
+
+def orden_de_cerrar(objetivo):
+    """The command a person runs to close one window, as a printable line.
+
+    The city never closes a window on somebody's behalf — there may be work in
+    it — so what it can do is say exactly what to type. Which means the sentence
+    belongs to whichever window server is running it, not to the launcher.
+    """
+    d = driver()
+    if d:
+        return ' '.join(d.orden_de_cerrar(objetivo))
+    try:
+        return ' '.join(argv('kill-window', target=objetivo))
+    except SinVerbo:
+        return f'close the {objetivo} window'
+
+
+def orden_de_attach(sesion, aqui=False):
+    """The command a person runs to get back to their day.
+
+    `aqui` asks for the form that takes this terminal over — what the launcher
+    execs — rather than the one shown to somebody in the Hall.
+    """
+    d = driver()
+    if d:
+        return d.orden_de_attach(sesion)
+    try:
+        return argv('attach-here' if aqui else 'attach', session=sesion)
+    except SinVerbo:
+        return [binario()]
 
 
 def main(argv_=None):
