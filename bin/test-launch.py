@@ -3,7 +3,6 @@
 import io
 import json
 import os
-import pty
 import shlex
 import shutil
 import subprocess
@@ -234,6 +233,8 @@ def main():
                and 'agents-city-diagnostic/1' in logs.stdout
                and 'agents-city-activity/1' in logs.stdout,
                logs.stderr or logs.stdout)
+        import pty  # noqa: PLC0415 - POSIX only, and this section is the tty
+
         # A terminal answers questions. The shell profile asks for its
         # attributes, the multiplexer negotiates, and the reply comes back as
         # bytes on the input — arriving, often, in the gap between the window

@@ -26,6 +26,7 @@ writable, following the symlink to its destination like the kernel does.
 
 import hashlib
 import os
+import subprocess
 import sys
 
 import card
@@ -199,17 +200,66 @@ def monta(data, slug, origen, nombre=None):
     enlace = os.path.join(carpeta, etiqueta)
     tmp = f'{enlace}.tmp-link'
     if os.path.islink(tmp) or os.path.exists(tmp):
-        os.unlink(tmp)
-    os.symlink(destino, tmp)
-    os.replace(tmp, enlace)   # atomic repoint
+        _quita_enlace(tmp)
+    _enlaza(destino, tmp)
+    _repunta(tmp, enlace)
     return enlace
 
 
+def _enlaza(destino, enlace):
+    """Point `enlace` at `destino`, by whatever means this machine allows.
+
+    A symlink needs Administrator or Developer Mode on Windows, and a mount that
+    an owner cannot create is an agent with no ground: the first Windows run
+    refused every single one with `[WinError 5] Access is denied`. A directory
+    JUNCTION needs no privilege and behaves the same for everything this product
+    does with a mount, so that is what a folder gets there.
+    """
+    if sys.platform != 'win32':
+        os.symlink(destino, enlace)
+        return
+    if os.path.isdir(destino):
+        r = subprocess.run(['cmd', '/c', 'mklink', '/J', enlace, destino],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+    # A file, or a junction the filesystem refused: try the privileged form and
+    # let its error be the one the owner sees.
+    os.symlink(destino, enlace, target_is_directory=os.path.isdir(destino))
+
+
+def _quita_enlace(ruta):
+    """A junction is a directory to Windows, and `unlink` refuses a directory."""
+    if os.path.isdir(ruta) and not os.path.islink(ruta):
+        os.rmdir(ruta)
+    else:
+        os.unlink(ruta)
+
+
+def _repunta(tmp, enlace):
+    """Atomic where the filesystem allows it, and correct where it does not.
+
+    `os.replace` onto an existing directory raises on Windows, and a junction IS
+    a directory there — so the repoint is remove-then-rename, which is the same
+    thing with a smaller window.
+    """
+    try:
+        os.replace(tmp, enlace)
+    except OSError:
+        if os.path.lexists(enlace):
+            _quita_enlace(enlace)
+        os.replace(tmp, enlace)
+
+
 def desmonta(data, slug, etiqueta):
-    """Remove one mount symlink. Returns True if one was removed."""
+    """Remove one mount. Returns True if one was removed.
+
+    `islink` is False for a Windows junction, so asking that alone would have
+    made every mount on that machine impossible to remove.
+    """
     enlace = os.path.join(workspace_de(data, slug), MOUNTS_DIR, _slug(etiqueta))
-    if os.path.islink(enlace):
-        os.unlink(enlace)
+    if os.path.islink(enlace) or (sys.platform == 'win32' and os.path.isdir(enlace)):
+        _quita_enlace(enlace)
         return True
     return False
 

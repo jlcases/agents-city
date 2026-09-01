@@ -146,6 +146,8 @@ jobs:
           python bin/test-busca.py
           python bin/test-multiplexor.py
           python bin/test-launch.py
+          python bin/test-hooks.py
+          python bin/test-cities.py
       # The front door itself. Fifteen commands stopped being bash doors, and
       # what proves it is running them here rather than reading the map.
       - name: the npm front door dispatches without a shell

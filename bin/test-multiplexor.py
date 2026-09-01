@@ -15,6 +15,7 @@ between a city's windows and a city called `home-2`'s windows — survives.
 """
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -45,7 +46,11 @@ CAMPOS = {'session': 'alice-home', 'window': 'prod', 'target': 'alice-home:prod'
 
 def js_argv(verbos):
     """The same verbs, built by the TypeScript executor."""
-    guion = (f"import {{argv}} from {json.dumps(EJECUTOR_JS)};"
+    # As a file URL: Node refuses to import a bare Windows path like
+    # `D:\a\repo\multiplexor.ts`, and the two executors then "disagree"
+    # because one of them never ran.
+    fuente = json.dumps(pathlib.Path(EJECUTOR_JS).as_uri())
+    guion = (f"import {{argv}} from {fuente};"
              f"const campos = {json.dumps(dict(CAMPOS, exacto=True))};"
              f"const fuera = {{}};"
              f"for (const v of {json.dumps(verbos)}) fuera[v] = argv(v, campos);"
