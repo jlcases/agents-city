@@ -8,7 +8,10 @@ dist/index.html to /city.js?v=<hash of the bundle>, so a changed bundle is a
 changed URL and the browser fetches it. An unchanged bundle keeps its hash and
 stays cached, which is the whole point of the cache.
 """
-import hashlib, pathlib, re, sys
+import hashlib
+import pathlib
+import re
+import sys
 
 dist = pathlib.Path(__file__).parent / 'dist'
 for pagina, guion in (('index.html', 'city.js'),):

@@ -28,6 +28,7 @@ sys.path.insert(0, AQUI)
 sys.path.insert(0, os.path.join(os.path.dirname(AQUI), 'plugin', 'scripts'))
 import serve  # noqa: E402
 import cities  # noqa: E402
+import runtime_processes  # noqa: E402  how a child is cut loose from a terminal
 
 def asegura_build():
     """hall.js, built if missing or older than its source. Same npm the map already

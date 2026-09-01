@@ -5,7 +5,10 @@ It exists because the PNGs come out of the browser in base64, and there is no
 point routing them through anything in between: the browser posts them here and
 here they are saved.
 """
-import base64, json, os, re
+import base64
+import json
+import os
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 DESTINO = os.path.join(os.path.dirname(__file__), '..', 'web', 'assets', 'sprites')
@@ -13,7 +16,9 @@ os.makedirs(DESTINO, exist_ok=True)
 
 class Manos(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
-        self.send_response(204); self.cors(); self.end_headers()
+        self.send_response(204)
+        self.cors()
+        self.end_headers()
     def do_POST(self):
         n = int(self.headers.get('content-length', 0))
         cuerpo = self.rfile.read(n)
@@ -33,8 +38,10 @@ class Manos(BaseHTTPRequestHandler):
             json.dump(todas, open(metas, 'w'), indent=1, sort_keys=True)
             self.send_response(200)
         except Exception as e:
-            print('fallo:', e); self.send_response(500)
-        self.cors(); self.end_headers()
+            print('fallo:', e)
+            self.send_response(500)
+        self.cors()
+        self.end_headers()
     def cors(self):
         self.send_header('access-control-allow-origin', '*')
         self.send_header('access-control-allow-headers', '*')

@@ -358,7 +358,40 @@ def la_puerta_de_windows():
     afirma('· and the town hall is not one of them',
            'hall' not in conShell, str(conShell))
 
-    # 3. Every file this product reads or writes is UTF-8, said out loud. A
+    # 3. Every Python file this repo ships is one the linter actually reads.
+    #
+    #    `bin/hall` is Python with no `.py` on it, and ruff selects by a glob on
+    #    the extension — so the town hall was never linted, and shipped a call to
+    #    a module it had forgotten to import. `F821 Undefined name` would have
+    #    caught it before a tag did.
+    #
+    #    Third time in this repo that a tool chose files by their NAME instead of
+    #    by what they are: shellcheck's glob broke when a folder emptied and had
+    #    been missing seven scripts; the front door called the town hall a shell
+    #    program because it is long; and this.
+    import fnmatch  # noqa: PLC0415
+    import tomllib  # noqa: PLC0415
+
+    incluidos = tomllib.load(open(os.path.join(RAIZ, 'pyproject.toml'), 'rb'))
+    patrones = incluidos['tool']['ruff']['include']
+    seguidos = subprocess.run(['git', 'ls-files'], cwd=RAIZ, capture_output=True,
+                              text=True).stdout.split()
+    fuera = []
+    for rel in seguidos:
+        ruta = os.path.join(RAIZ, rel)
+        if not os.path.isfile(ruta) or rel.startswith('bin/test'):
+            continue
+        if not rel.endswith('.py'):
+            with open(ruta, 'rb') as f:
+                cabeza = f.readline()
+            if not (cabeza.startswith(b'#!') and b'python' in cabeza.lower()):
+                continue
+        if not any(fnmatch.fnmatch(rel, p) for p in patrones):
+            fuera.append(rel)
+    afirma('· every Python file this repo ships is one the linter reads',
+           not fuera, 'not covered by ruff include: ' + ', '.join(fuera))
+
+    # 4. Every file this product reads or writes is UTF-8, said out loud. A
     #    bare `open()` takes the console's code page on Windows, which is how a
     #    card with an em dash was written in cp1252 and read back as UTF-8 by
     #    the next door along — the first thing a Windows runner found.
@@ -380,14 +413,14 @@ def la_puerta_de_windows():
            not sinDecir, 'a bare open() takes the console code page: '
                          + ', '.join(sinDecir[:8]))
 
-    # 4. The launcher every window runs. Written in the language of the machine
+    # 5. The launcher every window runs. Written in the language of the machine
     #    it will run on — and what it carries is a plan, not a shell sentence.
     lanzador = open(os.path.join(RAIZ, 'plugin', 'scripts', 'launch.py'),
                     encoding='utf-8').read()
     afirma('· the launcher is written for the machine it will run on',
            "'#!/usr/bin/env bash'" in lanzador and '@echo off' in lanzador, '')
 
-    # 5. And the promise on the tin matches all of that. Windows is claimed
+    # 6. And the promise on the tin matches all of that. Windows is claimed
     #    because a machine says so, not because the code looks portable: the
     #    runner opens a city there every time this is pushed.
     afirma('· package.json says where this runs, and a runner agrees',

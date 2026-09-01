@@ -140,7 +140,8 @@ def run(args):
             raise RuntimeError('a Codex gateway exited during startup')
         startup_hubs = hub_pids(city)
         if len(startup_hubs) != 1:
-            raise RuntimeError(f'concurrent startup created {len(startup_hubs)} hubs: {startup_hubs}')
+            raise RuntimeError(
+                f'concurrent startup created {len(startup_hubs)} hubs: {startup_hubs}')
         report['startupMs'] = round((time.monotonic() - started) * 1000)
         report['startupHubProcesses'] = len(startup_hubs)
 
@@ -156,8 +157,11 @@ def run(args):
                 # recovery, not a stale endpoint. What must disappear is the
                 # stopped PID's ownership; the endpoint may validly already name
                 # the one new hub.
+                # Bound as a default: the lambda is called in this same
+                # iteration, so late binding does not bite — but correct by
+                # accident is not correct.
                 if not wait_for(
-                    lambda: endpoint_released_or_replaced(endpoint_path, stopped_pid), 4
+                    lambda pid=stopped_pid: endpoint_released_or_replaced(endpoint_path, pid), 4
                 ):
                     raise RuntimeError('the stopped hub still owns the endpoint')
             round_started = time.monotonic()
@@ -178,8 +182,8 @@ def run(args):
                     f'round {round_number} spectator feed did not represent all '
                     f'{args.agents} selected actors exactly once')
             if not wait_for(
-                lambda: round_complete(thread, claude_capture, codex_capture, metrics_path,
-                                       args.agents // 2, args.agents),
+                lambda t=thread: round_complete(t, claude_capture, codex_capture,
+                                                metrics_path, args.agents // 2, args.agents),
                 args.timeout,
             ):
                 raise RuntimeError(
@@ -197,7 +201,8 @@ def run(args):
                     f'Claude={claude_count}, Codex={codex_count}')
             if len(metrics) != args.agents:
                 raise RuntimeError(
-                    f'round {round_number} recorded {len(metrics)} acceptances, expected {args.agents}')
+                    f'round {round_number} recorded {len(metrics)} acceptances, '
+                    f'expected {args.agents}')
             latencies = sorted(int(row.get('totalToNativeAcceptMs', 0)) for row in metrics)
             round_report = {
                 'round': round_number,

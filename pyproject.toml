@@ -4,7 +4,17 @@
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-include = ["bin/*.py", "plugin/scripts/*.py", "plugin/hooks/*.py", "city/scripts/*.py", "demo/*.py"]
+# Extensionless entry points are listed too, and a contract keeps that list
+# honest. `bin/hall` is Python with no `.py` on it, so a glob on the extension
+# never linted it — and shipped a call to a module it had forgotten to import.
+# That is the third time in this repo that a tool chose files by their NAME
+# instead of by what they are.
+include = [
+  "bin/*.py", "plugin/scripts/*.py", "plugin/hooks/*.py", "city/scripts/*.py",
+  "demo/*.py",
+  "benchmarks/**/*.py", "city/oven/*.py", "city/web/*.py",
+  "bin/hall",
+]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, B bugbear (the one that catches real bites:
@@ -32,6 +42,12 @@ max-complexity = 12
 # paragraphs are the product. Wrapping them would put newlines inside the text a
 # reader receives, so the paragraph stays one line and the ruler does not apply.
 "plugin/hooks/hook.py" = ["E501"]
+# The two benchmark runners are scripts: one long sequence of steps against a
+# live system, where every step is a state the next one depends on. Splitting
+# that into functions to satisfy a counter hides the order, which IS the thing
+# being read. They were never linted at all until a contract noticed.
+"benchmarks/latency/live.py" = ["C901"]
+"benchmarks/stress/run.py" = ["C901"]
 # ui.py holds the terminal widgets: each is one curses event loop whose branches
 # are keystrokes. Their complexity is the domain's, not the code's.
 "plugin/scripts/ui.py" = ["C901"]

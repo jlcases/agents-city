@@ -16,7 +16,7 @@ cd "$(git rev-parse --show-toplevel)"
 unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 echo "pre-commit: ruff"
-ruff check bin plugin/scripts plugin/hooks city/scripts demo benchmarks
+ruff check bin plugin/scripts plugin/hooks city demo benchmarks
 
 echo "pre-commit: shellcheck"
 # Found, not listed. A hand-written list misses the next script somebody adds,

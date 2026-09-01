@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
 sys.path.insert(0, AQUI)
 
 import serve  # noqa: E402
-from testlib import afirma, resumen  # noqa: E402
+from testlib import afirma, detiene_hubs_de_ciudad, resumen  # noqa: E402
 
 
 def disco_de_prueba():
@@ -145,6 +145,63 @@ def bundle_al_dia():
     return "rebuilt from src/hall.ts"
 
 
+def la_puerta_que_abre_el_ayuntamiento():
+    """`bin/hall`, run as a person runs it — detached, and answering.
+
+    This is the check that was missing. The hall shipped calling a module it had
+    forgotten to import, and nothing here noticed, because every suite started
+    `serve.py` directly and none of them ever came through the door. A
+    `NameError` in `despega` is only reachable by launching one.
+
+    The linter would have caught it too — and now does, because `bin/hall` is
+    Python with no `.py` on it and ruff selects by a glob on the extension. Two
+    different holes, one bug through both.
+    """
+    print("  the door that opens the town hall")
+    casa = tempfile.mkdtemp(prefix="agents-city-hall-")
+    datos = os.path.join(casa, "app", "navtest", "home")
+    os.makedirs(datos)
+    ciudad_de_prueba(datos)
+    entorno = dict(os.environ, HOME=casa, AGENTS_CITY_HOME=os.path.join(casa, "app"),
+                   AGENTS_CITY_DATA=datos, AGENTS_CITY_USER="navtest",
+                   CITY_DIR=os.path.join(casa, "canal"))
+    entorno.pop("CITY_BUS_URL", None)
+    salida = ""
+    try:
+        r = subprocess.run([sys.executable, os.path.join(RAIZ, "bin", "hall"),
+                            "--no-browser"], capture_output=True, text=True,
+                           timeout=90, env=entorno, cwd=casa)
+        salida = r.stdout + r.stderr
+        afirma("· happy: the door starts a hall and hands back an address",
+               "http://127.0.0.1:" in salida and "Traceback" not in salida,
+               salida[-500:])
+        direccion = ""
+        for trozo in salida.split():
+            if trozo.startswith("http://127.0.0.1:"):
+                direccion = trozo
+                break
+        contesta = False
+        if direccion:
+            import urllib.error  # noqa: PLC0415
+            import urllib.request  # noqa: PLC0415
+
+            try:
+                with urllib.request.urlopen(direccion, timeout=5) as resp:
+                    contesta = resp.status == 200
+            except (OSError, urllib.error.URLError):
+                contesta = False
+        afirma("· happy: and that address really serves the page",
+               contesta, direccion or salida[-300:])
+        afirma("· non-happy: nothing it prints is a stack trace",
+               "NameError" not in salida and "Traceback" not in salida,
+               salida[-500:])
+    finally:
+        subprocess.run([sys.executable, os.path.join(RAIZ, "plugin", "scripts", "apaga.py"),
+                        datos, "--yes"], capture_output=True, timeout=60, env=entorno)
+        detiene_hubs_de_ciudad(datos)
+        shutil.rmtree(casa, ignore_errors=True)
+
+
 def un_chrome_que_no_arranca():
     """What the driver says when the browser never answers.
 
@@ -181,6 +238,7 @@ def un_chrome_que_no_arranca():
 def main():
     print()
     print("  the hall, in a browser that clicks")
+    la_puerta_que_abre_el_ayuntamiento()
     un_chrome_que_no_arranca()
     print(f"  · {bundle_al_dia()}")
     datos = tempfile.mkdtemp()

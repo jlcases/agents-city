@@ -34,12 +34,12 @@ def table(rows):
     widths = [max(len(label), *(len(str(row[key])) for row in rows))
               for label, key in columns]
     lines = [
-        '  '.join(label.ljust(width) for (label, _), width in zip(columns, widths)),
+        '  '.join(label.ljust(width) for (label, _), width in zip(columns, widths, strict=False)),
         '  '.join('-' * width for width in widths),
     ]
     for row in rows:
         lines.append('  '.join(str(row[key]).ljust(width)
-                               for (_, key), width in zip(columns, widths)))
+                               for (_, key), width in zip(columns, widths, strict=False)))
     return '\n'.join(lines)
 
 

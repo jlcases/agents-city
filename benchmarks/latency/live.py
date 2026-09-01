@@ -42,7 +42,8 @@ def parse_args():
     parser.add_argument('--timeout', type=int, default=180,
                         help='seconds to wait for model positions (default: 180)')
     parser.add_argument('--json', action='store_true', help='print only the JSON report')
-    parser.add_argument('--no-save', action='store_true', help='do not append the local baseline ledger')
+    parser.add_argument('--no-save', action='store_true',
+                        help='do not append the local baseline ledger')
     parser.add_argument('--keep', action='store_true', help='keep the temporary city and logs')
     return parser.parse_args()
 
@@ -81,7 +82,7 @@ def main():
     os.symlink(os.path.join(ROOT, 'bin', 'agents-city.js'), os.path.join(tools, 'agents-city'))
     marker = f'CITY_NATIVE_{int(time.time())}_{os.getpid()}'
     actors = {runtime: f'{runtime}-agent' for runtime in selected}
-    for runtime, actor in actors.items():
+    for _runtime, actor in actors.items():
         repo = os.path.join(repos, actor)
         os.makedirs(repo)
         with open(os.path.join(repo, 'README.md'), 'w', encoding='utf-8') as stream:
@@ -227,7 +228,9 @@ def wait_ready(runtimes, actors, processes, streams, app, timeout):
         for runtime in runtimes:
             process = processes[runtime]
             if process.poll() is not None:
-                raise RuntimeError(f'{runtime} exited during startup: {tail(read_stream(streams[runtime]), 12)}')
+                raise RuntimeError(
+                    f'{runtime} exited during startup: '
+                    f'{tail(read_stream(streams[runtime]), 12)}')
             ready = ready and os.path.exists(
                 os.path.join(status_dir, f'{actors[runtime]}.json'))
         if ready:
@@ -256,7 +259,8 @@ def report_for(results, unavailable, thread, duration):
     return {
         'schema': 'agents-city/native-e2e-latency@1',
         'runAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        'scope': 'live task completion through bus, native provider protocol and committee position',
+        'scope': ('live task completion through bus, native provider protocol '
+                  'and committee position'),
         'thread': thread,
         'durationMs': duration,
         'results': results + unavailable,
