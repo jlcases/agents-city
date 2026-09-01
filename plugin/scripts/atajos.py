@@ -445,7 +445,7 @@ def crea(datos, hall=False, carpeta=""):
             return _crea_mac(datos, carpeta, nombre, orden, identidad, hall), ""
         if en_wsl():
             return _crea_wsl(datos, carpeta, nombre, orden, identidad), ""
-        return _crea_linux(datos, carpeta, nombre, orden, identidad), ""
+        return _crea_linux(datos, carpeta, nombre, orden, identidad, hall), ""
     except OSError as e:
         return "", f"could not write the shortcut: {e}"
 

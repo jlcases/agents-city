@@ -144,11 +144,62 @@ def el_atajo():
             afirma("· while the seat still gets one, because tmux needs somewhere to draw",
                    "Terminal=true" in guion, guion)
 
+        # The writer, from whichever desktop is running this. A `.desktop` entry
+        # is unreachable on a Mac, so the check that covers it only ever runs on
+        # Linux — and half an assertion is what let this ship broken.
+        otro = tempfile.mkdtemp()
+        try:
+            atajos._crea_linux(datos, otro, "Aurora Games", "agents-city hall --city 'x'",
+                               "id", hall=True)
+            escrito = os.listdir(otro)
+            linux_hall = open(os.path.join(otro, escrito[0])).read() if escrito else ""
+            afirma("· the Linux entry says so too, wherever we are testing from",
+                   "Terminal=false" in linux_hall, linux_hall)
+            shutil.rmtree(otro, ignore_errors=True)
+            os.makedirs(otro, exist_ok=True)
+            atajos._crea_linux(datos, otro, "Aurora Games", "agents-city seat --city 'x'", "id")
+            escrito = os.listdir(otro)
+            linux_seat = open(os.path.join(otro, escrito[0])).read() if escrito else ""
+            afirma("· while a Linux seat keeps its terminal, wherever we are testing from",
+                   "Terminal=true" in linux_seat, linux_seat)
+        finally:
+            shutil.rmtree(otro, ignore_errors=True)
+
+
         # Removing it leaves nothing: a shortcut you cannot take back is litter.
         comprueba("· removing it says so", atajos.quita(datos), True)
         comprueba("· and leaves an empty desktop behind", os.listdir(mesa), [])
         comprueba("· removing one that is not there is not an error",
                   atajos.quita(datos), False)
+
+        # And the wiring, which is where it actually broke. The writer was
+        # correct; `crea` dropped the flag between the front door and it, and
+        # both checks above pass a broken product because they call the writer
+        # directly. This one goes through the door.
+        recibido = []
+
+        def espia(datos_, carpeta_, nombre_, orden_, identidad_, hall_=False):
+            recibido.append(hall_)
+            return os.path.join(carpeta_, "atajo")
+
+        # Pretending to be each desktop in turn, because `crea` dispatches on
+        # `sys.platform` — so a spy alone only ever reaches the branch this
+        # machine happens to be. That is precisely how the Linux call site
+        # shipped having dropped the flag while every check here stayed green.
+        previos = (atajos._crea_mac, atajos._crea_linux, atajos.en_wsl, atajos.sys.platform)
+        atajos._crea_mac = espia
+        atajos._crea_linux = espia
+        atajos.en_wsl = lambda: False
+        try:
+            for sistema in ("darwin", "linux"):
+                atajos.sys.platform = sistema
+                atajos.crea(datos, hall=True)
+                atajos.crea(datos, hall=False)
+        finally:
+            (atajos._crea_mac, atajos._crea_linux,
+             atajos.en_wsl, atajos.sys.platform) = previos
+        comprueba("· non-happy: and every desktop's front door hands on what it was asked for",
+                  recibido, [True, False, True, False])
     finally:
         shutil.rmtree(base, ignore_errors=True)
 
