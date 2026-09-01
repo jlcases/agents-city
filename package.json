@@ -1,6 +1,6 @@
 {
   "name": "agents-city",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "description": "Run autonomous agent cities: one chair seat, role-aware repo agents, repo-owned skills, and explicit roads.",
   "bin": {
     "agents-city": "bin/agents-city.js"
