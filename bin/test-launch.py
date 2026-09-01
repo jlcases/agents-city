@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Real tmux E2E for short launchers: full command and visible failure."""
+import io
 import json
 import os
-import pty
 import shlex
 import shutil
 import subprocess
@@ -14,6 +14,8 @@ import uuid
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(AQUI)
 sys.path.insert(0, AQUI)
+sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+from contextlib import redirect_stdout  # noqa: E402
 from testlib import afirma, detiene_hubs_de_ciudad, resumen  # noqa: E402
 
 LAUNCH = os.path.join(RAIZ, 'plugin', 'scripts', 'launch.py')
@@ -45,11 +47,11 @@ def json_lines(path):
         return []
 
 
-def create_launcher(env, city, actor, cwd, command):
+def create_launcher(env, city, actor, cwd, command, extra=()):
     result = subprocess.run(
         [sys.executable, LAUNCH, 'create', '--data', city, '--actor', actor,
          '--cwd', cwd, '--client', os.path.join(RAIZ, 'plugin', 'channel', 'client.js'),
-         '--command', command],
+         '--command', command, *extra],
         capture_output=True, text=True, env=env, timeout=10)
     return result, result.stdout.strip()
 
@@ -64,11 +66,72 @@ def tmux_run(session, cwd, launcher):
     return typed
 
 
+def para_la_otra_maquina(base, city, repo, env):
+    """The same plan, written for a machine with no shell.
+
+    Faked rather than skipped, and IN THIS PROCESS — a subprocess would see the
+    real platform, which is how the first version of this check passed while
+    testing nothing.
+
+    It runs before the tmux gate on purpose: Windows is exactly the machine that
+    has no window server, so putting this behind "tmux is available" would mean
+    the one platform it is about never reaches it.
+    """
+    # ── the same plan, written for the other machine ─────────────────
+    #
+    # Faked rather than skipped, and IN THIS PROCESS — a subprocess would
+    # see the real platform, which is how the first version of this check
+    # passed while testing nothing. A branch nobody runs is a branch that is
+    # wrong: the `crea()` bug that dropped a flag on the Linux path was
+    # found exactly like this, by making this machine answer as the other.
+    #
+    # The Windows runner then creates one for real and runs it. This check
+    # is what makes that failure legible when it goes red.
+    import launch  # noqa: PLC0415
+
+    plan = type('Plan', (), {
+        'data': city, 'actor': 'repo', 'cwd': repo,
+        'client': os.path.join(RAIZ, 'plugin', 'channel', 'client.js'),
+        'command': 'claude --name x --settings "%APPDATA%/s.json"',
+        'env': json.dumps({'CITY_BUS_ACTOR': 'repo', 'CITY_BUS_URL': ''}),
+        'unset': 'CLAUDE_CODE_OAUTH_TOKEN', 'wait': 3, 'sync': True,
+    })()
+    plataforma = launch.sys.platform
+    salida = io.StringIO()
+    try:
+        launch.sys.platform = 'win32'
+        with redirect_stdout(salida):
+            launch.make(plan)
+    finally:
+        launch.sys.platform = plataforma
+    cmd = salida.getvalue().strip()
+    texto = read(cmd)
+    afirma('· happy: on Windows the launcher is a program that machine can run',
+           cmd.endswith('.cmd') and texto.startswith('@echo off'), cmd)
+    afirma('· happy: the environment is set, not concatenated in front of a command',
+           'set "CITY_BUS_ACTOR=repo"' in texto and 'set "CITY_BUS_URL="' in texto,
+           texto[:600])
+    afirma('· happy: what has to be removed is removed by name',
+           'set "CLAUDE_CODE_OAUTH_TOKEN="' in texto, texto[:600])
+    afirma('· happy: the settle is a wait, and it comes before the runtime',
+           'ping -n 4 127.0.0.1' in texto
+           and texto.index('ping -n') < texto.index('claude --name x'), texto[-900:])
+    afirma('· happy: the folder is brought up to date first, in that shell',
+           'git fetch origin' in texto
+           and texto.index('git fetch') < texto.index('claude --name x'), texto[-900:])
+    afirma('· non-happy: a percent in a VALUE cannot open a variable',
+           'set "AGENTS_CITY_DATA=' in texto and '%%' not in texto.split('cd /d')[0]
+           .replace('%DATA%', '').replace('%ACTOR%', ''), texto[:700])
+    # Read as bytes: text mode translates newlines, so the only honest way
+    # to ask whether a file ends its lines the way cmd.exe needs is to look
+    # at the bytes that were written.
+    crudo = open(cmd, 'rb').read()
+    afirma('· non-happy: and the lines end the way that shell needs them to',
+           crudo.count(b'\r\n') > 10 and b'\n\n' not in crudo, repr(crudo[:120]))
+
+
 def main():
-    print('\n  short audited launchers through real tmux')
-    if not shutil.which('tmux'):
-        afirma('· tmux is available', False, 'tmux missing')
-        return resumen('launch')
+    print('\n  short audited launchers, and the two shells they are written in')
     base = tempfile.mkdtemp(prefix='agents-city-launch-')
     app = os.path.join(base, 'app')
     city = os.path.join(app, 'alice', 'home')
@@ -85,6 +148,17 @@ def main():
                AGENTS_CITY_USER='alice')
     for key in ('CITY_BUS_URL', 'CITY_BUS_TOKEN', 'CITY_DIR'):
         env.pop(key, None)
+    # First, because Windows is exactly the machine with no window server:
+    # behind the gate below, the one platform this is about would never run it.
+    para_la_otra_maquina(base, city, repo, env)
+    if not shutil.which('tmux'):
+        if os.environ.get('CITY_MUX_REQUIRED') == '1':
+            afirma('· the window server is installed', False, 'tmux is missing here')
+        else:
+            print('    (no window server here — the live section is skipped)')
+        shutil.rmtree(base, ignore_errors=True)
+        return resumen('launch')
+
     session = 'agents-city-test-launch-' + uuid.uuid4().hex[:10]
     capture = os.path.join(base, 'capture.json')
     fake = os.path.join(base, 'fake-agent.py')
@@ -159,6 +233,7 @@ def main():
                and 'agents-city-diagnostic/1' in logs.stdout
                and 'agents-city-activity/1' in logs.stdout,
                logs.stderr or logs.stdout)
+        import pty  # noqa: PLC0415 - POSIX only, and this section is the tty
 
         # A terminal answers questions. The shell profile asks for its
         # attributes, the multiplexer negotiates, and the reply comes back as

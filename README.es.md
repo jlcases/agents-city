@@ -165,10 +165,9 @@ agents-city --version
 | Node.js 22.13 o posterior | paquete npm, bus WebSocket, recepción local y frontends |
 | npm | instalación y empaquetado |
 | Python 3 | Hall, onboarding, ciudades, mapas y utilidades |
-| bash | sesiones y launchers |
-| tmux | una ventana por asiento/repo; `seat` intenta instalarlo si falta |
-| macOS o Linux | plataformas nativas soportadas |
-| WSL | necesario en Windows porque Windows no incluye bash/tmux nativos |
+| un servidor de ventanas | una ventana por asiento/agente: **tmux** en macOS y Linux, **herdr** en Windows; `seat` intenta instalarlo si falta |
+| macOS, Linux o Windows | los tres de forma nativa. Cuatro comandos siguen necesitando shell — `city`, `demo`, `benchmark`, `test` — y lo dicen por su nombre en Windows |
+| bash | sólo para esos cuatro |
 
 Cada motor necesita además su propio CLI instalado y autenticado. Agents City no
 incluye ni suplanta las cuentas de Claude, Codex, OpenCode o Kimi.
@@ -340,15 +339,18 @@ agents-city shortcut --remove     # quitarlo otra vez
 agents-city shortcut --to ~/bin   # en otro sitio que no sea el escritorio
 ```
 
-**En Windows** la ciudad vive dentro de WSL, y un `~/Desktop` de WSL es el
-escritorio del home de Linux: uno que nadie mira nunca. Por eso el acceso directo
-se escribe en el escritorio **de Windows**, preguntándoselo a Windows en vez de
-adivinarlo a partir del nombre de usuario (un escritorio redirigido a OneDrive o
-a un perfil de dominio no está bajo `C:\Users\<nombre>\Desktop`). Es un `.lnk` de
-verdad, construido con la propia PowerShell de Windows para que pueda llevar un
-`.ico`, y arranca `wsl.exe` ejecutando el mismo comando en una shell de login. Si
-no hay interoperabilidad, se escribe un `.cmd` que también se abre con doble
-clic: la misma puerta, con icono genérico.
+**En Windows** es un `.lnk` de verdad, construido con la propia PowerShell de
+Windows para que pueda llevar un `.ico`, y ejecuta el mismo comando de la puerta
+principal que cualquier otro escritorio. El escritorio se le pregunta a Windows
+en vez de adivinarlo a partir del nombre de usuario: uno redirigido a OneDrive o
+a un perfil de dominio no está bajo `C:\Users\<nombre>\Desktop`. Si no hay
+PowerShell se escribe un `.cmd` que también se abre con doble clic: la misma
+puerta, con icono genérico.
+
+**Dentro de WSL** el acceso directo sigue cruzando de vuelta: un `~/Desktop` de
+ahí es el escritorio del home de Linux, que nadie mira, así que el escritorio de
+Windows recibe un `.lnk` que arranca `wsl.exe` con el mismo comando en una shell
+de login.
 
 ### Qué se crea
 

@@ -106,7 +106,7 @@ def main():
 
     def q(s):
         return "'" + str(s).replace("'", "''") + "'"
-    with open(salida, 'w') as f:
+    with open(salida, 'w', encoding='utf-8') as f:
         f.write('DELETE FROM hito;\n')
         for parcela, dia, n in filas:
             f.write('INSERT INTO hito (parcela_id,dia,n) VALUES ('

@@ -128,17 +128,25 @@ def un_agente_conocimiento_no_necesita_git():
 
 
 def el_asiento_no_esta_enjaulado_en_la_sesion():
-    # The launcher must never wrap the seat window in the cage. Assert the
-    # session script only ever computes a cage prefix for repo windows.
-    ruta = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
-    texto = open(ruta, encoding="utf-8").read()
-    afirma("the session script computes a cage only via jaula_de", "jaula_de" in texto)
-    seat_seccion = texto.split("One window per repo", 1)
-    afirma("the launcher has a distinct per-repo section where the cage applies",
-           len(seat_seccion) == 2 and "$JAULA" in seat_seccion[1])
-    cabeza = seat_seccion[0]
+    """The chair is deliberately NOT caged: it is the permissioned side.
+
+    Asked of the two functions rather than of a comment somebody could move.
+    The one that opens the chair must not so much as compute a cage; the one
+    that opens the houses must apply it to every branch that launches.
+    """
+    import inspect  # noqa: PLC0415
+
+    sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
+    import sesion  # noqa: PLC0415
+
+    silla = inspect.getsource(sesion.abre_la_silla)
+    casas = inspect.getsource(sesion.abre_las_casas)
     afirma("the seat launch lines carry no cage prefix",
-           "$JAULA" not in cabeza)
+           "jaula" not in silla, "the chair must not be caged")
+    afirma("the launcher computes a cage only for the houses",
+           "jaula_de(" in casas and "jaula_de(" not in silla)
+    afirma("and every house branch that launches applies it",
+           casas.count("jaula") >= 4, casas.count("jaula"))
 
 
 la_jaula_sella_los_secretos()

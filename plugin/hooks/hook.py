@@ -40,6 +40,16 @@ if GUIONES not in sys.path:
     sys.path.insert(0, GUIONES)
 os.environ['CLAUDE_PLUGIN_ROOT'] = RAIZ
 
+# Claude Code spawns this, so the environment is not ours to set beforehand —
+# and the note a chair receives is prose, with `·` and `’` in it. On a console
+# still on a legacy code page, printing it would raise, and a hook that raises
+# while answering is a hook that answers nothing.
+for _flujo in (sys.stdout, sys.stderr):
+    try:
+        _flujo.reconfigure(encoding='utf-8')
+    except (AttributeError, OSError, ValueError):
+        pass
+
 #: How long the two reporters wait between runs. Growth is a number per day and
 #: tokens a number per hour; both run at the end of EVERY turn, so the throttle
 #: is what stops them being a tax on thinking.

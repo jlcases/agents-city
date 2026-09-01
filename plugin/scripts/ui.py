@@ -6,12 +6,23 @@ command — each widget falls back to plain prompts or to its default. A wizard
 that only works in a nice terminal is a wizard that breaks in half the places
 people actually run things.
 """
-import curses
 import os
 import sys
 import textwrap
 
-TTY = sys.stdin.isatty() and sys.stdout.isatty()
+# Windows has no `curses` in the standard library, and this module is imported
+# by the seat and the setup wizard — so a missing OPTIONAL nicety was making
+# every door that merely mentions a widget fail to import at all.
+#
+# Everything here already degrades to plain prompts without a TTY. A machine
+# without the library is the same case: no full-screen widget, the same
+# question asked the same way.
+try:
+    import curses
+except ImportError:
+    curses = None
+
+TTY = sys.stdin.isatty() and sys.stdout.isatty() and curses is not None
 
 # Scripted answers, for tests and for CI. A wizard that can only be exercised by
 # hand is a wizard whose logic nobody checks, and the logic is where the bugs are:
@@ -19,7 +30,7 @@ TTY = sys.stdin.isatty() and sys.stdout.isatty()
 _GUION = None
 if os.environ.get('AGENTS_CITY_ANSWERS'):
     import json as _json
-    with open(os.environ['AGENTS_CITY_ANSWERS']) as _f:
+    with open(os.environ['AGENTS_CITY_ANSWERS'], encoding='utf-8') as _f:
         _GUION = _json.load(_f)
     TTY = False
 

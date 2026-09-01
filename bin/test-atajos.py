@@ -14,6 +14,7 @@ import contextlib
 import os
 import shutil
 import struct
+import json
 import subprocess
 import sys
 import tempfile
@@ -105,16 +106,29 @@ def el_atajo():
                    str(sorted(os.listdir(os.path.join(ruta, "Contents", "Resources")))))
             afirma("· double-clicking it opens a terminal, where a tmux city can live",
                    "osascript" in guion and "Terminal" in guion, guion)
+        elif sys.platform == "win32":
+            # A `.lnk` is a COM object — bytes, not text — and it points at the
+            # `.cmd` beside it, which is where the command a person runs lives.
+            afirma("· Windows gets something it can double-click",
+                   ruta.endswith((".lnk", ".cmd")), ruta)
+            guion = open(os.path.join(os.path.dirname(ruta), "Aurora Games.cmd"),
+                         encoding="utf-8").read()
+            afirma("· carrying the city's name where a person reads it",
+                   "Aurora Games" in os.path.basename(ruta), ruta)
         else:
-            guion = open(ruta).read()
+            guion = open(ruta, encoding='utf-8').read()
             afirma("· carrying the city's name where a person reads it",
                    "Name=Aurora Games" in guion, guion)
             afirma("· it is a desktop entry with a name and an icon",
                    "Name=Aurora Games" in guion and "Icon=" in guion, guion)
             afirma("· that opens in a terminal, where a tmux city can live",
                    "Terminal=true" in guion, guion)
+        # Quoted for the shell that will read it: `cmd.exe` does not strip
+        # single quotes, so the POSIX spelling reaches the front door there as
+        # two arguments and the city is never found.
+        comillas = '"' if sys.platform == "win32" else "'"
         afirma("· running exactly the command a person would type",
-               "agents-city seat --city 'Aurora Games'" in guion, guion)
+               f"agents-city seat --city {comillas}Aurora Games{comillas}" in guion, guion)
 
         # The hall variant, for somebody who wants the map and not the tmux.
         atajos.quita(datos)
@@ -122,7 +136,7 @@ def el_atajo():
         guion_hall = (
             open(os.path.join(ruta_hall, "Contents", "MacOS", "abrir-ciudad")).read()
             if sys.platform == "darwin"
-            else open(ruta_hall).read()
+            else open(ruta_hall, encoding='utf-8').read()
         )
         afirma("· --hall makes the same door open the browser instead",
                "agents-city hall --city" in guion_hall, guion_hall)
@@ -228,13 +242,14 @@ def caminos_infelices():
         comprueba(
             "· a quote in a city name is quoted for the shell, never passed raw",
             atajos.orden_de_ciudad(raro),
-            "agents-city seat --city 'Ana'\\''s City'",
+            'agents-city seat --city "Ana\'s City"' if sys.platform == "win32"
+            else "agents-city seat --city 'Ana'\\''s City'",
         )
         ruta, mal = atajos.crea(raro, carpeta=elegido)
         guion = (
             open(os.path.join(ruta, "Contents", "MacOS", "abrir-ciudad")).read()
             if sys.platform == "darwin"
-            else open(ruta).read()
+            else open(ruta, encoding='utf-8').read()
         )
         afirma(
             "· and the written door never carries the unquoted form",
@@ -290,6 +305,41 @@ def cada_escritorio():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def windows_de_verdad():
+    """And on Windows itself, where there is no distro to cross into.
+
+    Exercised by making this machine answer as that one, because the branch
+    exists for a platform this suite may not be running on — and a branch nobody
+    runs is a branch that is wrong. On the Windows runner it is not faked at all:
+    the same function writes a real shortcut on a real desktop.
+    """
+    print("  Windows, on Windows")
+    base = tempfile.mkdtemp(prefix="agents-city-win-")
+    try:
+        datos = _ciudad(base, nombre="Aurora Games", ident="city_win_v1")
+        mesa = os.path.join(base, "Desktop")
+        os.makedirs(mesa)
+        orden = atajos.orden_de_ciudad(datos)
+        salida = atajos._crea_windows(datos, mesa, "Aurora Games", orden, "city_win_v1")
+        afirma("· a Windows desktop gets something it can double-click",
+               salida.endswith((".lnk", ".cmd")) and os.path.isfile(salida), salida)
+        # The .cmd is written either way — the .lnk points AT it — so its
+        # contents are the contract whichever one this machine could build.
+        guion = os.path.join(mesa, "Aurora Games.cmd")
+        crudo = open(guion, "rb").read()
+        afirma("· running the same front-door command as every other desktop",
+               orden.encode() in crudo, repr(crudo[:200]))
+        afirma("· non-happy: and its lines end the way that shell needs them to",
+               b"\r\n" in crudo and b"\n\n" not in crudo, repr(crudo[:200]))
+        # A city with an apostrophe in its name is the shape that breaks a
+        # PowerShell single-quoted string, and the shortcut is built by
+        # PowerShell.
+        comprueba("· a name with a quote in it cannot end the string early",
+                  atajos._ps("Jose's City"), "'Jose''s City'")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 def windows_bajo_wsl():
     """On Windows the product runs inside WSL, and that changes everything here.
 
@@ -328,8 +378,11 @@ def windows_bajo_wsl():
         guion = open(ruta, encoding="utf-8").read()
         afirma("· without interop it still writes a double-clickable .cmd",
                ruta.endswith(".cmd") and os.path.isfile(ruta), ruta)
+        # The WSL door crosses into Linux, so what it carries is quoted the way
+        # the shell on the far side reads it — whichever machine wrote it.
         afirma("· that crosses back into WSL to open the city",
-               "wsl.exe" in guion and "agents-city seat --city 'Aurora Games'" in guion, guion)
+               "wsl.exe" in guion and "Aurora Games" in guion
+               and "agents-city seat --city" in guion, guion)
         afirma("· in a login shell, so the PATH holds the command it runs",
                "bash -lic" in guion, guion)
         afirma("· with CRLF line endings, which is what cmd.exe reads",
@@ -353,9 +406,19 @@ def la_puerta():
     )
     afirma("· `agents-city shortcut --help` explains itself",
            "shortcut" in ayuda.stdout and "--remove" in ayuda.stdout, ayuda.stdout)
-    front = open(os.path.join(RAIZ, "bin", "agents-city.js"), encoding="utf-8").read()
-    afirma("· and the npm front door lists it", "shortcut:" in front)
-    afirma("· pointing at the one implementation", "bin/shortcut" in front)
+    # Asked of the map the front door exports, not of the text of the file:
+    # the door used to name a bash shim, and now it names the module — which is
+    # the whole reason `agents-city shortcut` works on a machine with no shell.
+    mapa = json.loads(subprocess.run(
+        ["node", "-e",
+         "const {ORDENES} = require(process.argv[1]);"
+         "console.log(JSON.stringify(ORDENES))",
+         os.path.join(RAIZ, "bin", "agents-city.js")],
+        capture_output=True, text=True).stdout or "{}")
+    afirma("· and the npm front door lists it", "shortcut" in mapa, str(sorted(mapa))[:200])
+    afirma("· pointing at the one implementation",
+           mapa.get("shortcut", {}).get("py") == "plugin/scripts/atajos.py",
+           str(mapa.get("shortcut")))
     guion = open(os.path.join(RAIZ, "bin", "shortcut"), encoding="utf-8").read()
     afirma("· which holds no logic of its own", "atajos.py" in guion and "def " not in guion)
 
@@ -364,6 +427,7 @@ el_icono()
 el_atajo()
 caminos_infelices()
 cada_escritorio()
+windows_de_verdad()
 windows_bajo_wsl()
 la_puerta()
 sys.exit(resumen("atajos"))

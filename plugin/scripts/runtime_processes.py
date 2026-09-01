@@ -8,6 +8,21 @@ import subprocess
 
 import cities
 
+#: How a child is cut loose from the terminal that started it.
+#:
+#: `start_new_session` is POSIX-only, and Windows does not reject it — it
+#: IGNORES it. So every detached thing this product starts (the hall, the bus
+#: hub, the gateways, the adapters, the broker) shared its parent's console
+#: there, and the hall's own promise — "it keeps running when you close this
+#: window" — was false on that machine, silently, which is the worst way for a
+#: promise to be false.
+DESPEGADO = (
+    {'start_new_session': True} if os.name != 'nt' else
+    {'creationflags': (getattr(subprocess, 'DETACHED_PROCESS', 0)
+                       | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))}
+)
+
+
 
 def raiz_estado():
     """Where this machine keeps what outlives one process.

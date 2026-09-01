@@ -3707,8 +3707,8 @@ var require_websocket_server = __commonJS({
 });
 
 // adapter.ts
-import { mkdirSync as mkdirSync4, readFileSync as readFileSync3, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
-import { join as join4 } from "path";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync4, unlinkSync as unlinkSync2, writeFileSync as writeFileSync2 } from "fs";
+import { join as join5 } from "path";
 
 // adapter-prompts.ts
 var HEADER = `[Agents City authenticated local bus]`;
@@ -4129,8 +4129,59 @@ async function healthy(endpoint) {
 }
 var wait = (milliseconds) => new Promise((resolve2) => setTimeout(resolve2, milliseconds));
 
-// terminal-delivery.ts
+// multiplexor.ts
 import { spawnSync } from "child_process";
+import { readFileSync as readFileSync3 } from "fs";
+import { dirname as dirname2, join as join4 } from "path";
+import { fileURLToPath as fileURLToPath2 } from "url";
+var AQUI = dirname2(fileURLToPath2(import.meta.url));
+var TABLA = join4(AQUI, "runtime", "multiplexores.json");
+var cache = null;
+function tabla() {
+  if (!cache) {
+    try {
+      cache = JSON.parse(readFileSync3(TABLA, "utf8"));
+    } catch {
+      cache = { default: "tmux", backends: {} };
+    }
+  }
+  return cache;
+}
+function which() {
+  const t = tabla();
+  const forced = process.env.AGENTS_CITY_MUX || "";
+  if (forced && t.backends[forced]) return forced;
+  return t.default || "tmux";
+}
+function backend() {
+  return tabla().backends[which()] || null;
+}
+function argv(verb, fields = {}) {
+  const b = backend();
+  const template = b?.verbs[verb];
+  if (!b || !template) return null;
+  const values = { exact: fields.exacto ? b.exact ?? "" : "" };
+  for (const [key, value] of Object.entries(fields)) {
+    if (key !== "exacto") values[key] = value === null ? "" : String(value);
+  }
+  const out = [b.bin];
+  for (const piece of template) {
+    let filled = piece;
+    for (const [key, value] of Object.entries(values))
+      filled = filled.split(`<${key}>`).join(value);
+    out.push(filled);
+  }
+  return out;
+}
+function run(verb, fields = {}, input) {
+  const line = argv(verb, fields);
+  if (!line) return { ok: false, stdout: "" };
+  const [bin, ...rest] = line;
+  const r = spawnSync(bin, rest, { input, encoding: "utf8" });
+  return { ok: r.status === 0, stdout: typeof r.stdout === "string" ? r.stdout : "" };
+}
+
+// terminal-delivery.ts
 var TRUST_OR_PERMISSION = [
   /do you trust/i,
   /trust this folder/i,
@@ -4157,27 +4208,12 @@ function terminalDelivery(target, runtime = "unknown") {
     }
     const readyAt = (/* @__PURE__ */ new Date()).toISOString();
     const buffer = `agents-city-${process.pid}-${now}`;
-    const load = spawnSync("tmux", ["load-buffer", "-b", buffer, "-"], {
-      input: body,
-      encoding: "utf8"
-    });
-    if (load.status !== 0) return null;
-    const pasted = spawnSync("tmux", [
-      "paste-buffer",
-      "-d",
-      "-p",
-      "-r",
-      "-b",
-      buffer,
-      "-t",
-      target
-    ]);
-    if (pasted.status !== 0) return null;
+    if (!run("load-buffer", { buffer }, body).ok) return null;
+    if (!run("paste-buffer", { buffer, target }).ok) return null;
     const pastedAtMs = Date.now();
     const pastedAt = new Date(pastedAtMs).toISOString();
     await wait2(submitDelayMs);
-    const sent = spawnSync("tmux", ["send-keys", "-t", target, "Enter"]);
-    if (sent.status !== 0) return null;
+    if (!run("send-enter", { target }).ok) return null;
     warmed = true;
     const submittedAtMs = Date.now();
     return {
@@ -4191,18 +4227,12 @@ function terminalDelivery(target, runtime = "unknown") {
   return { runtime: runtimeName(runtime), submit };
 }
 function inspectPane(target) {
-  const pane = spawnSync(
-    "tmux",
-    ["display-message", "-p", "-t", target, "#{pane_dead}	#{pane_current_command}"],
-    { encoding: "utf8" }
-  );
-  if (pane.status !== 0) return null;
+  const pane = run("pane-state", { target });
+  if (!pane.ok) return null;
   const [dead, command] = pane.stdout.trim().split("	");
   if (dead === "1") return null;
-  const capture = spawnSync("tmux", ["capture-pane", "-p", "-t", target, "-S", "-30"], {
-    encoding: "utf8"
-  });
-  return { command: command || "", screen: capture.status === 0 ? capture.stdout : "" };
+  const capture = run("capture", { target, lines: 30 });
+  return { command: command || "", screen: capture.ok ? capture.stdout : "" };
 }
 function blockedScreen(screen) {
   return TRUST_OR_PERMISSION.some((pattern) => pattern.test(screen));
@@ -4228,7 +4258,7 @@ var wait2 = (milliseconds) => new Promise((resolve2) => setTimeout(resolve2, mil
 var options = parse(process.argv.slice(2));
 if (!options.actor || !options.target) throw new Error("adapter needs --actor and --target");
 var context = loadCityContext(options.data || process.env.AGENTS_CITY_DATA);
-var pidPath = join4(context.runtimeDir, "adapters", `${safeSegment(options.actor)}.pid`);
+var pidPath = join5(context.runtimeDir, "adapters", `${safeSegment(options.actor)}.pid`);
 claimPid(pidPath);
 var stopped = false;
 var socket = null;
@@ -4297,9 +4327,9 @@ async function deliver(envelope, receivedAt) {
   throw new Error(`could not deliver ${envelope.id} to tmux target ${options.target}`);
 }
 function claimPid(path) {
-  mkdirSync4(join4(context.runtimeDir, "adapters"), { recursive: true, mode: 448 });
+  mkdirSync4(join5(context.runtimeDir, "adapters"), { recursive: true, mode: 448 });
   try {
-    const old = Number(readFileSync3(path, "utf8").trim());
+    const old = Number(readFileSync4(path, "utf8").trim());
     if (old > 0) {
       process.kill(old, 0);
       throw new Error(`adapter for ${options.actor} is already running as pid ${old}`);

@@ -65,7 +65,7 @@ def main():
         [sys.executable, '-c',
          f'f = open({os.path.join(estadoA, "db")!r}, "w"); import time; time.sleep(300)'])
     fake_hub = os.path.join(casa, 'local-hub.js')
-    open(fake_hub, 'w').write('setInterval(() => {}, 1000);\n')
+    open(fake_hub, 'w', encoding='utf-8').write('setInterval(() => {}, 1000);\n')
     orphan_a = subprocess.Popen(['node', fake_hub, '--data', ciudades['zzacme']])
     orphan_b = subprocess.Popen(['node', fake_hub, '--data', ciudades['zzbeta']])
     time.sleep(0.8)

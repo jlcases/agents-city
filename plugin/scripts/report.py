@@ -35,7 +35,7 @@ import parcels  # the one reader of parcels.yml, shared with the seeder
 
 def lee(fichero, clave, defecto=''):
     try:
-        t = open(fichero).read()
+        t = open(fichero, encoding='utf-8').read()
     except FileNotFoundError:
         return defecto
     m = re.search(rf'^{clave}:\s*(.+)$', t, re.M)

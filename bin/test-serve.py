@@ -1702,7 +1702,7 @@ def main():
         # A fake binary makes the light deterministic on any machine, CI included.
         cajon = tempfile.mkdtemp()
         falso = os.path.join(cajon, "kimi")
-        with open(falso, "w") as f:
+        with open(falso, "w", encoding='utf-8') as f:
             f.write('#!/bin/sh\necho "kimi 9.9.9"\n')
         os.chmod(falso, 0o755)
         ruta_previa = os.environ["PATH"]
@@ -1743,12 +1743,18 @@ def main():
 
         # ── regressions pinned by review ─────────────────────────────────────
         print("  review regressions, pinned")
-        # tmux prefix-matches session names: bare `-t home` also matches
-        # `home-2`, lighting the green dot from a different city's windows.
+        # The window server prefix-matches session names: a bare `-t home` also
+        # matches `home-2`, lighting the green dot from a different city's
+        # windows. Asked of the seam now — this file no longer knows how a
+        # session is addressed, and the two-real-sessions proof lives in the
+        # multiplexor suite. What is pinned here is that the hall ASKS for it.
         fuente = open(os.path.join(AQUI, "serve.py"), encoding="utf-8").read()
         afirma(
-            "· ventanas_vivas asks tmux for an exact session match",
-            '"=" + cities.sesion(owner, datos)' in fuente,
+            "· ventanas_vivas asks the window server for an exact session match",
+            "multiplexor.ventanas(cities.sesion(owner, datos))" in fuente
+            and "exacto=True" in open(
+                os.path.join(RAIZ, "plugin", "scripts", "multiplexor.py"), encoding="utf-8"
+            ).read(),
         )
         # An 80-char slug is a legal window name; a 64-char cap on the resolver
         # made every sheet action 404 while the sheet itself rendered fine.

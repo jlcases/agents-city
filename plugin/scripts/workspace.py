@@ -26,6 +26,7 @@ writable, following the symlink to its destination like the kernel does.
 
 import hashlib
 import os
+import subprocess
 import sys
 
 import card
@@ -177,11 +178,18 @@ def monta(data, slug, origen, nombre=None):
     destino = rutas.canonicaliza(origen)
     if not os.path.exists(destino):
         raise ValueError(f'nothing to mount at {destino}')
-    # The mount pipeline (sync-all output, the cage --mounts list) is
-    # colon-separated, so a colon in the real path would split into bogus
-    # roots. Refuse it rather than hand the cage a wrong ancestor.
-    if ':' in destino:
-        raise ValueError(f'mount path contains a colon, which is not supported: {destino}')
+    # The mount pipeline (sync-all output, the cage --mounts list) joins paths
+    # with the platform's own path separator, so a path CONTAINING it would
+    # split into bogus roots. Refuse it rather than hand the cage a wrong
+    # ancestor.
+    #
+    # It was a hardcoded colon, which is the separator on POSIX and part of
+    # every absolute path on Windows — so `C:\Users\...` was refused and no
+    # agent on Windows could mount anything at all. `os.pathsep` is `;` there,
+    # which is exactly the distinction being made.
+    if os.pathsep in destino:
+        raise ValueError(
+            f'mount path contains {os.pathsep!r}, which separates them: {destino}')
     ws = crea_workspace(data, slug)
     carpeta = os.path.join(ws, MOUNTS_DIR)
     if nombre:
@@ -192,19 +200,87 @@ def monta(data, slug, origen, nombre=None):
     enlace = os.path.join(carpeta, etiqueta)
     tmp = f'{enlace}.tmp-link'
     if os.path.islink(tmp) or os.path.exists(tmp):
-        os.unlink(tmp)
-    os.symlink(destino, tmp)
-    os.replace(tmp, enlace)   # atomic repoint
+        _quita_enlace(tmp)
+    _enlaza(destino, tmp)
+    _repunta(tmp, enlace)
     return enlace
 
 
+def _enlaza(destino, enlace):
+    """Point `enlace` at `destino`, by whatever means this machine allows.
+
+    A symlink needs Administrator or Developer Mode on Windows, and a mount that
+    an owner cannot create is an agent with no ground: the first Windows run
+    refused every single one with `[WinError 5] Access is denied`. A directory
+    JUNCTION needs no privilege and behaves the same for everything this product
+    does with a mount, so that is what a folder gets there.
+    """
+    if sys.platform != 'win32':
+        os.symlink(destino, enlace)
+        return
+    if os.path.isdir(destino):
+        r = subprocess.run(['cmd', '/c', 'mklink', '/J', enlace, destino],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+    # A file, or a junction the filesystem refused: try the privileged form and
+    # let its error be the one the owner sees.
+    os.symlink(destino, enlace, target_is_directory=os.path.isdir(destino))
+
+
+def _quita_enlace(ruta):
+    """A junction is a directory to Windows, and `unlink` refuses a directory."""
+    if os.path.isdir(ruta) and not os.path.islink(ruta):
+        os.rmdir(ruta)
+    else:
+        os.unlink(ruta)
+
+
+def _repunta(tmp, enlace):
+    """Atomic where the filesystem allows it, and correct where it does not.
+
+    `os.replace` onto an existing directory raises on Windows, and a junction IS
+    a directory there — so the repoint is remove-then-rename, which is the same
+    thing with a smaller window.
+    """
+    try:
+        os.replace(tmp, enlace)
+    except OSError:
+        if os.path.lexists(enlace):
+            _quita_enlace(enlace)
+        os.replace(tmp, enlace)
+
+
 def desmonta(data, slug, etiqueta):
-    """Remove one mount symlink. Returns True if one was removed."""
+    """Remove one mount. Returns True if one was removed.
+
+    `islink` is False for a Windows junction, so asking that alone would have
+    made every mount on that machine impossible to remove.
+    """
     enlace = os.path.join(workspace_de(data, slug), MOUNTS_DIR, _slug(etiqueta))
-    if os.path.islink(enlace):
-        os.unlink(enlace)
+    if es_montaje(enlace):
+        _quita_enlace(enlace)
         return True
     return False
+
+
+def es_montaje(ruta):
+    """Is this entry a mount — a symlink, or the junction Windows gives instead?
+
+    `islink` answers False for a junction, so asking it alone made every mount
+    on Windows invisible: they were created, and then nothing could see them,
+    remove them, or hand them to the cage.
+    """
+    if os.path.islink(ruta):
+        return True
+    if sys.platform != 'win32' or not os.path.isdir(ruta):
+        return False
+    # A junction is a reparse point that is not a symlink, and Windows reports
+    # the tag on `lstat`. Nothing else in a mounts folder carries one.
+    try:
+        return bool(getattr(os.lstat(ruta), 'st_reparse_tag', 0))
+    except OSError:
+        return False
 
 
 def mounts_en_disco(data, slug):
@@ -217,7 +293,7 @@ def mounts_en_disco(data, slug):
     salida = []
     for e in etiquetas:
         enlace = os.path.join(carpeta, e)
-        if os.path.islink(enlace):
+        if es_montaje(enlace):
             salida.append((e, rutas.canonicaliza(enlace)))
     return salida
 
@@ -510,7 +586,7 @@ def _cmd_sync(args):
     objetivo = _slug(args.agent)
     for a in agentes(_lee_ficha(args.card), args.data):
         if a.slug == objetivo:
-            print(':'.join(sincroniza(a, args.data)))
+            print(os.pathsep.join(sincroniza(a, args.data)))
             return 0
     return 0  # unknown agent: no targets, not an error
 
@@ -526,7 +602,7 @@ def _cmd_sync_all(args):
         print('--card is required', file=sys.stderr)
         return 2
     for a in agentes(_lee_ficha(args.card), args.data):
-        targets = ':'.join(sincroniza(a, args.data))
+        targets = os.pathsep.join(sincroniza(a, args.data))
         print('\t'.join([a.slug, a.workspace, targets]))
     return 0
 
@@ -554,7 +630,7 @@ def _cmd_mounts(args):
 def _cmd_targets(args):
     agente = Agente(args.agent, _slug(args.agent), '', 'claude', CLASE_DEFECTO,
                     workspace_de(args.data, _slug(args.agent)), [], legacy=False)
-    print(':'.join(mount_targets(agente, args.data)))
+    print(os.pathsep.join(mount_targets(agente, args.data)))
     return 0
 
 

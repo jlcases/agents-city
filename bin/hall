@@ -96,7 +96,7 @@ def despega(datos, abrir):
 
     subprocess.Popen(
         [sys.executable, os.path.join(AQUI, 'serve.py'), datos],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **runtime_processes.DESPEGADO,
     )
     limite = time.monotonic() + 25
     while time.monotonic() < limite:

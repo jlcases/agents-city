@@ -259,7 +259,7 @@ def oficio(rol, datos=""):
     for base in bases:
         f = os.path.join(base, f"{rol}.md")
         if os.path.exists(f):
-            m = re.search(r"^trade:\s*(.+)$", open(f).read(), re.M)
+            m = re.search(r"^trade:\s*(.+)$", open(f, encoding='utf-8').read(), re.M)
             if m:
                 return m.group(1).strip()
     # No role file: say what the role is called rather than inventing a trade.

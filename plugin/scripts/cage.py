@@ -478,7 +478,7 @@ def main():
     if not args.repo:
         print('--repo is required', file=sys.stderr)
         return 2
-    extra = tuple(m for m in args.mounts.split(':') if m)
+    extra = tuple(m for m in args.mounts.split(os.pathsep) if m)
     try:
         if args.orden == 'profile':
             sys.stdout.write(perfil(args.repo, casa=args.home, fichero_token=args.token_file,

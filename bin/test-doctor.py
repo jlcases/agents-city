@@ -61,22 +61,22 @@ def fichero():
     base = tempfile.mkdtemp(prefix="agents-city-doctor-")
     try:
         ruta = os.path.join(base, "openclaw.json")
-        with open(ruta, "w") as f:
+        with open(ruta, "w", encoding='utf-8') as f:
             json.dump({"busUrl": "https://x", "gateway": {}}, f)
         seco = doctor.cura_fichero(ruta, "T1", dry_run=True)
         afirma("a dry-run reports migrations", seco["migrations"])
         afirma("a dry-run writes nothing", not seco["wrote"] and seco["backup"] is None)
-        antes = open(ruta).read()
+        antes = open(ruta, encoding='utf-8').read()
         afirma("the file is untouched after dry-run", json.loads(antes).get("busUrl") == "https://x")
 
         rep = doctor.cura_fichero(ruta, "T1", dry_run=False)
         afirma("a real fix wrote the file", rep["wrote"])
         afirma("a backup was left", os.path.exists(rep["backup"]))
-        despues = json.load(open(ruta))
+        despues = json.load(open(ruta, encoding='utf-8'))
         afirma("the rewritten file is canonical",
                "roadsUrl" in despues and despues["gateway"]["bind"] == "loopback")
         afirma("the backup preserved the original shape",
-               json.load(open(rep["backup"])).get("busUrl") == "https://x")
+               json.load(open(rep["backup"], encoding='utf-8')).get("busUrl") == "https://x")
 
         rep2 = doctor.cura_fichero(ruta, "T2", dry_run=False)
         afirma("a canonical file needs no second rewrite", not rep2["wrote"])
@@ -88,7 +88,7 @@ def preserva_permisos():
     base = tempfile.mkdtemp(prefix="agents-city-doctor-")
     try:
         ruta = os.path.join(base, "openclaw.json")
-        with open(ruta, "w") as f:
+        with open(ruta, "w", encoding='utf-8') as f:
             json.dump({"busUrl": "https://x", "gateway": {}}, f)
         os.chmod(ruta, 0o600)
         doctor.cura_fichero(ruta, "T1", dry_run=False)

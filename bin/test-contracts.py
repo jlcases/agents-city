@@ -213,6 +213,33 @@ def rutas_reales():
                os.path.isfile(os.path.join(RAIZ, 'plugin', 'hooks', m))
                or os.path.isfile(os.path.join(RAIZ, 'plugin', 'scripts', m)), '')
 
+    # One command string for two shells. `||` means "only if the first failed"
+    # in both `sh` and `cmd.exe`, and a Windows install from python.org gives
+    # `python`, not `python3` — so the same line runs the hook on either.
+    #
+    # It is only safe because hook.py exits 0 on EVERY path, including an
+    # unhandled exception: if that ever stopped being true, a hook that answered
+    # and then failed would answer twice. So the invariant is checked here,
+    # against the dispatcher, rather than trusted.
+    gancho = importa_gancho()
+    for evento, grupos in hooks['hooks'].items():
+        for grupo in grupos:
+            for h in grupo['hooks']:
+                orden = h['command']
+                afirma(f'· {evento}: the command runs where python3 is not a name',
+                       ' || python ' in orden and orden.count('hook.py') == 2, orden)
+                izquierda, derecha = orden.split(' || ')
+                afirma(f'· {evento}: and both halves ask for exactly the same thing',
+                       izquierda.replace('python3 ', '') == derecha.replace('python ', ''),
+                       orden)
+    guion = os.path.join(RAIZ, 'plugin', 'hooks', 'hook.py')
+    for nombre in sorted(gancho.GANCHOS):
+        for entrada in ('{}', 'not json at all', ''):
+            r = subprocess.run([sys.executable, guion, nombre, 'SessionStart'],
+                               input=entrada, capture_output=True, text=True)
+            afirma(f'· {nombre} exits 0 on {entrada[:12]!r}, so `||` never fires twice',
+                   r.returncode == 0, f'{r.returncode} {r.stderr[-200:]!r}')
+
 
 # ══ the conscience stays inside the city ═════════════════════════════════════
 def conciencia_acotada():
@@ -283,6 +310,89 @@ def conciencia_acotada():
                        capture_output=True, text=True)
     afirma('· non-happy: a hook name this version does not know still answers {}',
            r.returncode == 0 and r.stdout.strip() == '{}', r.stdout)
+
+
+# ══ what still ties this product to POSIX ════════════════════════════════════
+def la_puerta_de_windows():
+    """A ratchet, not a wish.
+
+    Windows is most of the desktops there are, and this product used to refuse to
+    install on all of them. It does not any more, and what earned that is a
+    machine: the runner opens a city there — herdr server, a card, `sesion.py`,
+    and the chair's window found through the seam — alongside the card, the
+    workspaces, the hooks, the launcher and the shortcut.
+
+    Four commands still need a shell, and they say so by name when somebody runs
+    them: the map, the demo, the benchmarks and the test runner.
+
+    The inventory stays, because an inventory in a README rots. It may SHRINK
+    but never grow: a new shell script on the way into a city, or a new front
+    door that is not Python, fails this. The gap cannot be widened by accident,
+    only closed on purpose.
+    """
+    print('  where this runs, and what is left of POSIX')
+    paquete = json.load(open(os.path.join(RAIZ, 'package.json'), encoding='utf-8'))
+
+    # 1. The shell on the way into a city. Five wrappers, each doing one thing,
+    #    down from 1,323 lines across the hooks, the session and the runtime.
+    conchas = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
+    lineas = sum(len(open(c, encoding='utf-8').read().splitlines()) for c in conchas)
+    afirma(f'· the plugin ships {len(conchas)} shell files, {lineas} lines — and no more',
+           len(conchas) <= 5 and lineas <= 70,
+           f'{[os.path.relpath(c, RAIZ) for c in conchas]}')
+
+    # 2. The commands. Read from the dispatcher's own map: a command whose
+    #    implementation is Python or Node runs anywhere, and one that is still a
+    #    shell program is a port. Counted from the map rather than from the
+    #    folder, because the folder still holds the bash doors and they still
+    #    work — they are just no longer what the product runs.
+    ordenes = json.loads(subprocess.run(
+        ['node', '-e',
+         'const {ORDENES} = require(process.argv[1]);'
+         'console.log(JSON.stringify(ORDENES))',
+         os.path.join(RAIZ, 'bin', 'agents-city.js')],
+        capture_output=True, text=True).stdout or '{}')
+    conShell = sorted(n for n, o in ordenes.items() if o.get('sh'))
+    afirma(f'· {len(conShell)} of {len(ordenes)} commands are still shell programs',
+           len(conShell) <= 4, str(conShell))
+    afirma('· and the town hall is not one of them',
+           'hall' not in conShell, str(conShell))
+
+    # 3. Every file this product reads or writes is UTF-8, said out loud. A
+    #    bare `open()` takes the console's code page on Windows, which is how a
+    #    card with an em dash was written in cp1252 and read back as UTF-8 by
+    #    the next door along — the first thing a Windows runner found.
+    sinDecir = []
+    for carpeta in ('plugin/scripts', 'plugin/hooks', 'bin', 'city/scripts'):
+        for ruta in sorted(glob.glob(os.path.join(RAIZ, carpeta, '*.py'))):
+            if os.path.basename(ruta).startswith('test'):
+                continue
+            for n, linea in enumerate(open(ruta, encoding='utf-8'), 1):
+                if ('open(' not in linea or 'encoding' in linea or '#' == linea.strip()[:1]
+                        or any(x in linea for x in ("'rb'", '"rb"', "'wb'", '"wb"',
+                                                    'urlopen', 'Popen', '.open('))):
+                    continue
+                # A call that continues on the next line says it there.
+                if linea.rstrip().endswith((',', '(')):
+                    continue
+                sinDecir.append(f'{os.path.relpath(ruta, RAIZ)}:{n}')
+    afirma('· every file this product reads or writes says it is UTF-8',
+           not sinDecir, 'a bare open() takes the console code page: '
+                         + ', '.join(sinDecir[:8]))
+
+    # 4. The launcher every window runs. Written in the language of the machine
+    #    it will run on — and what it carries is a plan, not a shell sentence.
+    lanzador = open(os.path.join(RAIZ, 'plugin', 'scripts', 'launch.py'),
+                    encoding='utf-8').read()
+    afirma('· the launcher is written for the machine it will run on',
+           "'#!/usr/bin/env bash'" in lanzador and '@echo off' in lanzador, '')
+
+    # 5. And the promise on the tin matches all of that. Windows is claimed
+    #    because a machine says so, not because the code looks portable: the
+    #    runner opens a city there every time this is pushed.
+    afirma('· package.json says where this runs, and a runner agrees',
+           paquete.get('os') == ['darwin', 'linux', 'win32'],
+           str(paquete.get('os')))
 
 
 # ══ a page that loses its server says so ═════════════════════════════════════
@@ -430,8 +540,18 @@ def bash_que_no_es_la_de_macos():
     """
     print('  shell that runs on a bash newer than 2007')
     trampa = re.compile(r'\$\{#[A-Za-z_][A-Za-z0-9_]*\[[@*]\][-:+]')
+    # Every shell this repo ships, found rather than listed — including the
+    # extensionless front doors in bin/ and the commit gate, which a glob on
+    # `*.sh` never saw and which are the scripts a person runs by hand.
     ficheros = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
     ficheros += sorted(glob.glob(os.path.join(RAIZ, 'bus', 'scripts', '*.sh')))
+    for ruta in sorted(glob.glob(os.path.join(RAIZ, 'bin', '*'))) + [
+            os.path.join(RAIZ, '.githooks', 'pre-commit')]:
+        if not os.path.isfile(ruta):
+            continue
+        cabeza = open(ruta, 'rb').read(60)
+        if cabeza.startswith(b'#!') and (b'bash' in cabeza or b'/sh' in cabeza):
+            ficheros.append(ruta)
     culpables = []
     for ruta in ficheros:
         with open(ruta, encoding='utf-8') as f:
@@ -444,12 +564,13 @@ def bash_que_no_es_la_de_macos():
     afirma('· no shipped script uses a length expansion with a default',
            not culpables,
            '${#a[@]-0} is a macOS-only illusion: ' + ', '.join(culpables))
-    # And the idiom that IS portable stays in use, so this does not read as a
-    # rule against defaults in general.
-    lanzador = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
-                    encoding='utf-8').read()
-    afirma('· and empty arrays are still expanded the way bash 3.2 needs',
-           '[@]+"${' in lanzador, '')
+    # And the idiom that IS portable stays in use somewhere, so this does not
+    # read as a rule against defaults in general. It used to be pinned to the
+    # session script; that is Python now, and the shell that still has arrays is
+    # the commit gate.
+    portes = [r for r in ficheros if '${#' in open(r, encoding='utf-8').read()]
+    afirma('· and a length expansion is still used the way bash 3.2 needs',
+           bool(portes), 'no shipped script measures an array any more')
 
 
 def demo_coherente():
@@ -498,9 +619,9 @@ def varias_ciudades():
                          capture_output=True, text=True).stdout.strip()
     comprueba('· the tmux script (via the CLI) agrees with the module',
               cli, cities.sesion('jl', rankia))
-    afirma('· and city-session.sh actually delegates instead of copying the rule',
-           'cities.py" sesion' in open(os.path.join(
-               RAIZ, 'plugin', 'scripts', 'city-session.sh')).read())
+    afirma('· and the launcher actually delegates instead of copying the rule',
+           'cities.sesion(self.usuario, self.datos)' in open(os.path.join(
+               RAIZ, 'plugin', 'scripts', 'sesion.py')).read())
 
     comprueba('· a name resolves to its folder',
               cities.resuelve(rankia), os.path.realpath(rankia))
@@ -521,52 +642,52 @@ def motor_para_todos():
     dropdown whose value never reaches a process is a lie with a nice font.
     """
     print('  the engine reaches every runtime')
-    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
+    sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+    import sesion  # noqa: PLC0415
+
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'), encoding='utf-8').read()
     afirma('· a native runtime command goes through con_motor, not raw',
-           'con_motor "$win" "$KIND" "$OTRO"' in fuente, '')
-    afirma('· and so does the seat when it runs one',
-           'con_motor seat "$SEAT_RUNTIME" "$SEAT_OTRO"' in fuente, '')
+           "c.con_motor(win, cual, otro)" in fuente, '')
+    afirma('· and so does the chair when it runs one',
+           "c.con_motor('seat', cual, otro)" in fuente, '')
 
-    # The two functions, lifted out and exercised against a stub card reader.
+    # And the function itself, against a real card in a real city — no stub
+    # reader standing in for the one thing being tested.
     casa = tempfile.mkdtemp()
-    # A stand-in for read-card.py, in the language the launcher invokes it in.
-    lector = os.path.join(casa, 'leer.py')
-    # It answers the batched form too, because that is what the launcher asks:
-    # a stub that only knows the one-field call would test a door nobody uses.
-    open(lector, 'w', encoding='utf-8').write(
-        'import sys\n'
-        "CARD = {'model.dbt': 'gpt-5.6-sol', 'effort.dbt': 'max'}\n"
-        "campos = sys.argv[3:] if sys.argv[1:2] == ['--varios'] else sys.argv[-1:]\n"
-        "print('\\n'.join(CARD.get(c, '') for c in campos))\n"
-    )
-    trozo = fuente[fuente.index('motor_de() {'):fuente.index('runtime_de() {')]
-    guion = os.path.join(casa, 'motor.sh')
-    open(guion, 'w', encoding='utf-8').write(
-        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\n'
-        'printf "%s\\n" "$(con_motor "$1" "$2" "$3")"\n'
-    )
-
-    def con(ventana, motor, orden):
-        return subprocess.run(['bash', guion, ventana, motor, orden],
-                              capture_output=True, text=True).stdout.strip()
-
-    comprueba('· claude gets both flags',
-              con('dbt', 'claude', 'claude'), 'claude --model gpt-5.6-sol --effort max')
-    comprueba('· codex gets both too — its gateway reads them off the command',
-              con('dbt', 'codex', 'codex'), 'codex --model gpt-5.6-sol --effort max')
-    comprueba('· opencode gets the model and no effort it cannot read',
-              con('dbt', 'opencode', 'opencode'), 'opencode --model gpt-5.6-sol')
-    comprueba('· and neither does kimi',
-              con('dbt', 'kimi', 'kimi'), 'kimi --model gpt-5.6-sol')
-    comprueba('· a window with nothing on the card gets no flags at all',
-              con('otra', 'codex', 'codex'), 'codex')
-    # A command that already says it wins: somebody who wrote the flag meant it.
-    comprueba('· an explicit --model on the card is never doubled',
-              con('dbt', 'codex', 'codex --model o3'), 'codex --model o3 --effort max')
-    comprueba('· nor an explicit --effort',
-              con('dbt', 'codex', 'codex --effort low'),
-              'codex --effort low --model gpt-5.6-sol')
-    shutil.rmtree(casa, ignore_errors=True)
+    datos = os.path.join(casa, 'ciudad')
+    os.makedirs(datos)
+    open(os.path.join(datos, 'city.yml'), 'w').write(
+        'id: city_motor\nname: Home\nslug: home\nowner: ana\n')
+    open(os.path.join(datos, 'ana.md'), 'w').write(
+        '---\nuser: ana\nagent: ana/lead\n'
+        'model.dbt: gpt-5.6-sol\neffort.dbt: max\n---\n')
+    previo = dict(os.environ)
+    os.environ.update({'AGENTS_CITY_DATA': datos, 'AGENTS_CITY_USER': 'ana'})
+    for clave in ('CITY_MODEL', 'CITY_EFFORT', 'CITY_UI'):
+        os.environ.pop(clave, None)
+    try:
+        c = sesion.Ciudad(sesion.Opciones([]))
+        con = c.con_motor
+        comprueba('· claude gets both flags',
+                  con('dbt', 'claude', 'claude'), 'claude --model gpt-5.6-sol --effort max')
+        comprueba('· codex gets both too — its gateway reads them off the command',
+                  con('dbt', 'codex', 'codex'), 'codex --model gpt-5.6-sol --effort max')
+        comprueba('· opencode gets the model and no effort it cannot read',
+                  con('dbt', 'opencode', 'opencode'), 'opencode --model gpt-5.6-sol')
+        comprueba('· and neither does kimi',
+                  con('dbt', 'kimi', 'kimi'), 'kimi --model gpt-5.6-sol')
+        comprueba('· a window with nothing on the card gets no flags at all',
+                  con('otra', 'codex', 'codex'), 'codex')
+        # A command that already says it wins: somebody who wrote the flag meant it.
+        comprueba('· an explicit --model on the card is never doubled',
+                  con('dbt', 'codex', 'codex --model o3'), 'codex --model o3 --effort max')
+        comprueba('· nor an explicit --effort',
+                  con('dbt', 'codex', 'codex --effort low'),
+                  'codex --effort low --model gpt-5.6-sol')
+    finally:
+        os.environ.clear()
+        os.environ.update(previo)
+        shutil.rmtree(casa, ignore_errors=True)
 
 
 def asiento_con_su_arnes():
@@ -584,72 +705,75 @@ def asiento_con_su_arnes():
     is the failure this checks for.
     """
     print('  the chair keeps its own interface')
-    fuente = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'), encoding='utf-8').read()
-    cuerpo = fuente[fuente.index('lanza_asiento_claude() {'):fuente.index('# The seat runs Claude')]
-    afirma('· both shapes of the chair come out of one function',
-           fuente.count('lanza_asiento_claude "') == 2, '')
+    import inspect  # noqa: PLC0415
+
+    sys.path.insert(0, os.path.join(RAIZ, 'plugin', 'scripts'))
+    import sesion  # noqa: PLC0415
+
+    fuente = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'), encoding='utf-8').read()
+    silla = inspect.getsource(sesion.abre_la_silla)
+    casas = inspect.getsource(sesion.abre_las_casas)
+
+    afirma('· both shapes of the chair come out of one place',
+           silla.count("c.ui_de('seat'") == 1, silla)
     afirma('· the tui branch runs the command itself',
-           'lanza "$SESSION:seat" seat "$EQUIPO" "$entorno${CLAUDE_AUTH_PREFIX}$orden"' in cuerpo,
-           cuerpo)
+           "c.lanza(objetivo, 'seat', c.datos, orden, entorno)" in silla, silla)
     afirma('· the gateway branch is still there, one card key away',
-           'gateway_line seat "$EQUIPO" "$orden"' in cuerpo, cuerpo)
+           "c.gateway_line('seat', c.datos, orden, c.seat_auto)" in silla, silla)
     afirma('· and the flags are built once, before the branch, so they cannot differ',
-           cuerpo.count('$SETTINGS') == 0 and cuerpo.count('NO_PEER_TOOLS') == 0, cuerpo)
-    # Every Claude command in the file is built the same way: the engine
-    # through `con_motor` (which carries the "an explicit flag wins" guard) and
-    # the deal through `$CLAUDE_TRATO` (which is asked of the declaration). A
-    # branch that skips either is a window that silently runs differently.
-    ordenes = [l for l in fuente.split('\n')
-               if 'CLAUDE_SEAT="' in l or 'CLAUDE_REPO="' in l
-               or 'lanza_asiento_claude "' in l]
-    afirma('· every Claude launch in the file was found', len(ordenes) == 5, str(ordenes))
-    for linea in ordenes:
-        if linea.strip().startswith('lanza_asiento_claude "$CLAUDE_SEAT"'):
-            continue  # this one passes a command already built above
-        afirma(f'· the engine goes through con_motor: {linea.strip()[:40]}…',
-               'con_motor' in linea, linea)
-        afirma(f'· and the deal through the declaration: {linea.strip()[:40]}…',
-               '$CLAUDE_TRATO' in linea, linea)
+           silla.index('orden =') < silla.index("c.ui_de('seat'"), silla)
     afirma('· the chair still opens with its yolo flag',
-           any('$SEAT_YOLO_FLAG' in l for l in ordenes), str(ordenes))
-    afirma('· and the deal is asked of arnes.py, not respelled here',
-           'arnes.py" flags claude' in fuente
-           and "crossSessionInbound" not in fuente
-           and "SendMessage,ListAgents" not in fuente, '')
+           'c.seat_yolo_flag' in silla, silla)
+
+    # Every Claude command is built the same way: the engine through
+    # `con_motor`, which carries the "an explicit flag wins" guard, and the deal
+    # through the declaration. A branch that skips either is a window that
+    # silently runs differently.
+    for nombre, cuerpo in (('the chair', silla), ('a house', casas)):
+        afirma(f'· {nombre}: the engine goes through con_motor',
+               'con_motor' in cuerpo, cuerpo[:200])
+        afirma(f'· {nombre}: and the deal through the declaration',
+               'c.trato' in cuerpo, cuerpo[:200])
+    afirma('· and the deal is asked of arnes, not respelled here',
+           "arnes.banderas('claude')" in fuente
+           and 'crossSessionInbound' not in fuente
+           and 'SendMessage,ListAgents' not in fuente, '')
 
     # A house is not a chair, and its DEFAULT must keep it reachable from the
     # bus: work arrives without anybody sitting in that window. The choice is
-    # now offered — `ui.<house>: tui` opens the person's own Claude Code — so
-    # what this checks is the default, not the absence of a choice.
-    casa_claude = fuente[fuente.index('lanza_casa_claude() {'):fuente.index("# The chair's Claude")]
+    # offered — `ui.<house>: tui` opens the person's own Claude Code — so what
+    # this checks is the default, not the absence of a choice.
     afirma('· a house defaults to the gateway, which is what makes work reach it',
-           'ui_de "$win" gateway' in casa_claude
-           and 'gateway_line "$win" "$ruta" "$orden"' in casa_claude, casa_claude[:400])
+           "c.ui_de(win, 'gateway')" in casas
+           and 'c.gateway_line(win, ruta, orden)' in casas, casas[:400])
     afirma('· and a house that keeps its own CLI is given a way to be handed work',
-           '"$RUNTIME" fallback "$win"' in casa_claude, casa_claude[:400])
+           "'fallback', win, objetivo" in casas, casas[:400])
 
-    # `ui.<window>`, lifted out and exercised.
+    # `ui.<window>` itself, against a real card rather than a stub reader.
     casa = tempfile.mkdtemp()
-    lector = os.path.join(casa, 'leer.py')
-    open(lector, 'w', encoding='utf-8').write(
-        'import sys\n'
-        "print({'ui.seat': 'gateway', 'ui.raro': 'nonsense'}.get(sys.argv[-1], ''))\n"
-    )
-    trozo = fuente[fuente.index('ui_de() {'):fuente.index('runtime_de() {')]
-    guion = os.path.join(casa, 'ui.sh')
-    open(guion, 'w', encoding='utf-8').write(
-        f'LEER="{lector}"\nFICHA=/dev/null\n{trozo}\nprintf "%s\\n" "$(ui_de "$1" "$2")"\n'
-    )
-
-    def ui(ventana, defecto):
-        return subprocess.run(['bash', guion, ventana, defecto],
-                              capture_output=True, text=True).stdout.strip()
-
-    comprueba('· a card that says gateway gets the gateway', ui('seat', 'tui'), 'gateway')
-    comprueba('· a card that says nothing gets the default', ui('otra', 'tui'), 'tui')
-    comprueba('· and a house defaults the other way', ui('otra', 'gateway'), 'gateway')
-    comprueba('· a card that says nonsense is not obeyed', ui('raro', 'tui'), 'tui')
-    shutil.rmtree(casa, ignore_errors=True)
+    datos = os.path.join(casa, 'ciudad')
+    os.makedirs(datos)
+    open(os.path.join(datos, 'city.yml'), 'w').write(
+        'id: city_ui\nname: Home\nslug: home\nowner: ana\n')
+    open(os.path.join(datos, 'ana.md'), 'w').write(
+        '---\nuser: ana\nagent: ana/lead\nui.seat: gateway\nui.raro: nonsense\n---\n')
+    previo = dict(os.environ)
+    os.environ.update({'AGENTS_CITY_DATA': datos, 'AGENTS_CITY_USER': 'ana'})
+    os.environ.pop('CITY_UI', None)
+    try:
+        c = sesion.Ciudad(sesion.Opciones([]))
+        comprueba('· a card that says gateway gets the gateway',
+                  c.ui_de('seat', 'tui'), 'gateway')
+        comprueba('· a card that says nothing gets the default',
+                  c.ui_de('otra', 'tui'), 'tui')
+        comprueba('· and a house defaults the other way',
+                  c.ui_de('otra', 'gateway'), 'gateway')
+        comprueba('· a card that says nonsense is not obeyed',
+                  c.ui_de('raro', 'tui'), 'tui')
+    finally:
+        os.environ.clear()
+        os.environ.update(previo)
+        shutil.rmtree(casa, ignore_errors=True)
 
 
 def el_aviso_lee_lo_que_viaja():
@@ -699,10 +823,10 @@ def ventanas_gemelas():
     """Window, engine key and bus actor share one canonical repo slug."""
     print('  the window slug has one owner')
 
-    sesion = open(os.path.join(RAIZ, 'plugin/scripts/city-session.sh'),
+    sesion = open(os.path.join(RAIZ, 'plugin/scripts/sesion.py'),
                   encoding='utf-8').read()
-    afirma('· city-session delegates instead of copying the slug rule',
-           'python3 "$LEER" --window "$r"' in sesion)
+    afirma('· the launcher delegates instead of copying the slug rule',
+           'card.ventana(r)' in sesion and 'def ventana' not in sesion)
     lector = os.path.join(RAIZ, 'plugin', 'scripts', 'read-card.py')
     for nombre in ('MiApp@feature/X', 'Data_Pipeline', 'API', 'a/b_c@d',
                    'web.app', 'two words', 'plain'):
@@ -792,6 +916,32 @@ def puerta_npm():
         capture_output=True, text=True).stdout
     afirma('· the longest command does not run into its description',
            'committee  chair-mediated' in salida, salida[:240])
+
+    # What each command actually runs, read from the map itself. Fifteen of
+    # these were one `exec python3 x.py "$@"` line in bash — a spelling of the
+    # interpreter, in the one language Windows does not have.
+    ordenes = json.loads(subprocess.run(
+        ['node', '-e',
+         'const {ORDENES} = require(process.argv[1]);'
+         'console.log(JSON.stringify(ORDENES))',
+         os.path.join(RAIZ, 'bin', 'agents-city.js')],
+        capture_output=True, text=True).stdout or '{}')
+    afirma('· the map is readable, and every command is in it',
+           len(ordenes) >= 20, str(sorted(ordenes))[:200])
+    for nombre, o in sorted(ordenes.items()):
+        destino = o.get('sh') or o.get('py') or o.get('node') or ''
+        afirma(f'· {nombre} names something that exists: {destino}',
+               bool(destino) and os.path.isfile(os.path.join(RAIZ, destino)), destino)
+        afirma(f'· {nombre} is listed in the help',
+               f"    {nombre.ljust(11)}" in salida, '')
+        if o.get('py'):
+            # Judged by what the file IS, not by what it is called: a `py` entry
+            # pointing at a shell door would look cross-platform and spawn bash
+            # through Python, and `bin/hall` is Python with no extension at all.
+            cabeza = open(os.path.join(RAIZ, destino), 'rb').read(40)
+            afirma(f'· {nombre} really is Python, whatever it is called',
+                   b'python' in cabeza.split(b'\n')[0].lower()
+                   or destino.endswith('.py'), repr(cabeza[:40]))
 
 
 def documentacion_publica():
@@ -1036,6 +1186,7 @@ def main():
     una_definicion()
     rutas_reales()
     conciencia_acotada()
+    la_puerta_de_windows()
     bash_que_no_es_la_de_macos()
     la_pagina_no_se_queda_muda()
     demo_coherente()

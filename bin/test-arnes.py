@@ -67,7 +67,7 @@ def sin_deriva():
     # whose values were respelled somewhere else — the exact failure it exists
     # to catch, hiding in the place it could not see.
     fuentes["claude"] += "\n" + open(
-        os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"), encoding="utf-8"
+        os.path.join(RAIZ, "plugin", "scripts", "sesion.py"), encoding="utf-8"
     ).read()
     motores = arnes.declaracion()
 
@@ -107,10 +107,12 @@ def sin_deriva():
            not fuera, f"also inline in: {fuera}")
 
     # And the launcher asks for the deal rather than carrying a copy of it.
-    shell = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"),
-                 encoding="utf-8").read()
-    afirma("· the launcher asks arnes.py for Claude's flags",
-           'arnes.py" flags claude' in shell, "")
+    # It imports the declaration now, so this is the import and the call rather
+    # than a subprocess spelling — the same question, one interpreter cheaper.
+    fuente = open(os.path.join(RAIZ, "plugin", "scripts", "sesion.py"),
+                  encoding="utf-8").read()
+    afirma("· the launcher asks arnes for Claude's flags",
+           "import arnes" in fuente and "arnes.banderas('claude')" in fuente, "")
     banderas = arnes.banderas("claude")
     for trozo in ("--settings", "crossSessionInbound", "--disallowed-tools",
                   "SendMessage,ListAgents"):
