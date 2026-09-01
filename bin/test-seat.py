@@ -484,7 +484,7 @@ def maquinas_hostiles():
 
         salida, err = io.StringIO(), io.StringIO()
         with redirect_stdout(salida), redirect_stderr(err):
-            ok = S.asegura_tmux()
+            ok = S.asegura_ventanas()
         todo = salida.getvalue() + err.getvalue()
         comprueba("· no tmux and no way to install it: refuses", ok, False)
         afirma(
@@ -500,7 +500,7 @@ def maquinas_hostiles():
 
         salida = io.StringIO()
         with redirect_stdout(salida):
-            ok = S.asegura_tmux()
+            ok = S.asegura_ventanas()
         comprueba("· tmux present: proceeds silently", (ok, salida.getvalue()), (True, ""))
 
     # ── the conscience, which can be absent while everything looks healthy ──

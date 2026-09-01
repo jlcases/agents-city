@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { run } from './multiplexor.js';
 
 export interface TerminalReceipt {
   readyAt: string;
@@ -48,34 +48,21 @@ export function terminalDelivery(target: string, runtime = 'unknown') {
 
     const readyAt = new Date().toISOString();
     const buffer = `agents-city-${process.pid}-${now}`;
-    const load = spawnSync('tmux', ['load-buffer', '-b', buffer, '-'], {
-      input: body,
-      encoding: 'utf8',
-    });
-    if (load.status !== 0) return null;
+    if (!run('load-buffer', { buffer }, body).ok) return null;
 
-    // -p asks tmux to honour the application's bracketed-paste mode. -r keeps
-    // newlines inside that one paste instead of turning them into Enter keys.
-    const pasted = spawnSync('tmux', [
-      'paste-buffer',
-      '-d',
-      '-p',
-      '-r',
-      '-b',
-      buffer,
-      '-t',
-      target,
-    ]);
-    if (pasted.status !== 0) return null;
+    // The paste verb asks the window server to honour the application's
+    // bracketed-paste mode and to keep newlines inside that one paste instead
+    // of turning them into Enter keys. Both flags live in the table.
+    if (!run('paste-buffer', { buffer, target }).ok) return null;
     const pastedAtMs = Date.now();
     const pastedAt = new Date(pastedAtMs).toISOString();
 
     // Interactive model CLIs turn a multiline paste into an attachment on their
-    // event loop. Sending Enter in the same tick is accepted by tmux but can be
-    // ignored by that UI, leaving "Pasted text" in its composer forever.
+    // event loop. Sending Enter in the same tick is accepted by the window
+    // server but can be ignored by that UI, leaving "Pasted text" in its
+    // composer forever.
     await wait(submitDelayMs);
-    const sent = spawnSync('tmux', ['send-keys', '-t', target, 'Enter']);
-    if (sent.status !== 0) return null;
+    if (!run('send-enter', { target }).ok) return null;
     warmed = true;
     const submittedAtMs = Date.now();
     return {
@@ -91,18 +78,12 @@ export function terminalDelivery(target: string, runtime = 'unknown') {
 }
 
 function inspectPane(target: string): PaneState | null {
-  const pane = spawnSync(
-    'tmux',
-    ['display-message', '-p', '-t', target, '#{pane_dead}\t#{pane_current_command}'],
-    { encoding: 'utf8' },
-  );
-  if (pane.status !== 0) return null;
+  const pane = run('pane-state', { target });
+  if (!pane.ok) return null;
   const [dead, command] = pane.stdout.trim().split('\t');
   if (dead === '1') return null;
-  const capture = spawnSync('tmux', ['capture-pane', '-p', '-t', target, '-S', '-30'], {
-    encoding: 'utf8',
-  });
-  return { command: command || '', screen: capture.status === 0 ? capture.stdout : '' };
+  const capture = run('capture', { target, lines: 30 });
+  return { command: command || '', screen: capture.ok ? capture.stdout : '' };
 }
 
 function blockedScreen(screen: string): boolean {

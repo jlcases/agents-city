@@ -60,6 +60,7 @@ import domains  # noqa: E402  work domain -> relevant role and knowledge packs
 import ui  # noqa: E402  the terminal widgets
 import units  # noqa: E402  the districts file, one writer
 import cities  # noqa: E402  which cities exist, and what each is called
+import multiplexor  # noqa: E402  the window server, and how to install it
 import parcels  # noqa: E402  the houses file, one writer
 import workspace  # noqa: E402  agents, their workspaces, mounts and skills
 import atajos  # noqa: E402  the city's door on the desktop
@@ -105,24 +106,31 @@ def instala(programa, formulas):
     return False
 
 
-def asegura_tmux():
-    """tmux, installed if it is not there.
+def asegura_ventanas():
+    """The window server, installed if it is not there.
 
     The whole promise is one command, and "first go and install tmux" is a second
-    one. So this installs it with whatever package manager the machine has, says so
-    out loud, and if there is none it prints the exact line to run rather than a
-    guess about what went wrong.
+    one. So this installs it with whatever package manager the machine has, says
+    so out loud, and if there is none it prints the exact line to run rather than
+    a guess about what went wrong.
+
+    Which server, what it is called and how each package manager spells it all
+    come from the table. This function is about somebody's first minute, not
+    about tmux.
     """
-    if hay("tmux"):
+    cual = multiplexor.cual()
+    binario = multiplexor.binario()
+    if hay(binario):
         return True
-    print("  tmux is not here, and the session is made of tmux windows.")
-    if instala("tmux", {"brew": "tmux", "apt-get": "tmux", "dnf": "tmux", "pacman": "tmux"}):
-        print("\n  tmux installed.\n")
+    print(f"  {binario} is not here, and a city is made of its windows.")
+    paquetes = multiplexor.como_instalar()
+    if paquetes and instala(binario, paquetes):
+        print(f"\n  {binario} installed.\n")
         return True
+    lineas = "".join(f"    {gestor} install {paquete}\n"
+                     for gestor, paquete in sorted(paquetes.items()))
     print(
-        "\n  I could not install it. Install tmux and run this again:\n"
-        "    macOS:  brew install tmux\n"
-        "    Debian: sudo apt-get install tmux\n",
+        f"\n  I could not install it. Install {cual} and run this again:\n{lineas}",
         file=sys.stderr,
     )
     return False
@@ -1635,7 +1643,7 @@ def main():
 
     # Everything the session needs, installed rather than asked for. One command
     # means one command: "now go and install tmux" is a second one.
-    if not asegura_tmux():
+    if not asegura_ventanas():
         return 1
     agente = card.lee(ficha).get("agent") or cities.direccion(usuario, datos)
     # No Claude in the seat window, no reason to install a Claude plugin — and no

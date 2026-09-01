@@ -45,6 +45,7 @@ import parcels  # noqa: E402
 import units  # noqa: E402
 import busca  # noqa: E402  the disk scanner, and the one list of where work lives
 import cities  # noqa: E402
+import multiplexor  # noqa: E402
 import diario  # noqa: E402  what happened, written down
 import demos  # noqa: E402  the recorded demos the Hall plays back
 import roads  # noqa: E402
@@ -402,26 +403,13 @@ def plugin_de_verdad():
 
 
 def ventanas_vivas(owner, datos):
-    """The window names alive in this city's tmux session, or nothing.
+    """The window names alive in this city's session, or nothing.
 
-    The `=` prefix asks tmux for an exact session match: bare `-t home` also
-    matches a session called `home-2`, and the green dot must never be lit by
-    a different city's windows."""
+    The exact-match form matters: tmux's bare `-t home` also matches a session
+    called `home-2`, and the green dot must never be lit by a different city's
+    windows. Which form that is belongs to the window server, not here."""
     try:
-        salida = subprocess.run(
-            [
-                "tmux",
-                "list-windows",
-                "-t",
-                "=" + cities.sesion(owner, datos),
-                "-F",
-                "#{window_name}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        return set(salida.stdout.split()) if salida.returncode == 0 else set()
+        return set(multiplexor.ventanas(cities.sesion(owner, datos)))
     except (OSError, subprocess.SubprocessError):
         return set()
 
@@ -971,9 +959,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 c.pop("texto", None)
                 tarjetas.append(c)
         ps, lab, _ = parcels.lee(os.path.join(datos, "parcels.yml"))
-        sesiones = [
-            l.split(":")[0] for l in gh.sh(["tmux", "ls", "-F", "#{session_name}"]).splitlines()
-        ]
+        sesiones = multiplexor.sesiones()
         return self.responde(
             {
                 "datos": datos,
@@ -991,7 +977,19 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 "parcelas": ps,
                 "lab": sorted(lab),
                 "gh": gh.conectado(),
-                "tmux": sesiones,
+                # The window server, named on the wire rather than in the page.
+                # The Hall shows somebody the command to reattach to their own
+                # day, and that command belongs to whichever server is actually
+                # running the windows — so it is built from the same table the
+                # rest of the product drives it with, and the page prints what
+                # it is handed.
+                "mux": {
+                    "name": multiplexor.cual(),
+                    "sesiones": sesiones,
+                    "attach": " ".join(
+                        multiplexor.argv("attach", session=cities.sesion(owner, datos))
+                    ),
+                },
                 "plugin": plugin_de_verdad(),
                 "mapa": mapa_vivo(datos),
                 "sesion": cities.sesion(owner, datos),

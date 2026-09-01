@@ -212,7 +212,7 @@ interface Estado {
   parcelas: ParcelaFila[];
   lab: string[];
   gh: boolean;
-  tmux: string[];
+  mux: { name: string; sesiones: string[]; attach: string };
   plugin: boolean;
   mapa: string;
   paleta: Color[];
@@ -863,7 +863,7 @@ function icono(kind: string): string {
  * how its owner spent an afternoon unable to see why nothing was being enforced.
  */
 function estadoDeLaCiudad(): string {
-  const arriba = E.tmux.includes(E.sesion);
+  const arriba = E.mux.sesiones.includes(E.sesion);
   const vivos = (E.agents ?? []).filter((a) => a.cli?.connected).length;
   const filas = [
     arriba
@@ -1218,7 +1218,7 @@ VISTAS.resumen = () => {
     },
   ];
   const empezando = !mia || agentes.length === 0;
-  const sesionArriba = E.tmux.includes(E.sesion);
+  const sesionArriba = E.mux.sesiones.includes(E.sesion);
   q('#lienzo').innerHTML = `
     <div><span class="sub">${empezando ? 'welcome' : 'your city'}</span>
       <h1 style="margin-top:6px">${empezando ? 'Let’s build ' + esc(E.city_name) : esc(E.city_name)}</h1>
@@ -1245,7 +1245,7 @@ VISTAS.resumen = () => {
       <span class="luz ${E.tarjetas.length ? 'on' : ''}">${_('data repo')}</span>
       <span class="luz ${E.gh ? 'on' : 'neutra'}">github${E.gh ? '' : ' — optional'}</span>
       <span class="luz ${E.plugin ? 'on' : ''}">${_('plugin installed')}</span>
-      <span class="luz ${sesionArriba ? 'on' : 'neutra'}">tmux session${sesionArriba ? ' up' : ''}</span>
+      <span class="luz ${sesionArriba ? 'on' : 'neutra'}">${esc(E.mux.name)} session${sesionArriba ? ' up' : ''}</span>
     </div>
     <div><span class="sub">${_('what is left')}</span>
       <div class="tareas" style="margin-top:9px">${tareas
@@ -1260,13 +1260,11 @@ VISTAS.resumen = () => {
       <div style="display:flex;flex-direction:column;gap:9px;margin-top:9px">
         <div class="orden"><span class="et2">${_('your day')}</span>
           <code>${
-            sesionArriba
-              ? 'tmux attach -t ' + esc(E.sesion)
-              : 'one window per folder, an agent in each'
+            sesionArriba ? esc(E.mux.attach) : 'one window per folder, an agent in each'
           }</code>
           ${
             sesionArriba
-              ? `<button class="bt mini" data-copia="tmux attach -t ${esc(E.sesion)}">copy</button>`
+              ? `<button class="bt mini" data-copia="${esc(E.mux.attach)}">copy</button>`
               : `<button class="bt mini ppal" id="abreSesion">${_('open my session')}</button>`
           }
         </div>
