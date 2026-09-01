@@ -157,6 +157,7 @@ jobs:
           node bin/agents-city.js --help
           node bin/agents-city.js doctor
           node bin/agents-city.js cities list
+          node bin/agents-city.js hall --help
           if ($LASTEXITCODE -ne 0) { throw "a Python command failed on Windows" }
       # The conscience, invoked exactly as Claude Code invokes it — through
       # cmd.exe, with the one command string that has to work in two shells.
@@ -253,7 +254,10 @@ jobs:
       - name: a shell-only command refuses with the reason
         shell: pwsh
         run: |
-          $salida = node bin/agents-city.js hall 2>&1 | Out-String
+          # `city` draws the map and is still a shell program. The town hall is
+          # NOT one — it is Python, and was being refused here for no reason at
+          # all until a check asked what the file is rather than what it ends in.
+          $salida = node bin/agents-city.js city 2>&1 | Out-String
           $codigo = $LASTEXITCODE
           $salida
           if ($codigo -eq 0) { throw "hall should refuse on Windows, not pretend" }

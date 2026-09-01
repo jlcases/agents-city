@@ -118,6 +118,17 @@ def sync_line():
     )
 
 
+# What this prints is prose, with `·` and `’` in it, and it is run directly as
+# often as it is run through the front door — which is the door that sets the
+# environment. A console still on a legacy code page turns that into `?`, and
+# the first Windows run showed exactly that in its own log.
+for _flujo in (sys.stdout, sys.stderr):
+    try:
+        _flujo.reconfigure(encoding='utf-8')
+    except (AttributeError, OSError, ValueError):
+        pass
+
+
 def cita(valor):
     """One argument, quoted for the shell that will actually read it.
 
