@@ -115,7 +115,16 @@ def _panel_de(objetivo):
     ident = _workspace_de(sesion)
     if not ident:
         return ''
-    tab = _tab_de(sesion, ventana) if ventana else ''
+    tab = ''
+    if ventana:
+        tab = _tab_de(sesion, ventana)
+        # A window that is not there resolves to NOTHING. Falling back to the
+        # workspace's first pane is the same footgun tmux's `display-message`
+        # has — asked about one window, answering about another — and a delivery
+        # gate that inspects the wrong window decides "ready" about the wrong
+        # thing.
+        if not tab:
+            return ''
     r = _pide('pane', 'list', '--workspace', ident) or {}
     paneles = [p for p in (r.get('panes') or [])
                if not tab or p.get('tab_id') == tab]
@@ -208,9 +217,23 @@ def estado_del_panel(objetivo):
     r = _pide('pane', 'process-info', '--pane', panel)
     if r is None:
         return False, ''
-    info = r.get('process') or r
-    nombre = str(info.get('foreground_command') or info.get('command') or '')
-    return True, nombre
+    # The field this arrives under is the backend's business, and it has moved
+    # before. Take the first that answers, and keep the raw object out of the
+    # caller's way.
+    info = r.get('process') or r.get('process_info') or r
+    if isinstance(info, dict):
+        for clave in ('foreground_command', 'foreground', 'command', 'name',
+                      'process', 'exe', 'argv0'):
+            valor = info.get(clave)
+            if isinstance(valor, str) and valor:
+                return True, valor
+            if isinstance(valor, dict):
+                for dentro in ('command', 'name', 'exe'):
+                    if isinstance(valor.get(dentro), str) and valor[dentro]:
+                        return True, valor[dentro]
+            if isinstance(valor, list) and valor and isinstance(valor[0], str):
+                return True, valor[0]
+    return True, ''
 
 
 def pantalla(objetivo, lineas=30):

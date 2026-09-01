@@ -200,6 +200,11 @@ jobs:
                    -RedirectStandardError herdr-server.err
           Start-Sleep -Seconds 5
           herdr status server
+          # What a pane says about itself, printed once: the driver reads a
+          # command name out of this and the field is the backend's business.
+          herdr workspace create --cwd $env:TEMP --label shape --no-focus
+          herdr pane list
+          herdr pane process-info --pane w1:p1
           $env:AGENTS_CITY_MUX = 'herdr'
           $env:CITY_MUX_REQUIRED = '1'
           python bin/test-multiplexor.py

@@ -139,9 +139,12 @@ def lo_que_pide_el_llamador(backends):
         if previo is not None:
             os.environ['AGENTS_CITY_MUX'] = previo
 
-    afirma('· happy: the installer is told how to install it, per package manager',
-           set(multiplexor.como_instalar()) >= {'brew', 'apt-get'},
-           str(multiplexor.como_instalar()))
+    # Per backend, because how you install a thing is a fact about the thing.
+    # Asserting tmux's package managers was asserting that only tmux exists.
+    for nombre, b in sorted(backends.items()):
+        comoSe = multiplexor.como_instalar(nombre)
+        afirma(f'· happy: {nombre} says how it is installed, per package manager',
+               comoSe == (b.get('install') or {}) and len(comoSe) >= 2, str(comoSe))
 
     # A backend that cannot be a table declares a driver instead, and the driver
     # has to answer everything the table would have. tmux is addressed by writing
@@ -209,23 +212,30 @@ def contra_uno_de_verdad():
            not multiplexor.hay_sesion(marca), '')
     return True
 
-def nadie_va_por_fuera():
-    #
-    # city-session.sh is the exception, on purpose and out loud: 819 lines of
-    # shell with fifty-six calls in it, and porting it is its own piece of work.
-    # It is named here so the day it lands, this check tightens by one line
-    # rather than being discovered.
+def nadie_va_por_fuera(backends):
+    """The window server is named in the executors and nowhere else.
+
+    There is no exception left. `city-session.sh` was one — 819 lines of shell
+    with fifty-six calls inline — and it is Python now, driving the same seam as
+    everything else. A driver counts as an executor: it is the backend whose
+    addressing a table cannot hold.
+    """
     permitidos = {'plugin/scripts/multiplexor.py', 'plugin/channel/multiplexor.ts',
-                  'plugin/channel/multiplexor.js', 'plugin/channel/adapter.js'}
+                  'plugin/channel/adapter.js'}
+    permitidos |= {f'plugin/scripts/mux_{b["driver"]}.py'
+                   for b in backends.values() if b.get('driver')}
     binario = multiplexor.binario()
     culpables = []
     for carpeta, _, ficheros in os.walk(RAIZ):
-        if any(x in carpeta for x in ('node_modules', '/.git', '__pycache__', '/dist')):
+        plano = carpeta.replace(os.sep, '/')
+        if any(x in plano for x in ('node_modules', '/.git', '__pycache__', '/dist')):
             continue
         for fichero in ficheros:
             if not fichero.endswith(('.py', '.ts', '.js')) or fichero.startswith('test-'):
                 continue
-            ruta = os.path.relpath(os.path.join(carpeta, fichero), RAIZ)
+            # Forward slashes: this compares against paths written that way, and
+            # on Windows `relpath` answers with backslashes.
+            ruta = os.path.relpath(os.path.join(carpeta, fichero), RAIZ).replace(os.sep, '/')
             if ruta in permitidos or ruta.startswith(('bin/test', 'benchmarks/')):
                 continue
             texto = open(os.path.join(carpeta, fichero), encoding='utf-8',
@@ -244,7 +254,7 @@ def main():
     lo_que_pide_el_llamador(backends)
     if contra_uno_de_verdad() is False:
         return resumen('multiplexor')
-    nadie_va_por_fuera()
+    nadie_va_por_fuera(backends)
     return resumen('multiplexor')
 
 
