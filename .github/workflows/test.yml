@@ -71,9 +71,26 @@ jobs:
       - name: the remote road relay holds its typed envelope and durable queue
         run: cd bus/worker && npm ci --silent && npm run typecheck && npm run test:local
       - name: python lint — bugbear, style, and the god-function gate (C901 ≤ 12)
-        run: pip install --quiet ruff && ruff check bin plugin/scripts city/scripts demo benchmarks
+        run: pip install --quiet ruff && ruff check bin plugin/scripts plugin/hooks city/scripts demo benchmarks
+      # Found, not listed. The hand-written list broke the day plugin/hooks
+      # stopped containing shell — its glob matched nothing — and it had been
+      # quietly missing seven scripts, bin/seat among them. Same rule as the
+      # commit gate: ask git what is tracked, and read the shebang.
       - name: shell lint
-        run: shellcheck -S warning plugin/scripts/*.sh plugin/hooks/*.sh bus/scripts/*.sh bin/agents bin/bus bin/cities bin/committee bin/city bin/demo bin/reset bin/road bin/doctor bin/shortcut bin/skills bin/test bin/update
+        run: |
+          GUIONES=()
+          while IFS= read -r f; do
+            case "$f" in
+              *.sh) GUIONES+=("$f"); continue ;;
+              *.py|*.ts|*.js|*.json|*.md|*.yml|*.html|*.css) continue ;;
+            esac
+            [ -f "$f" ] || continue
+            case "$(head -c 60 "$f")" in
+              '#!'*bash*|'#!'*/sh*) GUIONES+=("$f") ;;
+            esac
+          done < <(git ls-files)
+          printf '  %s\n' "${GUIONES[@]}"
+          shellcheck -S warning "${GUIONES[@]}"
       - name: prettier holds on every TypeScript file
         run: npx --yes prettier --check 'city/web/src/*.ts' 'city/worker/src/*.ts' 'plugin/channel/**/*.ts' 'bus/worker/src/*.ts' 'bus/scripts/*.ts'
       # The four runtime bundles are committed so the plugin runs with no build

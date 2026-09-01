@@ -22,7 +22,7 @@ if [ -d .git ] && [ -x .githooks/pre-commit ] \
     && printf '  pre-commit gate armed (core.hooksPath .githooks)\n'
 fi
 
-SUITES=(widgets card parcels domains busca arnes i18n diario alcance serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch e2e)
+SUITES=(widgets card parcels hooks domains busca arnes i18n diario alcance serve seat cities channel connect committee live-feed runtime claude-runtime runtime-ui runtime-failures stress adapter benchmark demo contracts exit rutas cage broker evidencia admision pairing hall-protocol doctor security workspace avatar crecimiento atajos navegador actualiza desinstala launch e2e)
 [ $# -gt 0 ] && SUITES=("$@")
 
 fallos=0

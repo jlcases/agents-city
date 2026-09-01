@@ -49,6 +49,11 @@ def carga(nombre, ruta):
     return m
 
 
+def importa_gancho():
+    """The hook dispatcher, loaded as a module so its guard can be asked."""
+    return carga('hook_bajo_prueba', os.path.join(RAIZ, 'plugin', 'hooks', 'hook.py'))
+
+
 # ══ the two resolvers of "where do the cards live" ══════════════════════════
 def resolvedores():
     print('  where the cards live: four resolvers, one answer')
@@ -217,55 +222,67 @@ def conciencia_acotada():
     run; CITY_HOOKS=everywhere restores the machine-wide behaviour explicitly.
     Non-happy: a plain session — no identity, no opt-in — gets `{}` and silence
     from every hook, and no file appears anywhere.
+
+    The guard used to be a sourced shell fragment each of ten scripts had to
+    remember to include, so the check that mattered was "does every file mention
+    it". There is one entry point now, so the guard is called rather than copied
+    and the question becomes what it decides — which is the thing that was
+    actually being protected.
     """
     print('  the conscience stays inside the city')
-    guardia = os.path.join(RAIZ, 'plugin', 'hooks', 'solo-en-ciudad.sh')
+    gancho = importa_gancho()
 
-    def corre(entorno, script=None, marca='; echo despues'):
-        casa = tempfile.mkdtemp()
-        env = {'HOME': casa, 'PATH': os.environ.get('PATH', ''),
-               'CLAUDE_PLUGIN_ROOT': os.path.join(RAIZ, 'plugin')}
-        env.update(entorno)
-        orden = f'. {guardia}{marca}' if script is None else None
-        r = subprocess.run(['/bin/bash', '-c', orden] if orden else ['/bin/bash', script],
-                           input='{}', capture_output=True, text=True, env=env)
-        residuos = os.listdir(casa)
-        shutil.rmtree(casa, ignore_errors=True)
-        return r, residuos
+    def decide(entorno):
+        """True when the guard lets a hook through."""
+        previo = dict(os.environ)
+        os.environ.clear()
+        os.environ.update({'PATH': previo.get('PATH', '')}, **entorno)
+        try:
+            gancho.en_ciudad()
+            return True
+        except gancho.Silencio:
+            return False
+        finally:
+            os.environ.clear()
+            os.environ.update(previo)
 
-    r, residuos = corre({})
-    afirma('· non-happy: outside a city the guard answers {} and stops',
-           r.returncode == 0 and r.stdout.strip() == '{}' and not residuos, r.stdout)
-    r, _ = corre({'CITY_BUS_ACTOR': 'nova'})
-    afirma('· happy: a city runtime passes the guard',
-           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
-    r, _ = corre({'CITY_HOOKS': 'everywhere'})
-    afirma('· happy: CITY_HOOKS=everywhere is the explicit machine-wide opt-in',
-           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
-    # The opt-in also reads $CITY_DIR/.env, where the transport settings live.
     casa = tempfile.mkdtemp()
     canal = os.path.join(casa, 'canal')
     os.makedirs(canal)
+    afirma('· non-happy: outside a city the guard stops',
+           decide({'HOME': casa, 'CITY_DIR': canal}) is False, '')
+    afirma('· happy: a city runtime passes the guard',
+           decide({'HOME': casa, 'CITY_DIR': canal, 'CITY_BUS_ACTOR': 'nova'}) is True, '')
+    afirma('· happy: CITY_HOOKS=everywhere is the explicit machine-wide opt-in',
+           decide({'HOME': casa, 'CITY_DIR': canal, 'CITY_HOOKS': 'everywhere'}) is True, '')
+    # The opt-in also reads $CITY_DIR/.env, where the transport settings live.
     open(os.path.join(canal, '.env'), 'w').write('CITY_HOOKS=everywhere\n')
-    r = subprocess.run(['/bin/bash', '-c', f'. {guardia}; echo despues'],
-                       input='{}', capture_output=True, text=True,
-                       env={'HOME': casa, 'PATH': os.environ.get('PATH', ''),
-                            'CITY_DIR': canal})
-    shutil.rmtree(casa, ignore_errors=True)
     afirma('· happy: the opt-in can live in $CITY_DIR/.env',
-           r.returncode == 0 and 'despues' in r.stdout, r.stdout)
+           decide({'HOME': casa, 'CITY_DIR': canal}) is True, '')
+    shutil.rmtree(casa, ignore_errors=True)
 
-    # Every hook wires the guard, and outside a city every hook is silent.
-    for nombre in sorted(glob.glob(os.path.join(RAIZ, 'plugin', 'hooks', '*.sh'))):
-        base = os.path.basename(nombre)
-        if base == 'solo-en-ciudad.sh':
-            continue
-        afirma(f'· {base} sources the guard',
-               'solo-en-ciudad.sh' in open(nombre, encoding='utf-8').read(), '')
-        r, residuos = corre({}, script=nombre)
-        afirma(f'· non-happy: {base} is mute outside a city',
+    # And every hook there is, run for real, is silent outside a city and leaves
+    # nothing behind. A name that stops being wired stops being checked, so the
+    # list comes from the dispatcher rather than from this file.
+    guion = os.path.join(RAIZ, 'plugin', 'hooks', 'hook.py')
+    for nombre in sorted(gancho.GANCHOS):
+        casa = tempfile.mkdtemp()
+        r = subprocess.run([sys.executable, guion, nombre, 'SessionStart'],
+                           input='{}', capture_output=True, text=True,
+                           env={'HOME': casa, 'PATH': os.environ.get('PATH', ''),
+                                'CITY_DIR': os.path.join(casa, 'canal')})
+        residuos = os.listdir(casa)
+        shutil.rmtree(casa, ignore_errors=True)
+        afirma(f'· non-happy: {nombre} is mute outside a city',
                r.returncode == 0 and r.stdout.strip() == '{}' and not residuos,
-               f'{r.stdout!r} {residuos}')
+               f'{r.stdout!r} {r.stderr[-200:]!r} {residuos}')
+
+    # An unknown name is not an error either: a hooks.json from a newer version
+    # of the plugin than the scripts on disk must not break every turn.
+    r = subprocess.run([sys.executable, guion, 'no-such-hook'], input='{}',
+                       capture_output=True, text=True)
+    afirma('· non-happy: a hook name this version does not know still answers {}',
+           r.returncode == 0 and r.stdout.strip() == '{}', r.stdout)
 
 
 # ══ a page that loses its server says so ═════════════════════════════════════
@@ -652,7 +669,7 @@ def el_aviso_lee_lo_que_viaja():
     def plano(ruta):
         return ' '.join(open(os.path.join(RAIZ, ruta), encoding='utf-8').read().split())
 
-    gancho = plano('plugin/hooks/notice-on-stop.sh')
+    gancho = plano('plugin/hooks/hook.py')
     orden = plano('plugin/commands/notice.md')
     controlador = open(os.path.join(RAIZ, 'plugin/channel/hub/road-controller.ts'),
                        encoding='utf-8').read()

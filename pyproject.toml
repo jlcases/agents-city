@@ -4,7 +4,7 @@
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-include = ["bin/*.py", "plugin/scripts/*.py", "city/scripts/*.py", "demo/*.py"]
+include = ["bin/*.py", "plugin/scripts/*.py", "plugin/hooks/*.py", "city/scripts/*.py", "demo/*.py"]
 
 [tool.ruff.lint]
 # E/W pycodestyle, F pyflakes, B bugbear (the one that catches real bites:
@@ -28,6 +28,10 @@ ignore = [
 max-complexity = 12
 
 [tool.ruff.lint.per-file-ignores]
+# Most of this file is prose addressed to a model, not code: three notices whose
+# paragraphs are the product. Wrapping them would put newlines inside the text a
+# reader receives, so the paragraph stays one line and the ruler does not apply.
+"plugin/hooks/hook.py" = ["E501"]
 # ui.py holds the terminal widgets: each is one curses event loop whose branches
 # are keystrokes. Their complexity is the domain's, not the code's.
 "plugin/scripts/ui.py" = ["C901"]

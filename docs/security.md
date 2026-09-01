@@ -264,7 +264,7 @@ the cage. Each past sharp edge becomes a line here, and the line stays.
 ## Scope — the conscience stays inside the city
 
 Installing the plugin does not enrol every Claude session on the machine.
-Every hook sources `plugin/hooks/solo-en-ciudad.sh` first: outside a city
+Every hook passes `plugin/hooks/hook.py`’s guard first: outside a city
 runtime — no `CITY_BUS_ACTOR`, the identity only `city-session.sh` sets — the
 hook answers `{}` and leaves. No review passes, no digging notes, no notice
 judgements, no token counters in plain conversations. The MCP server already

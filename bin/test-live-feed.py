@@ -17,7 +17,8 @@ sys.path.insert(0, AQUI)
 from testlib import afirma, detiene_hubs_de_ciudad, resumen  # noqa: E402
 
 CLIENT = os.path.join(RAIZ, 'plugin', 'channel', 'client.js')
-CLAUDE_ACTIVITY = os.path.join(RAIZ, 'plugin', 'hooks', 'activity.sh')
+CLAUDE_ACTIVITY = [sys.executable, os.path.join(RAIZ, 'plugin', 'hooks', 'hook.py'),
+                   'activity']
 CHANNEL_DIR = os.path.join(RAIZ, 'plugin', 'channel')
 WATCH_JS = r"""
 const WebSocket = require('ws');
@@ -130,7 +131,7 @@ def publish_activity(env, actor, payload, thread=''):
 
 def claude_hook(env, actor, event, payload):
     return subprocess.run(
-        [CLAUDE_ACTIVITY, event], input=json.dumps(payload), capture_output=True,
+        CLAUDE_ACTIVITY + [event], input=json.dumps(payload), capture_output=True,
         text=True, env=dict(env, CITY_BUS_ACTOR=actor,
                             CLAUDE_PLUGIN_ROOT=os.path.join(RAIZ, 'plugin')),
         timeout=12)

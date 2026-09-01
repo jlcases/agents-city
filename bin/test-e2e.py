@@ -48,7 +48,7 @@ import serve  # noqa: E402
 from testlib import afirma, comprueba, detiene_hubs_de_ciudad, resumen  # noqa: E402
 
 SESION = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
-GANCHO = os.path.join(RAIZ, "plugin", "hooks", "ask-the-house.sh")
+GANCHO = [sys.executable, os.path.join(RAIZ, "plugin", "hooks", "hook.py"), "ask-the-house"]
 
 
 # ── the doors, each one real ─────────────────────────────────────────────────
@@ -159,7 +159,7 @@ def llama_al_gancho(mundo, sesion, herramienta, entrada, **extra):
     env["CLAUDE_PLUGIN_ROOT"] = os.path.join(RAIZ, "plugin")
     env.update(extra)
     r = subprocess.run(
-        ["/bin/bash", GANCHO],
+        GANCHO,
         input=json.dumps({"tool_name": herramienta, "tool_input": entrada, "cwd": mundo.datos}),
         capture_output=True, text=True, env=env, timeout=60,
     )
