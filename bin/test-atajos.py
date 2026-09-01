@@ -291,6 +291,41 @@ def cada_escritorio():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def windows_de_verdad():
+    """And on Windows itself, where there is no distro to cross into.
+
+    Exercised by making this machine answer as that one, because the branch
+    exists for a platform this suite may not be running on — and a branch nobody
+    runs is a branch that is wrong. On the Windows runner it is not faked at all:
+    the same function writes a real shortcut on a real desktop.
+    """
+    print("  Windows, on Windows")
+    base = tempfile.mkdtemp(prefix="agents-city-win-")
+    try:
+        datos = _ciudad(base, nombre="Aurora Games", ident="city_win_v1")
+        mesa = os.path.join(base, "Desktop")
+        os.makedirs(mesa)
+        orden = atajos.orden_de_ciudad(datos)
+        salida = atajos._crea_windows(datos, mesa, "Aurora Games", orden, "city_win_v1")
+        afirma("· a Windows desktop gets something it can double-click",
+               salida.endswith((".lnk", ".cmd")) and os.path.isfile(salida), salida)
+        # The .cmd is written either way — the .lnk points AT it — so its
+        # contents are the contract whichever one this machine could build.
+        guion = os.path.join(mesa, "Aurora Games.cmd")
+        crudo = open(guion, "rb").read()
+        afirma("· running the same front-door command as every other desktop",
+               orden.encode() in crudo, repr(crudo[:200]))
+        afirma("· non-happy: and its lines end the way that shell needs them to",
+               b"\r\n" in crudo and b"\n\n" not in crudo, repr(crudo[:200]))
+        # A city with an apostrophe in its name is the shape that breaks a
+        # PowerShell single-quoted string, and the shortcut is built by
+        # PowerShell.
+        comprueba("· a name with a quote in it cannot end the string early",
+                  atajos._ps("Jose's City"), "'Jose''s City'")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 def windows_bajo_wsl():
     """On Windows the product runs inside WSL, and that changes everything here.
 
@@ -375,6 +410,7 @@ el_icono()
 el_atajo()
 caminos_infelices()
 cada_escritorio()
+windows_de_verdad()
 windows_bajo_wsl()
 la_puerta()
 sys.exit(resumen("atajos"))

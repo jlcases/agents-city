@@ -234,6 +234,21 @@ def escritorio():
     if forzado:
         ruta = os.path.expanduser(forzado)
         return ruta if os.path.isdir(ruta) else ""
+    if sys.platform == "win32":
+        # Asked of Windows rather than assembled from a username: a redirected
+        # desktop — OneDrive, a domain profile — lives nowhere near
+        # C:/Users/<name>/Desktop, and a guess writes into a folder the person
+        # never sees.
+        try:
+            salida = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "[Environment]::GetFolderPath('Desktop')"],
+                capture_output=True, text=True, timeout=30)
+            ruta = salida.stdout.strip()
+            if salida.returncode == 0 and os.path.isdir(ruta):
+                return ruta
+        except (OSError, subprocess.SubprocessError):
+            pass
     if en_wsl():
         # The Windows desktop first: it is the one with icons on it. A WSL
         # install with no interop still gets its Linux desktop, which at least
@@ -358,6 +373,59 @@ def _crea_linux(datos, carpeta, nombre, orden, identidad, hall=False):
     return atajo
 
 
+def _crea_windows(datos, carpeta, nombre, orden, identidad):
+    """A shortcut on a Windows desktop, for a city running on Windows.
+
+    Not the WSL one below: there is no distro to cross into and no `wslpath` to
+    translate with. What it runs is the same front door a person would type, and
+    the front door is what npm put on PATH.
+
+    A `.lnk` is a COM object, so Windows builds it, through its own PowerShell —
+    which is also what lets it carry the city's icon. Where that fails (no
+    PowerShell, a locked-down policy) a `.cmd` is written instead: it
+    double-clicks the same and only lacks the icon, and a door with a plain icon
+    beats no door.
+    """
+    guion_cmd = os.path.join(carpeta, f"{nombre}.cmd")
+    with open(guion_cmd, "w", encoding="utf-8", newline="\r\n") as f:
+        f.write("@echo off\r\n" + orden + "\r\n")
+
+    icono = ""
+    try:
+        iconos = os.path.join(os.path.expanduser("~"), ".agents-city-icons")
+        os.makedirs(iconos, exist_ok=True)
+        icono = os.path.join(iconos, f"{cities.slug(datos) or 'city'}.ico")
+        with open(icono, "wb") as f:
+            f.write(ico(identidad))
+    except OSError:
+        icono = ""
+
+    atajo = os.path.join(carpeta, f"{nombre}.lnk")
+    guion = (
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut("
+        f"{_ps(atajo)});"
+        f"$s.TargetPath = {_ps(guion_cmd)};"
+        f"$s.WorkingDirectory = {_ps(os.path.expanduser('~'))};"
+        f"$s.Description = {_ps(f'Open {nombre}')};"
+    )
+    if icono:
+        guion += f"$s.IconLocation = {_ps(icono)};"
+    guion += "$s.Save()"
+    try:
+        hecho = subprocess.run(["powershell", "-NoProfile", "-Command", guion],
+                               capture_output=True, text=True, timeout=60)
+        if hecho.returncode == 0 and os.path.isfile(atajo):
+            return atajo
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return guion_cmd
+
+
+def _ps(valor):
+    """One value inside a PowerShell single-quoted string."""
+    return "'" + str(valor).replace("'", "''") + "'"
+
+
 def _crea_wsl(datos, carpeta, nombre, orden, identidad):
     """A real Windows shortcut for a city that lives inside WSL.
 
@@ -443,6 +511,8 @@ def crea(datos, hall=False, carpeta=""):
     try:
         if sys.platform == "darwin":
             return _crea_mac(datos, carpeta, nombre, orden, identidad, hall), ""
+        if sys.platform == "win32":
+            return _crea_windows(datos, carpeta, nombre, orden, identidad), ""
         if en_wsl():
             return _crea_wsl(datos, carpeta, nombre, orden, identidad), ""
         return _crea_linux(datos, carpeta, nombre, orden, identidad, hall), ""

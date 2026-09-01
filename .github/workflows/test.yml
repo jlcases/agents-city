@@ -199,6 +199,25 @@ jobs:
           if ($texto -notmatch 'launch.started') { throw "no launch.started in the diagnostics" }
           if ($texto -notmatch 'launch.exited') { throw "no launch.exited in the diagnostics" }
 
+      # Exploratory, and allowed to fail: the one thing a city still cannot do
+      # on Windows is open, because opening a city needs a window server and
+      # tmux has none here. herdr does. What this asks is whether it installs
+      # and answers on a headless runner at all — a driver written against a
+      # binary nobody has run is a promise, not a feature.
+      - name: can a window server exist on this machine at all
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          irm https://herdr.dev/install.ps1 | iex
+          $env:PATH = "$env:USERPROFILE\.herdr\bin;$env:LOCALAPPDATA\herdr\bin;$env:PATH"
+          herdr --help
+          herdr workspace --help
+          herdr pane --help
+          herdr workspace list
+          herdr workspace create --cwd $env:TEMP --label probe
+          herdr workspace list
+          herdr pane list
+
       # And a command that is still a shell program says so, by name, instead of
       # the product claiming it does not run here at all.
       - name: a shell-only command refuses with the reason
