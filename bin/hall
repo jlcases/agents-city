@@ -4,6 +4,12 @@
     ./bin/hall                open it
     ./bin/hall --city lab     open one known city
     ./bin/hall --no-browser   print the address instead
+    ./bin/hall --foreground   serve here, and stop when this window closes
+
+It runs detached, like the city bus and every other long-lived piece of this
+product. Closing the window that started it is not a way to break the page
+somebody is looking at, and its address survives a restart, so a tab left open
+overnight still works in the morning.
 
 One page on localhost: the selected city's identity, owner seat (role, folders,
 goal), repo support agents, recognised skills, roads, districts and houses. It
@@ -51,10 +57,72 @@ def asegura_build():
     return True
 
 
+def vivo():
+    """The URL of a Hall already serving on this machine, or ''.
+
+    Asked, not assumed: a marker file outlives a process that was killed, and
+    handing somebody a URL that answers nothing is exactly the broken tab this
+    change exists to remove.
+    """
+    import json
+    import urllib.error
+    import urllib.request
+
+    try:
+        with open(serve.marcador(), encoding='utf-8') as f:
+            url = str(json.load(f).get('url') or '')
+        if not url:
+            return ''
+        with urllib.request.urlopen(url, timeout=2) as r:
+            return url if r.status == 200 else ''
+    except (OSError, ValueError, urllib.error.URLError):
+        return ''
+
+
+def despega(datos, abrir):
+    """Start the Hall detached, and wait until it can actually answer.
+
+    Detached because every other long-lived piece of this product already is —
+    the bus hub, the gateways, the adapters — and the Hall was the one that died
+    with whichever terminal happened to start it. Closing a window is not
+    supposed to be a way to break the page somebody is looking at.
+
+    It waits for the address to serve rather than printing one optimistically: a
+    URL that is not up yet is the same broken tab, one second earlier.
+    """
+    import subprocess
+    import time
+    import webbrowser
+
+    subprocess.Popen(
+        [sys.executable, os.path.join(AQUI, 'serve.py'), datos],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+    limite = time.monotonic() + 25
+    while time.monotonic() < limite:
+        url = vivo()
+        if url:
+            print(f'\n  The town hall\n\n    {url}\n')
+            print('    It keeps running when you close this window.')
+            print('    Stop it with:  agents-city exit\n')
+            if abrir:
+                try:
+                    webbrowser.open(url)
+                except Exception:
+                    pass
+            return 0
+        time.sleep(0.2)
+    print('  The hall did not come up. Run it here to see why:', file=sys.stderr)
+    print(f'    {os.path.basename(sys.argv[0])} --foreground', file=sys.stderr)
+    return 1
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser(description='Open one personal city in the local Hall')
     ap.add_argument('--city', default='', help='known city name, id or path')
     ap.add_argument('--no-browser', action='store_true', help='print the URL only')
+    ap.add_argument('--foreground', action='store_true',
+                    help='serve in this window and stop when it closes')
     a = ap.parse_args()
     if not asegura_build():
         sys.exit(1)
@@ -68,6 +136,18 @@ if __name__ == '__main__':
         print(f"  This city belongs to {owner!r}, not {usuario!r}.", file=sys.stderr)
         sys.exit(1)
     cities.selecciona(usuario, datos)
-    sys.exit(0 if serve.sirve(datos,
-                              abrir=not a.no_browser,
-                              pagina='hall') else 0)
+    if a.foreground:
+        sys.exit(0 if serve.sirve(datos, abrir=not a.no_browser, pagina='hall') else 0)
+    # Already open: hand back the same address rather than starting a second
+    # hall and leaving somebody with two of them and no way to tell which.
+    ya = vivo()
+    if ya:
+        print(f'\n  The town hall is already open\n\n    {ya}\n')
+        if not a.no_browser:
+            import webbrowser
+            try:
+                webbrowser.open(ya)
+            except Exception:
+                pass
+        sys.exit(0)
+    sys.exit(despega(datos, abrir=not a.no_browser))

@@ -435,4 +435,27 @@ anota({
   'reading the domain packs': 'leyendo los paquetes de dominio',
   'reading the role files': 'leyendo los ficheros de rol',
   'an isometric house': 'una casa isométrica',
+
+  'Nothing leaves this machine, there is no account, and everything is a plain file you can edit by hand afterwards.':
+    'Nada sale de este ordenador, no hay cuenta, y todo es un fichero de texto que puedes editar a mano después.',
+  'it will live in {donde}': 'vivirá en {donde}',
+  // ── is this city actually running ─────────────────────────────────────────
+  open: 'abierta',
+  'not open — nothing of this city is running': 'cerrada — no hay nada de esta ciudad corriendo',
+  'without its plugin: this city runs with none of its rules':
+    'sin su plugin: esta ciudad corre sin ninguna de sus reglas',
+  '{n} agent running': '{n} agente en marcha',
+  '{n} agents running': '{n} agentes en marcha',
+
+  // ── when the hall is not there ────────────────────────────────────────────
+  'The town hall is closed': 'El ayuntamiento está cerrado',
+  'This page is out of date': 'Esta página se ha quedado antigua',
+  'It runs on this computer, not on the internet — so it stops when you stop it, and nothing was lost. Your city, your agents and everything you wrote are files on your disk, exactly as you left them.':
+    'Se ejecuta en este ordenador, no en internet — así que se para cuando lo paras, y no se ha perdido nada. Tu ciudad, tus agentes y todo lo que escribiste son ficheros en tu disco, exactamente como los dejaste.',
+  'The hall is running, but this tab is holding an address it no longer accepts. Nothing is wrong with your city — this page is just old.':
+    'El ayuntamiento está abierto, pero esta pestaña guarda una dirección que ya no acepta. Tu ciudad está bien — la vieja es la página.',
+  'To open it again, in a terminal:': 'Para volver a abrirlo, en una terminal:',
+  'Try again': 'Reintentar',
+  'Checking every few seconds…': 'Compruebo cada pocos segundos…',
+  'Looking…': 'Mirando…',
 });

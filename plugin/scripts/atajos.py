@@ -256,10 +256,25 @@ def _entrecomilla(valor):
     return "'" + str(valor).replace("'", "'\\''") + "'"
 
 
-def _guion_mac(orden):
+def _guion_mac(orden, en_terminal=True):
     """Open Terminal and run the city there — a city is a tmux session, and a
-    session with nowhere to draw itself is not an open city."""
+    session with nowhere to draw itself is not an open city.
+
+    The hall is the other case, and it is why this takes an argument. It runs
+    detached and opens the browser itself, so wrapping it in Terminal puts a
+    black window on screen that does nothing, stays there, and belongs to
+    somebody who clicked an icon precisely so they would not have to see one.
+    The whole point of that icon is that there is no terminal.
+    """
     escapada = orden.replace("\\", "\\\\").replace('"', '\\"')
+    if not en_terminal:
+        # Straight through. The hall detaches itself, opens the browser and
+        # returns, so there is nothing left for a window to hold.
+        return (
+            "#!/bin/sh\n"
+            "# Written by agents-city. Delete this bundle to remove the shortcut.\n"
+            f"exec {orden}\n"
+        )
     return (
         "#!/bin/sh\n"
         "# Written by agents-city. Delete this bundle to remove the shortcut.\n"
@@ -269,7 +284,7 @@ def _guion_mac(orden):
     )
 
 
-def _crea_mac(datos, carpeta, nombre, orden, identidad):
+def _crea_mac(datos, carpeta, nombre, orden, identidad, hall=False):
     paquete = os.path.join(carpeta, f"{nombre}.app")
     if os.path.exists(paquete):
         shutil.rmtree(paquete, ignore_errors=True)
@@ -279,7 +294,7 @@ def _crea_mac(datos, carpeta, nombre, orden, identidad):
     os.makedirs(recursos)
     ejecutable = os.path.join(macos, "abrir-ciudad")
     with open(ejecutable, "w", encoding="utf-8") as f:
-        f.write(_guion_mac(orden))
+        f.write(_guion_mac(orden, en_terminal=not hall))
     os.chmod(ejecutable, 0o755)
     info = {
         "CFBundleName": nombre,
@@ -303,7 +318,7 @@ def _crea_mac(datos, carpeta, nombre, orden, identidad):
     return paquete
 
 
-def _crea_linux(datos, carpeta, nombre, orden, identidad):
+def _crea_linux(datos, carpeta, nombre, orden, identidad, hall=False):
     iconos = os.path.join(
         os.path.expanduser(os.environ.get("XDG_DATA_HOME") or "~/.local/share"),
         "agents-city",
@@ -323,7 +338,9 @@ def _crea_linux(datos, carpeta, nombre, orden, identidad):
             "Comment=Open this Agents City city\n"
             f"Exec={orden}\n"
             f"Icon={icono}\n"
-            "Terminal=true\n"
+            # The hall opens a browser and needs no window of its own; a seat
+            # is a tmux session and has nowhere to draw itself without one.
+            f"Terminal={'false' if hall else 'true'}\n"
             "Categories=Development;\n"
         )
     os.chmod(atajo, 0o755)
@@ -425,10 +442,10 @@ def crea(datos, hall=False, carpeta=""):
     identidad = cities.identidad(datos) or nombre
     try:
         if sys.platform == "darwin":
-            return _crea_mac(datos, carpeta, nombre, orden, identidad), ""
+            return _crea_mac(datos, carpeta, nombre, orden, identidad, hall), ""
         if en_wsl():
             return _crea_wsl(datos, carpeta, nombre, orden, identidad), ""
-        return _crea_linux(datos, carpeta, nombre, orden, identidad), ""
+        return _crea_linux(datos, carpeta, nombre, orden, identidad, hall), ""
     except OSError as e:
         return "", f"could not write the shortcut: {e}"
 

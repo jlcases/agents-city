@@ -70,7 +70,45 @@ seat = _iu.module_from_spec(_s)
 _s.loader.exec_module(seat)
 
 FICHA = "PASE"  # the token's name, in one place
-PASE = secrets.token_urlsafe(24)
+
+
+def _pase_estable():
+    """One token per machine, kept between runs of the Hall.
+
+    It used to be minted per process, and that made the page in somebody's
+    browser disposable: close the Hall, open it again, and the tab they had is
+    permanently 403 — refreshing cannot help, because the address itself is
+    stale. So the only way back was to read a new URL out of a terminal, which
+    is a strange requirement for a product whose page is the product.
+
+    A stored token makes the address survive a restart, which is what lets a
+    dead page recover by itself when the Hall comes back.
+
+    It is the same class of secret as the bus token this product already stores,
+    it never leaves loopback, and the file is 0600. A machine where another user
+    can read your home directory has already lost this fight in a dozen easier
+    ways.
+    """
+    import runtime_processes
+
+    fichero = os.path.join(runtime_processes.raiz_estado(), "hall.pase")
+    try:
+        guardado = open(fichero, encoding="utf-8").read().strip()
+        if len(guardado) >= 32:
+            return guardado
+    except OSError:
+        pass
+    nuevo = secrets.token_urlsafe(24)
+    try:
+        os.makedirs(os.path.dirname(fichero), mode=0o700, exist_ok=True)
+        with open(os.open(fichero, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(nuevo + "\n")
+    except OSError:
+        pass  # an unwritable state dir means a fresh token per run, as before
+    return nuevo
+
+
+PASE = _pase_estable()
 
 # The demo cities' guided committees, when this Hall is serving one of them.
 # One process at most; /api/demo is its remote control and refuses real cities.
@@ -328,6 +366,39 @@ def estado_del_cli(a, ventanas):
         "installed": bool(shutil.which(binario)),
         "connected": a.slug in ventanas or a.nombre in ventanas,
     }
+
+
+#: The plugin answer, and when it was asked. Claude is a subprocess and this is
+#: read on every render; a second per paint would make the page feel broken in a
+#: different way from the one being fixed.
+_PLUGIN = {"cuando": 0.0, "ok": None}
+
+
+def plugin_de_verdad():
+    """Whether the conscience is installed, asked of Claude rather than guessed.
+
+    This used to be `isdir(~/.claude/plugins/cache/agents-city)`, and that
+    directory is the MARKETPLACE's cache — it appears the moment somebody adds
+    the marketplace, whether or not any plugin was ever installed from it. So a
+    machine with no city plugin showed a green "plugin installed" light, which is
+    worse than showing nothing: it is why the owner could not diagnose a seat
+    running with no guard, no commands and no journal. The product was telling
+    them it was fine.
+
+    A status light that reports health it did not verify is not a light.
+    """
+    import time
+
+    import conciencia
+
+    ahora = time.time()
+    if _PLUGIN["ok"] is None or ahora - _PLUGIN["cuando"] > 30:
+        try:
+            _PLUGIN["ok"] = conciencia.estado()[0]
+        except (OSError, ValueError):
+            _PLUGIN["ok"] = None
+        _PLUGIN["cuando"] = ahora
+    return _PLUGIN["ok"]
 
 
 def ventanas_vivas(owner, datos):
@@ -921,7 +992,7 @@ class Manejador(http.server.BaseHTTPRequestHandler):
                 "lab": sorted(lab),
                 "gh": gh.conectado(),
                 "tmux": sesiones,
-                "plugin": os.path.isdir(os.path.expanduser("~/.claude/plugins/cache/agents-city")),
+                "plugin": plugin_de_verdad(),
                 "mapa": mapa_vivo(datos),
                 "sesion": cities.sesion(owner, datos),
                 # The list always contains the city being looked at, registered or
@@ -1867,6 +1938,39 @@ HALL_JS = os.path.join(os.path.dirname(AQUI), "city", "web", "dist-hall", "hall.
 RESULTADO = []
 
 
+def marcador():
+    """Where a running Hall says where it is: url, port, pid.
+
+    A file rather than a fixed port, because a fixed port is a promise this
+    process cannot keep on somebody else's machine. It is what lets a second
+    `agents-city hall` open the browser at the Hall that is already up instead
+    of starting a second one, and what lets `agents-city exit` find it.
+    """
+    import runtime_processes
+
+    return os.path.join(runtime_processes.raiz_estado(), "hall.json")
+
+
+def _anuncia(url, puerto, destino):
+    try:
+        os.makedirs(os.path.dirname(marcador()), mode=0o700, exist_ok=True)
+        with open(os.open(marcador(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            json.dump({"url": url, "port": puerto, "pid": os.getpid(), "city": destino}, f)
+    except OSError:
+        pass  # a Hall that cannot announce itself still serves
+
+
+def olvida_marcador():
+    """Remove this Hall's marker, if it is still ours to remove."""
+    try:
+        with open(marcador(), encoding="utf-8") as f:
+            if json.load(f).get("pid") != os.getpid():
+                return
+        os.unlink(marcador())
+    except (OSError, ValueError):
+        pass
+
+
 def sirve(destino, abrir=True, pagina="hall"):
     """Serve the selected city's local Hall until it is stopped."""
     global DESTINO
@@ -1874,6 +1978,7 @@ def sirve(destino, abrir=True, pagina="hall"):
     with Servidor(("127.0.0.1", 0), Manejador) as s:
         puerto = s.server_port
         url = f"http://127.0.0.1:{puerto}/?{FICHA}={PASE}"
+        _anuncia(url, puerto, destino)
         titulo = "The town hall"
         print(f"\n  {titulo}\n")
         print(f"    {url}\n")
@@ -1890,6 +1995,8 @@ def sirve(destino, abrir=True, pagina="hall"):
             s.serve_forever()
         except KeyboardInterrupt:
             print("\n  Stopped.\n")
+        finally:
+            olvida_marcador()
     return RESULTADO[-1] if RESULTADO else (None, None)
 
 

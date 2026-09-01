@@ -268,6 +268,132 @@ def conciencia_acotada():
                f'{r.stdout!r} {residuos}')
 
 
+# ══ a page that loses its server says so ═════════════════════════════════════
+def la_pagina_no_se_queda_muda():
+    """Nielsen 1 and 9, wired where every request already passes.
+
+    A page whose server went away used to show nothing at all: the browser wrote
+    "Failed to fetch" into a console nobody has open, and the page sat there
+    looking healthy while every button quietly did nothing. Somebody who does
+    not know a web page can have a server on their own machine does not read
+    that as an error — they read it as the product having stopped being real.
+
+    Asserted at the seam rather than in a browser, and the reason is worth
+    keeping: a hall handed a token it refuses does not serve the PAGE either, so
+    the obvious way to stage this in Chrome produces no app to observe. Driving
+    the network-failure path needs a control that re-fetches, and hardcoding one
+    here would tie this check to a button somebody may rename. What is checked
+    is that the one function every request goes through raises the screen, that
+    the screen exists, and that it speaks in sentences rather than in status
+    codes.
+    """
+    print('  a page that loses its server says so')
+
+    def texto_de(ruta):
+        return open(os.path.join(RAIZ, ruta), encoding='utf-8').read()
+
+    hall = texto_de('city/web/src/hall.ts')
+    fuera = texto_de('city/web/src/desconectado.ts')
+    afirma('· every request goes through one function, so there is one place to say it',
+           hall.count('async function api<T>') == 1, '')
+    afirma('· a request that never came back raises the screen',
+           "anota('fetch failed'" in hall and "desconectado.muestra('cerrado')" in hall, '')
+    afirma('· and so does a token the hall no longer accepts',
+           "r.status === 403" in hall and "desconectado.muestra('caducado')" in hall, '')
+    afirma('· the journal is exempt, or a page that cannot report would report forever',
+           hall.count("ruta !== '/api/diario'") >= 3, '')
+    afirma('· the screen names the way back rather than describing it',
+           'agents-city hall' in fuera and 'reintentar' in fuera, '')
+    afirma('· it recovers on its own, for somebody who never sees the button',
+           'setInterval' in fuera and 'location.reload' in fuera, '')
+    afirma('· non-happy: and it never says fetch, failed or a status code to a person',
+           not re.search(r"_\(`?[^`']*\b(fetch|failed|403)\b", fuera), '')
+    # A status light that reports health it did not verify is not a light. This
+    # one was `isdir(~/.claude/plugins/cache/agents-city)` — the MARKETPLACE's
+    # cache, which appears the moment somebody adds the marketplace and says
+    # nothing about whether a plugin was ever installed from it. So a machine
+    # with no city plugin showed a green "installed", and its owner spent an
+    # afternoon unable to see why no rule was being enforced.
+    servidor_txt = texto_de('bin/serve.py')
+    # The value the page is handed, not the prose around it: this file keeps a
+    # tombstone naming the directory it used to guess at.
+    afirma('· the plugin light asks Claude rather than guessing at a directory',
+           '"plugin": plugin_de_verdad()' in servidor_txt
+           and 'isdir(os.path.expanduser("~/.claude/plugins' not in servidor_txt,
+           'a green light nobody verified is worse than no light')
+    afirma('· and it is cached, because a subprocess per repaint is its own bug',
+           '_PLUGIN' in servidor_txt and '> 30' in servidor_txt, '')
+    # Whether the city is running, on every screen and not just the front page.
+    # Called from the nav, not merely defined: a function nobody renders is a
+    # function that says nothing, and the whole point is that it is on screen
+    # wherever you are.
+    tira = hall[hall.index("q('#railCiudad')"):]
+    tira = tira[:tira.index(';')]
+    afirma('· the page says whether this city is running, wherever you are in it',
+           'estadoDeLaCiudad()' in tira,
+           'Nielsen 1 is continuous, not a panel somebody may never return to')
+    afirma('· and it only raises its voice for the state that costs something',
+           'E.plugin === false' in hall, '')
+
+    # One scale, or none. There were sixteen distinct font sizes in this
+    # stylesheet — 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5 — and eight
+    # radii. That is not a set of decisions, it is the absence of one, and it is
+    # what makes a page read as assembled rather than designed. Seven steps now,
+    # and a raw px here means somebody nudged instead of choosing.
+    # BOTH surfaces. The map is a separate bundle with its own stylesheet, and it
+    # already shared the palette for a stated reason — two frames in one window
+    # that disagree are two products. A scale it did not share was that same
+    # disagreement one layer down.
+    superficies = {'the hall': texto_de('bin/hall.html'),
+                   'the map': texto_de('city/web/index.html')}
+    for donde, css in superficies.items():
+        sueltos = re.findall(r'font-size:([0-9.]+)px', css)
+        afirma(f'· every size in {donde} comes from the scale, not from a nudge',
+               not sueltos, f'raw sizes: {sorted(set(sueltos))}')
+        radios = [r for r in re.findall(r'border-radius:([0-9]+)px', css) if r != '999']
+        afirma(f'· and so does every corner in {donde}, pills aside',
+               not radios, f'raw radii: {sorted(set(radios))}')
+        afirma(f'· {donde} defines the scale beside the palette it belongs with',
+               '--t0:' in css and '--t6:' in css and '--r1:' in css, '')
+        # Anchored at the start of a line, so it means the GLOBAL rule. Each file
+        # already had a ring on ONE control, and a check satisfied by that would
+        # have passed before the thing it exists for was written.
+        afirma(f'· a keyboard can see where it is in {donde}, not just on one control',
+               re.search(r'(?m)^:focus-visible\{outline', css) is not None,
+               'a ring on one control is an accident, not keyboard support')
+        afirma(f'· and {donde} honours a request for less motion, for everything',
+               re.search(r'(?m)^@media \(prefers-reduced-motion:reduce\)', css) is not None,
+               'naming two animations leaves out the third one nobody remembers')
+    hoja_txt = superficies['the hall']
+    afirma('· and the two surfaces agree on what a step is',
+           re.search(r'--t3:(\d+)px', hoja_txt).group(1)
+           == re.search(r'--t3:(\d+)px', superficies['the map']).group(1),
+           'one window, one scale')
+
+    # Typography is a property, not a taste. A 62ch measure is the width at
+    # which text is read rather than skimmed, and `.prosa` had set it for years
+    # while `.bv .prosa{max-width:100%}` threw it away on the one screen a
+    # person meets first — 110 characters a line, which is why the welcome read
+    # like documentation.
+    hoja = texto_de('bin/hall.html')
+    afirma('· the prose keeps a measure somebody can actually read',
+           'max-width:64ch' in hoja and '.bv .prosa{max-width:100%}' not in hoja,
+           'a line over ~75 characters stops being read and starts being skimmed')
+    afirma('· and the first screen is composed rather than left at the top edge',
+           'body.enGuia .cuerpo{display:flex' in hoja, '')
+    # No raw temp path in front of a person on their first screen.
+    bienvenida = texto_de('city/web/src/bienvenida.ts')
+    afirma('· a path is shortened before it is shown, never wrapped mid-path',
+           'function corto' in bienvenida and 'bvDato' in bienvenida,
+           'the middle of a long path is not information; the end is')
+
+    # The address it tells people to reopen has to be the one they already have,
+    # or "try again" can never work.
+    servidor = texto_de('bin/serve.py')
+    afirma('· the address survives a restart, which is what makes trying again work',
+           '_pase_estable' in servidor and 'hall.pase' in servidor, '')
+
+
 # ══ the demo is a city this code would write ═════════════════════════════════
 # ══ the shell has to run on somebody else's bash ═════════════════════════════
 def bash_que_no_es_la_de_macos():
@@ -894,6 +1020,7 @@ def main():
     rutas_reales()
     conciencia_acotada()
     bash_que_no_es_la_de_macos()
+    la_pagina_no_se_queda_muda()
     demo_coherente()
     varias_ciudades()
     el_aviso_lee_lo_que_viaja()

@@ -15,6 +15,7 @@ import './es'; // the Spanish dictionary registers itself on import
 import { FormularioDeCasa } from './casa';
 import { confirma, pregunta } from './dialogo';
 import { Demos } from './demo';
+import * as desconectado from './desconectado';
 import type { Vista } from './vista';
 import { Explorador } from './explorador';
 import { idioma, plural, ponIdioma, t as _ } from './idioma';
@@ -317,10 +318,17 @@ async function api<T>(ruta: string, opts?: RequestInit): Promise<T> {
     });
   } catch (e) {
     // A request that never came back. This is the one a person cannot report,
-    // because nothing on screen says it happened.
-    if (ruta !== '/api/diario') anota('fetch failed', String(e), ruta);
+    // because nothing on screen says it happened — so now something does.
+    if (ruta !== '/api/diario') {
+      anota('fetch failed', String(e), ruta);
+      desconectado.muestra('cerrado');
+    }
     throw e;
   }
+  // 403 is the other way to lose the server: it is up, and this tab holds an
+  // address it no longer accepts. Same experience for the person — every button
+  // stops working — so the same screen, worded for what it actually is.
+  if (r.status === 403 && ruta !== '/api/diario') desconectado.muestra('caducado');
   const cuerpo = (await r.json()) as T & { error?: string };
   if (ruta !== '/api/diario' && (!r.ok || cuerpo?.error))
     anota('api refused', { estado: r.status, error: cuerpo?.error }, ruta);
@@ -344,7 +352,16 @@ function esc(s: unknown): string {
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string,
   );
 }
-const corto = (p: string): string => p.replace(E.casa, '~');
+/** A path somebody can read at a glance.
+ *
+ * Home becomes `~`, and anything still long loses its MIDDLE rather than its
+ * end: the end is the part that identifies a folder, and a temp path wrapped
+ * across three lines of a sidebar is three lines of noise where one would do.
+ */
+const corto = (p: string): string => {
+  const casa = p.replace(E.casa, '~');
+  return casa.length > 46 ? '…' + casa.slice(casa.length - 45) : casa;
+};
 
 let toastTimer = 0;
 function toast(msg: string, mal = false): void {
@@ -831,6 +848,41 @@ function icono(kind: string): string {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14v12H5zM8 10h8m-8 4h5"/></svg>';
 }
 
+/**
+ * Whether this city is actually running, said on every screen.
+ *
+ * It used to be said on the overview and nowhere else, so anywhere past the
+ * front page you could be reading a city that was not open and had no way to
+ * tell. Nielsen's first heuristic is about the system saying what state it is
+ * in — continuously, not on one page somebody may never return to.
+ *
+ * Two lines when all is well and a third only when something is wrong, because
+ * a strip that is always shouting is a strip nobody reads. The wrong one earns
+ * its place: a city whose plugin is missing opens, answers, and runs with none
+ * of its rules — and until today the page showed a green light for it, which is
+ * how its owner spent an afternoon unable to see why nothing was being enforced.
+ */
+function estadoDeLaCiudad(): string {
+  const arriba = E.tmux.includes(E.sesion);
+  const vivos = (E.agents ?? []).filter((a) => a.cli?.connected).length;
+  const filas = [
+    arriba
+      ? `<span class="ecLuz on"></span>${_('open')} · ${plural(vivos, '{n} agent running', '{n} agents running')}`
+      : `<span class="ecLuz"></span>${_('not open — nothing of this city is running')}`,
+  ];
+  if (E.plugin === false) {
+    filas.push(
+      `<span class="ecLuz mal"></span>${_('without its plugin: this city runs with none of its rules')}`,
+    );
+  }
+  return `<div class="estadoCiudad">${filas.map((f) => `<div>${f}</div>`).join('')}</div>`;
+}
+
+/** A figure, with a zero drawn as the absence it is. */
+function cifra(n: number): string {
+  return `<b class="${n ? '' : 'cero'}">${n}</b>`;
+}
+
 function rail(): void {
   // Everything above the divider belongs to ONE city — its seat, its agents,
   // its map. Saying so here is the difference between a menu and a place: an
@@ -839,7 +891,8 @@ function rail(): void {
   const cuantos = (E.agents ?? []).length;
   q('#railCiudad').innerHTML = `<span class="railEtiqueta">${_('you are in')}</span>
     <b>${esc(E.city_name)}</b>
-    <span class="railDe">${esc(E.domain)} · ${plural(cuantos, '{n} house', '{n} houses')}</span>`;
+    <span class="railDe">${esc(E.domain)} · ${plural(cuantos, '{n} house', '{n} houses')}</span>
+    ${estadoDeLaCiudad()}`;
   q('#rail').innerHTML = SECCIONES.filter(([id]) => id !== 'ciudades')
     .map(([id, et]) => {
       const n =
@@ -1182,11 +1235,11 @@ VISTAS.resumen = () => {
              counted with <code class="mono">${esc(E.grow || 'nothing yet')}</code>.</p>`
       }</div>
     <div class="cifras">
-      <div class="cifra"><b>${Object.keys(E.skills).length}</b><span>${_('repo agents')}</span></div>
-      <div class="cifra"><b>${E.parcelas.length}</b><span>houses</span></div>
-      <div class="cifra"><b>${E.roads.length}</b><span>roads</span></div>
-      <div class="cifra"><b>${E.deliberations.length}</b><span>${_('committee acts')}</span></div>
-      <div class="cifra"><b>${Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0)}</b><span>${_('skills recognised')}</span></div>
+      <div class="cifra">${cifra(Object.keys(E.skills).length)}<span>${_('repo agents')}</span></div>
+      <div class="cifra">${cifra(E.parcelas.length)}<span>houses</span></div>
+      <div class="cifra">${cifra(E.roads.length)}<span>roads</span></div>
+      <div class="cifra">${cifra(E.deliberations.length)}<span>${_('committee acts')}</span></div>
+      <div class="cifra">${cifra(Object.values(E.skills).reduce((n, a) => n + a.skills.length, 0))}<span>${_('skills recognised')}</span></div>
     </div>
     <div class="luces">
       <span class="luz ${E.tarjetas.length ? 'on' : ''}">${_('data repo')}</span>

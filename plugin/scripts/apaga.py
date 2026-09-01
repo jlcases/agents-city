@@ -72,11 +72,31 @@ def sesiones_de_la_ciudad(solo=''):
 
 def servidores():
     """The Hall and an in-flight setup launcher, by their own entry points —
-    never a pattern loose enough to match somebody else's Python."""
+    never a pattern loose enough to match somebody else's Python.
+
+    `bin/serve.py` is here because the Hall stopped dying with its terminal: it
+    is spawned detached and shows up under its own name, so a pattern that only
+    knew `bin/hall` would leave a running web server behind on every exit and
+    report that it had closed everything.
+
+    Its marker is read as well as matched. pgrep finds a Hall whose marker was
+    lost; the marker finds one whose command line pgrep cannot see.
+    """
     pids = []
-    for patron in ('bin/hall', 'bin/setup.py'):
+    for patron in ('bin/hall', 'bin/serve.py', 'bin/setup.py'):
         salida = _corre(['pgrep', '-f', patron])
         pids += [int(p) for p in salida.split() if p.strip().isdigit()]
+    try:
+        import json
+
+        marca = os.path.join(runtime_processes.raiz_estado(), 'hall.json')
+        with open(marca, encoding='utf-8') as f:
+            pid = int(json.load(f).get('pid') or 0)
+        if pid > 0:
+            os.kill(pid, 0)  # only a live one counts
+            pids.append(pid)
+    except (OSError, ValueError, TypeError):
+        pass
     return sorted(set(pids) - {os.getpid(), os.getppid()})
 
 

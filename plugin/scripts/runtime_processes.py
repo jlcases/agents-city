@@ -9,6 +9,16 @@ import subprocess
 import cities
 
 
+def raiz_estado():
+    """Where this machine keeps what outlives one process.
+
+    The per-city runtime lives under here too; this is its parent, for the few
+    things that belong to the machine rather than to a city — the Hall's token
+    being the first, because a page has to keep working when the Hall restarts.
+    """
+    return os.path.join(cities.raiz(), '.runtime')
+
+
 def ruta(datos):
     ident = cities.identidad(datos)
     key = re.sub(r'[^a-z0-9-]+', '-', ident.lower()).strip('-')[:80] or 'city'
