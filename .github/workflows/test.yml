@@ -190,13 +190,22 @@ jobs:
         run: |
           irm https://herdr.dev/install.ps1 | iex
           $env:PATH = "$env:USERPROFILE\.herdr\bin;$env:LOCALAPPDATA\herdr\bin;$env:PATH"
-          herdr --help
-          herdr workspace --help
-          herdr pane --help
+          herdr --version
+          # Every command goes to a socket, and the first probe found no server
+          # listening. There is a headless one; whether it lives on a runner
+          # with no console is the whole question.
+          $srv = Start-Process -FilePath herdr -ArgumentList 'server' -PassThru `
+                   -RedirectStandardOutput herdr-server.out `
+                   -RedirectStandardError herdr-server.err
+          Start-Sleep -Seconds 5
+          "server pid: $($srv.Id)  alive: $(-not $srv.HasExited)"
+          herdr status server
           herdr workspace list
           herdr workspace create --cwd $env:TEMP --label probe
           herdr workspace list
+          herdr tab list
           herdr pane list
+          Get-Content herdr-server.out, herdr-server.err -ErrorAction SilentlyContinue
 
       # And a command that is still a shell program says so, by name, instead of
       # the product claiming it does not run here at all.
