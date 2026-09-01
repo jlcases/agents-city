@@ -163,10 +163,9 @@ agents-city --version
 | Node.js 22.13 or later | npm package, WebSocket bus, local reception, and frontends |
 | npm | installation and packaging |
 | Python 3 | Hall, onboarding, cities, maps, and utilities |
-| bash | sessions and launchers |
-| tmux | one window per seat/repo; `seat` tries to install it when missing |
-| macOS or Linux | natively supported platforms |
-| WSL | required on Windows because native Windows has no bash/tmux |
+| a window server | one window per seat/agent: **tmux** on macOS and Linux, **herdr** on Windows; `seat` tries to install it when missing |
+| macOS, Linux or Windows | all three natively. Four commands still need a shell — `city`, `demo`, `benchmark`, `test` — and say so by name on Windows |
+| bash | only for those four |
 | bubblewrap | optional, Linux only: it IS the cage there. Without it agents run uncaged — see [the cage](#the-cage-the-broker-and-the-audit-chain) |
 
 Each runtime also needs its own installed and authenticated CLI. Agents City
@@ -336,14 +335,16 @@ agents-city shortcut --remove     # take it off again
 agents-city shortcut --to ~/bin   # somewhere other than the desktop
 ```
 
-**On Windows** the city lives inside WSL, and a `~/Desktop` in WSL is the Linux
-home's desktop — which nobody ever looks at. So the shortcut is written to the
-**Windows** desktop instead, asked of Windows itself rather than guessed from a
-username (a desktop redirected to OneDrive or a domain profile is not under
-`C:\Users\<name>\Desktop`). It is a real `.lnk`, built through Windows' own
-PowerShell so it can carry an `.ico`, and it launches `wsl.exe` running the same
-command in a login shell. Where interop is unavailable, a double-clickable
-`.cmd` is written instead — same door, plain icon.
+**On Windows** it is a real `.lnk`, built through Windows' own PowerShell so it
+can carry an `.ico`, running the same front-door command as every other desktop.
+The desktop is asked of Windows itself rather than guessed from a username — one
+redirected to OneDrive or a domain profile is not under `C:\Users\<name>\Desktop`.
+Where PowerShell is unavailable a double-clickable `.cmd` is written instead:
+same door, plain icon.
+
+**Inside WSL** the shortcut still crosses back: a `~/Desktop` there is the Linux
+home's desktop, which nobody looks at, so the Windows desktop gets a `.lnk` that
+launches `wsl.exe` running the same command in a login shell.
 
 ### What gets created
 
@@ -989,7 +990,8 @@ script pretending:
 |---|---|---|
 | macOS | `.app` bundle running the city in Terminal | `.icns`, built with the system's `iconutil` |
 | Linux | `.desktop` entry, marked trusted where `gio` exists | `.png` under `XDG_DATA_HOME` |
-| Windows (WSL) | `.lnk` on the **Windows** desktop, launching `wsl.exe` | `.ico`, when PowerShell interop is reachable |
+| Windows | `.lnk` on the desktop, running the front-door command | `.ico`, built by hand; a `.cmd` without PowerShell |
+| Windows (inside WSL) | `.lnk` on the **Windows** desktop, launching `wsl.exe` | `.ico`, when PowerShell interop is reachable |
 
 All of them run the same line you would type, so the shortcut is a labelled
 button on the front door rather than a second way in. The icon is generated

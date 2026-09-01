@@ -316,20 +316,21 @@ def conciencia_acotada():
 def la_puerta_de_windows():
     """A ratchet, not a wish.
 
-    Windows is not a detail of this product's reach: it is most of the desktops
-    there are, and today `npm install` refuses outright — `os: [darwin, linux]`
-    in package.json, which is the honest thing to say while it is true.
+    Windows is most of the desktops there are, and this product used to refuse to
+    install on all of them. It does not any more, and what earned that is a
+    machine: the runner opens a city there — herdr server, a card, `sesion.py`,
+    and the chair's window found through the seam — alongside the card, the
+    workspaces, the hooks, the launcher and the shortcut.
 
-    What keeps it true is an inventory, and an inventory in a README rots. So it
-    is here, with the numbers, and it may SHRINK but never grow: a new shell
-    script on the way into a city, or a new front door that is not Python, fails
-    this. That is the whole mechanism — the gap cannot be widened by accident,
+    Four commands still need a shell, and they say so by name when somebody runs
+    them: the map, the demo, the benchmarks and the test runner.
+
+    The inventory stays, because an inventory in a README rots. It may SHRINK
+    but never grow: a new shell script on the way into a city, or a new front
+    door that is not Python, fails this. The gap cannot be widened by accident,
     only closed on purpose.
-
-    And the day somebody removes the `os` field, this asks them to have finished
-    first.
     """
-    print('  what still ties this product to POSIX')
+    print('  where this runs, and what is left of POSIX')
     paquete = json.load(open(os.path.join(RAIZ, 'package.json'), encoding='utf-8'))
 
     # 1. The shell on the way into a city. Five wrappers, each doing one thing,
@@ -353,7 +354,9 @@ def la_puerta_de_windows():
         capture_output=True, text=True).stdout or '{}')
     conShell = sorted(n for n, o in ordenes.items() if o.get('sh'))
     afirma(f'· {len(conShell)} of {len(ordenes)} commands are still shell programs',
-           len(conShell) <= 5, str(conShell))
+           len(conShell) <= 4, str(conShell))
+    afirma('· and the town hall is not one of them',
+           'hall' not in conShell, str(conShell))
 
     # 3. Every file this product reads or writes is UTF-8, said out loud. A
     #    bare `open()` takes the console's code page on Windows, which is how a
@@ -384,10 +387,12 @@ def la_puerta_de_windows():
     afirma('· the launcher is written for the machine it will run on',
            "'#!/usr/bin/env bash'" in lanzador and '@echo off' in lanzador, '')
 
-    # 5. And the promise on the tin matches all of that.
-    afirma('· package.json still says where this runs, and it is the truth',
-           paquete.get('os') == ['darwin', 'linux'],
-           'removing the os field means the four above are done — they are not')
+    # 5. And the promise on the tin matches all of that. Windows is claimed
+    #    because a machine says so, not because the code looks portable: the
+    #    runner opens a city there every time this is pushed.
+    afirma('· package.json says where this runs, and a runner agrees',
+           paquete.get('os') == ['darwin', 'linux', 'win32'],
+           str(paquete.get('os')))
 
 
 # ══ a page that loses its server says so ═════════════════════════════════════
