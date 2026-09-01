@@ -16,11 +16,27 @@ cd "$(git rev-parse --show-toplevel)"
 unset $(git rev-parse --local-env-vars 2>/dev/null) GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 echo "pre-commit: ruff"
-ruff check bin plugin/scripts city/scripts demo benchmarks
+ruff check bin plugin/scripts plugin/hooks city/scripts demo benchmarks
 
 echo "pre-commit: shellcheck"
-shellcheck -S warning plugin/scripts/*.sh plugin/hooks/*.sh bus/scripts/*.sh \
-  bin/bus bin/cities bin/committee bin/city bin/demo bin/reset bin/road bin/doctor bin/shortcut bin/skills bin/test bin/update
+# Found, not listed. A hand-written list misses the next script somebody adds,
+# and it BREAKS the day a folder empties: this gate refused a commit whose whole
+# point was removing the last shell script from plugin/hooks, because the glob
+# then matched nothing. So ask git what is tracked and read the shebang.
+GUIONES=()
+while IFS= read -r fichero; do
+  case "$fichero" in
+    *.sh) GUIONES+=("$fichero"); continue ;;
+    *.py|*.ts|*.js|*.json|*.md|*.yml|*.html|*.css) continue ;;
+  esac
+  [ -f "$fichero" ] || continue
+  case "$(head -c 60 "$fichero" 2>/dev/null)" in
+    '#!'*bash*|'#!'*/sh*|'#!'*"env sh"*) GUIONES+=("$fichero") ;;
+  esac
+done < <(git ls-files)
+if [ ${#GUIONES[@]} -gt 0 ]; then
+  shellcheck -S warning "${GUIONES[@]}"
+fi
 
 echo "pre-commit: prettier"
 npx --yes prettier --check 'city/web/src/*.ts' 'city/worker/src/*.ts' \

@@ -31,6 +31,8 @@ sys.path.insert(0, AQUI)
 sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
 
 import alcance  # noqa: E402
+
+GANCHO = os.path.join(RAIZ, "plugin", "hooks", "hook.py")
 import cities  # noqa: E402
 import consulta  # noqa: E402
 import diario  # noqa: E402
@@ -399,7 +401,7 @@ def el_momento_de_decidir(datos):
                     "AGENTS_CITY_DATA": datos, "CITY_BUS_ACTOR": "seat"})
         env.update(extra)
         r = subprocess.run(
-            ["/bin/bash", os.path.join(RAIZ, "plugin", "hooks", "who-does-this-concern.sh")],
+            [sys.executable, GANCHO, "who-does-this-concern"],
             input=json.dumps({"prompt": prompt}), capture_output=True, text=True, env=env,
         )
         try:
@@ -426,7 +428,7 @@ def el_momento_de_decidir(datos):
 
     hooks = json.load(open(os.path.join(RAIZ, "plugin", "hooks", "hooks.json")))
     afirma("· and Claude is told to run it when a prompt arrives",
-           "who-does-this-concern.sh" in json.dumps(hooks["hooks"]["UserPromptSubmit"]))
+           "who-does-this-concern" in json.dumps(hooks["hooks"]["UserPromptSubmit"]))
 
 
 # ── a guard that breaks a turn is worse than no guard ────────────────────────
@@ -541,7 +543,7 @@ def queda_escrito(datos, api):
 
 def el_gancho_de_verdad(datos, api):
     print("  the hook itself, over stdin, as Claude runs it")
-    gancho = os.path.join(RAIZ, "plugin", "hooks", "ask-the-house.sh")
+    gancho = [sys.executable, GANCHO, "ask-the-house"]
     entrada = json.dumps(
         {"tool_name": "Read", "tool_input": {"file_path": os.path.join(api, "app", "router.rb")},
          "cwd": datos}
@@ -556,7 +558,7 @@ def el_gancho_de_verdad(datos, api):
         })
         env.update(extra)
         return subprocess.run(
-            ["/bin/bash", gancho], input=entrada, capture_output=True, text=True, env=env
+            gancho, input=entrada, capture_output=True, text=True, env=env
         )
 
     r = corre()
@@ -580,7 +582,7 @@ def el_gancho_de_verdad(datos, api):
     hooks = json.load(open(os.path.join(RAIZ, "plugin", "hooks", "hooks.json")))
     texto = json.dumps(hooks["hooks"]["PreToolUse"])
     afirma("· and Claude is told to run it before EVERY tool, not a list of them",
-           "ask-the-house.sh" in texto and '"matcher": "*"' in texto,
+           "ask-the-house" in texto and '"matcher": "*"' in texto,
            'a list of tools is a list of the ways somebody thought of')
 
 
