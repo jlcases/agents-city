@@ -285,6 +285,62 @@ def conciencia_acotada():
            r.returncode == 0 and r.stdout.strip() == '{}', r.stdout)
 
 
+# ══ what still ties this product to POSIX ════════════════════════════════════
+def la_puerta_de_windows():
+    """A ratchet, not a wish.
+
+    Windows is not a detail of this product's reach: it is most of the desktops
+    there are, and today `npm install` refuses outright — `os: [darwin, linux]`
+    in package.json, which is the honest thing to say while it is true.
+
+    What keeps it true is an inventory, and an inventory in a README rots. So it
+    is here, with the numbers, and it may SHRINK but never grow: a new shell
+    script on the way into a city, or a new front door that is not Python, fails
+    this. That is the whole mechanism — the gap cannot be widened by accident,
+    only closed on purpose.
+
+    And the day somebody removes the `os` field, this asks them to have finished
+    first.
+    """
+    print('  what still ties this product to POSIX')
+    paquete = json.load(open(os.path.join(RAIZ, 'package.json'), encoding='utf-8'))
+
+    # 1. The shell on the way into a city. Five wrappers, each doing one thing,
+    #    down from 1,323 lines across the hooks, the session and the runtime.
+    conchas = sorted(glob.glob(os.path.join(RAIZ, 'plugin', '**', '*.sh'), recursive=True))
+    lineas = sum(len(open(c, encoding='utf-8').read().splitlines()) for c in conchas)
+    afirma(f'· the plugin ships {len(conchas)} shell files, {lineas} lines — and no more',
+           len(conchas) <= 5 and lineas <= 70,
+           f'{[os.path.relpath(c, RAIZ) for c in conchas]}')
+
+    # 2. The front doors. A door that is one `exec python3` line is a door that
+    #    only needs the dispatcher to name its script; a door with logic of its
+    #    own is a port. Counted apart, because they are different work.
+    puertas = [p for p in sorted(glob.glob(os.path.join(RAIZ, 'bin', '*')))
+               if os.path.isfile(p) and open(p, 'rb').read(30).startswith(b'#!')
+               and b'bash' in open(p, 'rb').read(60)]
+    conLogica = [p for p in puertas
+                 if len([l for l in open(p, encoding='utf-8').read().splitlines()
+                         if l.strip() and not l.strip().startswith('#')]) > 5]
+    afirma(f'· {len(conLogica)} front doors still carry shell logic of their own',
+           len(conLogica) <= 5,
+           f'{[os.path.basename(p) for p in conLogica]}')
+
+    # 3. The launcher every window runs. It is bash, and the command it runs is
+    #    composed as a POSIX shell line — an env prefix in front of a command —
+    #    which is the deepest of these and the one that is not a rename.
+    lanzador = open(os.path.join(RAIZ, 'plugin', 'scripts', 'launch.py'),
+                    encoding='utf-8').read()
+    afirma('· the generated launcher is still a shell program',
+           "'#!/usr/bin/env bash'" in lanzador,
+           'if this stopped being true, this check should be deleted, not passed')
+
+    # 4. And the promise on the tin matches all of that.
+    afirma('· package.json still says where this runs, and it is the truth',
+           paquete.get('os') == ['darwin', 'linux'],
+           'removing the os field means the four above are done — they are not')
+
+
 # ══ a page that loses its server says so ═════════════════════════════════════
 def la_pagina_no_se_queda_muda():
     """Nielsen 1 and 9, wired where every request already passes.
@@ -1050,6 +1106,7 @@ def main():
     una_definicion()
     rutas_reales()
     conciencia_acotada()
+    la_puerta_de_windows()
     bash_que_no_es_la_de_macos()
     la_pagina_no_se_queda_muda()
     demo_coherente()
