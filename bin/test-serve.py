@@ -1371,6 +1371,36 @@ def main():
             "· non-happy: a hand-written card with no roster section is left alone",
             "## Agents" not in open(ficha_completa, encoding="utf-8").read(),
         )
+        # Choosing Codex for an agent and then saving the seat replaced it with
+        # nothing — 200 both times, engine gone, nothing in the journal to say
+        # so. `p_ficha` rewrites the WHOLE card from a roster rebuilt out of
+        # `Agente`, which carries identity and not settings, and `como_ficha`
+        # defaulted the engine to empty. "I did not mention it" and "it has
+        # none" were the same sentence.
+        st, _ = pide(puerto, "/api/agente", metodo="POST",
+                     cuerpo={"agent": "urgencias-web", "runtime": "codex",
+                             "model": "gpt-5.6-sol", "effort": "high"})
+        comprueba("· happy: an agent can be told which CLI runs it", st, 200)
+        pide(puerto, "/api/ficha", metodo="POST", cuerpo={"role": "cpto", "domain": "software"})
+        carta_tras_guardar = open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read()
+        afirma(
+            "· non-happy: and saving the seat afterwards does not quietly forget it",
+            "runs.urgencias-web: codex" in carta_tras_guardar
+            and "model.urgencias-web: gpt-5.6-sol" in carta_tras_guardar
+            and "effort.urgencias-web: high" in carta_tras_guardar,
+            carta_tras_guardar,
+        )
+        st, _ = pide(
+            puerto, "/api/agentes", metodo="POST",
+            cuerpo={"name": "otra casa", "kind": "code", "role": "dev"},
+        )
+        carta_tras_casa = open(os.path.join(hallDatos, "halltest.md"), encoding="utf-8").read()
+        afirma(
+            "· non-happy: nor does adding another house next to it",
+            st == 200 and "runs.urgencias-web: codex" in carta_tras_casa,
+            carta_tras_casa,
+        )
+
         st, _ = pide(
             puerto, "/api/agentes", metodo="POST",
             cuerpo={"name": "urgencias web", "kind": "code", "role": "dev"},
