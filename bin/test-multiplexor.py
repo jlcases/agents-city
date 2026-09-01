@@ -133,7 +133,15 @@ def lo_que_pide_el_llamador(backends):
 def contra_uno_de_verdad():
     """Two real sessions, one of them named to trap the prefix match."""
     if not shutil.which(multiplexor.binario()):
-        afirma('· the window server is installed', False, 'not installed')
+        # A machine with no window server is a real state, not a broken test:
+        # it is exactly what Windows is today, and the table checks above are
+        # the part that runs there. CITY_MUX_REQUIRED makes the runners that DO
+        # install one fail loudly instead of quietly proving nothing.
+        if os.environ.get('CITY_MUX_REQUIRED') == '1':
+            afirma('· the window server is installed', False,
+                   f'{multiplexor.binario()} is required on this runner and is missing')
+        else:
+            print(f'    ({multiplexor.binario()} not here — the live section is skipped)')
         return False
     marca = 'agents-city-mux-' + uuid.uuid4().hex[:8]
     vecina = marca + '-2'

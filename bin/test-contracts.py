@@ -213,6 +213,33 @@ def rutas_reales():
                os.path.isfile(os.path.join(RAIZ, 'plugin', 'hooks', m))
                or os.path.isfile(os.path.join(RAIZ, 'plugin', 'scripts', m)), '')
 
+    # One command string for two shells. `||` means "only if the first failed"
+    # in both `sh` and `cmd.exe`, and a Windows install from python.org gives
+    # `python`, not `python3` — so the same line runs the hook on either.
+    #
+    # It is only safe because hook.py exits 0 on EVERY path, including an
+    # unhandled exception: if that ever stopped being true, a hook that answered
+    # and then failed would answer twice. So the invariant is checked here,
+    # against the dispatcher, rather than trusted.
+    gancho = importa_gancho()
+    for evento, grupos in hooks['hooks'].items():
+        for grupo in grupos:
+            for h in grupo['hooks']:
+                orden = h['command']
+                afirma(f'· {evento}: the command runs where python3 is not a name',
+                       ' || python ' in orden and orden.count('hook.py') == 2, orden)
+                izquierda, derecha = orden.split(' || ')
+                afirma(f'· {evento}: and both halves ask for exactly the same thing',
+                       izquierda.replace('python3 ', '') == derecha.replace('python ', ''),
+                       orden)
+    guion = os.path.join(RAIZ, 'plugin', 'hooks', 'hook.py')
+    for nombre in sorted(gancho.GANCHOS):
+        for entrada in ('{}', 'not json at all', ''):
+            r = subprocess.run([sys.executable, guion, nombre, 'SessionStart'],
+                               input=entrada, capture_output=True, text=True)
+            afirma(f'· {nombre} exits 0 on {entrada[:12]!r}, so `||` never fires twice',
+                   r.returncode == 0, f'{r.returncode} {r.stderr[-200:]!r}')
+
 
 # ══ the conscience stays inside the city ═════════════════════════════════════
 def conciencia_acotada():
@@ -313,18 +340,20 @@ def la_puerta_de_windows():
            len(conchas) <= 5 and lineas <= 70,
            f'{[os.path.relpath(c, RAIZ) for c in conchas]}')
 
-    # 2. The front doors. A door that is one `exec python3` line is a door that
-    #    only needs the dispatcher to name its script; a door with logic of its
-    #    own is a port. Counted apart, because they are different work.
-    puertas = [p for p in sorted(glob.glob(os.path.join(RAIZ, 'bin', '*')))
-               if os.path.isfile(p) and open(p, 'rb').read(30).startswith(b'#!')
-               and b'bash' in open(p, 'rb').read(60)]
-    conLogica = [p for p in puertas
-                 if len([l for l in open(p, encoding='utf-8').read().splitlines()
-                         if l.strip() and not l.strip().startswith('#')]) > 5]
-    afirma(f'· {len(conLogica)} front doors still carry shell logic of their own',
-           len(conLogica) <= 5,
-           f'{[os.path.basename(p) for p in conLogica]}')
+    # 2. The commands. Read from the dispatcher's own map: a command whose
+    #    implementation is Python or Node runs anywhere, and one that is still a
+    #    shell program is a port. Counted from the map rather than from the
+    #    folder, because the folder still holds the bash doors and they still
+    #    work — they are just no longer what the product runs.
+    ordenes = json.loads(subprocess.run(
+        ['node', '-e',
+         'const {ORDENES} = require(process.argv[1]);'
+         'console.log(JSON.stringify(ORDENES))',
+         os.path.join(RAIZ, 'bin', 'agents-city.js')],
+        capture_output=True, text=True).stdout or '{}')
+    conShell = sorted(n for n, o in ordenes.items() if o.get('sh'))
+    afirma(f'· {len(conShell)} of {len(ordenes)} commands are still shell programs',
+           len(conShell) <= 5, str(conShell))
 
     # 3. The launcher every window runs. It is bash, and the command it runs is
     #    composed as a POSIX shell line — an env prefix in front of a command —
@@ -862,6 +891,32 @@ def puerta_npm():
         capture_output=True, text=True).stdout
     afirma('· the longest command does not run into its description',
            'committee  chair-mediated' in salida, salida[:240])
+
+    # What each command actually runs, read from the map itself. Fifteen of
+    # these were one `exec python3 x.py "$@"` line in bash — a spelling of the
+    # interpreter, in the one language Windows does not have.
+    ordenes = json.loads(subprocess.run(
+        ['node', '-e',
+         'const {ORDENES} = require(process.argv[1]);'
+         'console.log(JSON.stringify(ORDENES))',
+         os.path.join(RAIZ, 'bin', 'agents-city.js')],
+        capture_output=True, text=True).stdout or '{}')
+    afirma('· the map is readable, and every command is in it',
+           len(ordenes) >= 20, str(sorted(ordenes))[:200])
+    for nombre, o in sorted(ordenes.items()):
+        destino = o.get('sh') or o.get('py') or o.get('node') or ''
+        afirma(f'· {nombre} names something that exists: {destino}',
+               bool(destino) and os.path.isfile(os.path.join(RAIZ, destino)), destino)
+        afirma(f'· {nombre} is listed in the help',
+               f"    {nombre.ljust(11)}" in salida, '')
+        if o.get('py'):
+            # A `py` entry that points at a shell door would look cross-platform
+            # and spawn bash through Python, which is the bug this shape exists
+            # to make impossible.
+            cabeza = open(os.path.join(RAIZ, destino), 'rb').read(30)
+            afirma(f'· {nombre} runs Python, not a shell wearing a .py name',
+                   destino.endswith('.py') and not cabeza.startswith(b'#!/usr/bin/env bash'),
+                   destino)
 
 
 def documentacion_publica():

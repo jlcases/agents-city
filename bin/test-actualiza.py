@@ -11,6 +11,7 @@ to `npm install -g` over somebody's git checkout.
 """
 
 import json
+import subprocess
 import os
 import shutil
 import sys
@@ -113,13 +114,22 @@ def no_toca_un_checkout():
 
 def la_puerta():
     print("  the command in the front door")
-    front = open(os.path.join(RAIZ, "bin", "agents-city.js"), encoding="utf-8").read()
-    for orden in ("update", "doctor"):
+    # Asked of the exported map. These two used to name a bash shim whose whole
+    # body was `exec python3 x.py "$@"` — a spelling of the interpreter, in the
+    # one language Windows does not have.
+    mapa = json.loads(subprocess.run(
+        ["node", "-e",
+         "const {ORDENES} = require(process.argv[1]);"
+         "console.log(JSON.stringify(ORDENES))",
+         os.path.join(RAIZ, "bin", "agents-city.js")],
+        capture_output=True, text=True).stdout or "{}")
+    for orden, modulo in (("update", "plugin/scripts/actualiza.py"),
+                          ("doctor", "plugin/scripts/doctor.py")):
         afirma(f"· `agents-city {orden}` is listed and points at one implementation",
-               f"{orden}: {{ que: ['bin/{orden}']" in front, "")
-    for guion in ("update", "doctor"):
-        texto = open(os.path.join(RAIZ, "bin", guion), encoding="utf-8").read()
-        afirma(f"· bin/{guion} holds no logic of its own",
+               mapa.get(orden, {}).get("py") == modulo, str(mapa.get(orden)))
+        # The bash door stays, for anybody who spells it, and stays a shim.
+        texto = open(os.path.join(RAIZ, "bin", orden), encoding="utf-8").read()
+        afirma(f"· bin/{orden} holds no logic of its own",
                ".py" in texto and "def " not in texto, texto)
 
 

@@ -197,9 +197,21 @@ def _del_llavero():
 
 
 def main(argv=None):
-    """`--shell` for a shell to evaluate, `repo` for this folder's repo name."""
+    """`--shell` for a shell to evaluate, `--json` for anything that is not a
+    shell, `repo` for this folder's repo name.
+
+    The JSON form exists because the npm front door has to establish the same
+    settings before it runs a Node command, and `export K=v` is not something
+    Node can evaluate — nor cmd.exe, which is the whole reason this matters.
+    """
     argv = sys.argv[1:] if argv is None else argv
     orden = argv[0] if argv else '--shell'
+    if orden == '--json':
+        import json  # noqa: PLC0415
+
+        env = resuelve()
+        print(json.dumps({k: env[k] for k in EXPORTA if env.get(k)}))
+        return 0
     if orden == 'repo':
         nombre = repo_de_la_ciudad()
         if not nombre:

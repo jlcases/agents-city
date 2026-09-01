@@ -14,6 +14,7 @@ import contextlib
 import os
 import shutil
 import struct
+import json
 import subprocess
 import sys
 import tempfile
@@ -353,9 +354,19 @@ def la_puerta():
     )
     afirma("· `agents-city shortcut --help` explains itself",
            "shortcut" in ayuda.stdout and "--remove" in ayuda.stdout, ayuda.stdout)
-    front = open(os.path.join(RAIZ, "bin", "agents-city.js"), encoding="utf-8").read()
-    afirma("· and the npm front door lists it", "shortcut:" in front)
-    afirma("· pointing at the one implementation", "bin/shortcut" in front)
+    # Asked of the map the front door exports, not of the text of the file:
+    # the door used to name a bash shim, and now it names the module — which is
+    # the whole reason `agents-city shortcut` works on a machine with no shell.
+    mapa = json.loads(subprocess.run(
+        ["node", "-e",
+         "const {ORDENES} = require(process.argv[1]);"
+         "console.log(JSON.stringify(ORDENES))",
+         os.path.join(RAIZ, "bin", "agents-city.js")],
+        capture_output=True, text=True).stdout or "{}")
+    afirma("· and the npm front door lists it", "shortcut" in mapa, str(sorted(mapa))[:200])
+    afirma("· pointing at the one implementation",
+           mapa.get("shortcut", {}).get("py") == "plugin/scripts/atajos.py",
+           str(mapa.get("shortcut")))
     guion = open(os.path.join(RAIZ, "bin", "shortcut"), encoding="utf-8").read()
     afirma("· which holds no logic of its own", "atajos.py" in guion and "def " not in guion)
 

@@ -63,6 +63,10 @@ jobs:
           # Same idea for the cage: this runner installs bubblewrap, so a run
           # where the live namespace checks skip is a run that tested nothing.
           CITY_CAGE_REQUIRED: '1'
+          # And the window server: this runner installs tmux, so a run where the
+          # live multiplexer checks skip is a run that tested a table and called
+          # it a seam.
+          CITY_MUX_REQUIRED: '1'
         run: ./bin/test
       - name: the typed front ends hold under tsc --strict
         run: cd city/web && npm run typecheck
@@ -105,28 +109,74 @@ jobs:
           npm run typecheck
           npm run build
 
-  # Windows runs this product through WSL, which no hosted runner gives us — so
-  # what CAN be checked here is checked here: the pure-Python modules that a
-  # Windows machine executes (the card, the roster, the desktop shortcut's icon
-  # and command building). It is deliberately not the whole suite: tmux and bash
-  # are not on this runner, and pretending otherwise would be a green tick that
-  # means nothing.
+  # Windows is most of the desktops there are, and this product refused to
+  # install on all of them. That is being closed, and this job is what makes the
+  # closing real rather than hopeful: every piece claimed to run there is run
+  # here, on a machine with no bash, no tmux and no POSIX shell.
+  #
+  # What is NOT here is as deliberate: opening a city needs a window server, and
+  # there is none on this runner. A green tick that covered it would mean
+  # nothing.
   test-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      # Written down rather than assumed. `python3` is the POSIX spelling and a
+      # Windows install from python.org gives `python` and `py`; which of them
+      # this runner has decides what the front door may spell.
+      - name: what this machine actually calls things
+        shell: pwsh
+        run: |
+          foreach ($n in 'python','python3','py','node','git','tmux','bash') {
+            $c = Get-Command $n -ErrorAction SilentlyContinue
+            if ($c) { "  $n -> $($c.Source)" } else { "  $n -> ABSENT" }
+          }
       # The disk scanner is here on purpose: it used to be a bash script, so on
-      # Windows there was simply no way to find a repository. It is Python now,
-      # and this is what keeps that true.
-      - name: the modules a Windows machine actually runs
+      # Windows there was simply no way to find a repository. It is Python now.
+      - name: the modules a Windows machine runs
         run: |
           python bin/test-card.py
           python bin/test-workspace.py
           python bin/test-atajos.py
           python bin/test-domains.py
           python bin/test-busca.py
+          python bin/test-multiplexor.py
+      # The front door itself. Fifteen commands stopped being bash doors, and
+      # what proves it is running them here rather than reading the map.
+      - name: the npm front door dispatches without a shell
+        shell: pwsh
+        run: |
+          node bin/agents-city.js --version
+          node bin/agents-city.js --help
+          node bin/agents-city.js doctor
+          node bin/agents-city.js cities list
+          if ($LASTEXITCODE -ne 0) { throw "a Python command failed on Windows" }
+      # The conscience, invoked exactly as Claude Code invokes it — through
+      # cmd.exe, with the one command string that has to work in two shells.
+      # `python3` is not a name on a Windows install from python.org, and the
+      # `|| python` half is what makes the same line run here.
+      - name: the hooks answer through cmd.exe
+        shell: cmd
+        run: |
+          set CLAUDE_PLUGIN_ROOT=%CD%\plugin
+          for /f "delims=" %%o in ('node -e "const h=require(''./plugin/hooks/hooks.json'');console.log(h.hooks.UserPromptSubmit[1].hooks[0].command)"') do set ORDEN=%%o
+          echo command: %ORDEN%
+          echo {} | %ORDEN%
+          if errorlevel 1 exit /b 1
+
+      # And a command that is still a shell program says so, by name, instead of
+      # the product claiming it does not run here at all.
+      - name: a shell-only command refuses with the reason
+        shell: pwsh
+        run: |
+          $salida = node bin/agents-city.js hall 2>&1 | Out-String
+          $salida
+          if ($LASTEXITCODE -eq 0) { throw "hall should refuse on Windows, not pretend" }
+          if ($salida -notmatch 'WSL') { throw "the refusal must say what to do" }
 
   # The cage is a macOS seatbelt profile checked against the live kernel, and
   # the broker guards what the cage seals. Linux cannot exercise either, so the
@@ -141,4 +191,5 @@ jobs:
       - name: install local channel dependencies
         run: npm --prefix plugin/channel ci --silent
       - name: the security suites against the real kernel
-        run: ./bin/test cage broker security workspace
+        env: {CITY_MUX_REQUIRED: '1'}
+        run: ./bin/test cage broker security workspace multiplexor
