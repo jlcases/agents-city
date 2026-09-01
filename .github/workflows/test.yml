@@ -205,6 +205,15 @@ jobs:
           herdr workspace list
           herdr tab list
           herdr pane list
+          # The exact flags, from the binary rather than from documentation: a
+          # driver written against remembered syntax is a driver that lies.
+          foreach ($c in @(
+              'workspace create','workspace close','tab create','tab list','tab close',
+              'tab focus','pane list','pane read','pane send-text','pane send-keys',
+              'pane run','pane process-info','pane close','session list')) {
+            "===== herdr $c --help"
+            & herdr $c.Split(' ') --help 2>&1 | Out-String
+          }
           Get-Content herdr-server.out, herdr-server.err -ErrorAction SilentlyContinue
 
       # And a command that is still a shell program says so, by name, instead of
