@@ -1347,7 +1347,7 @@ def agentes_de_ficha(ficha, datos):
         vivos = workspace.agentes(texto, datos)
     except ValueError:
         return []
-    return [workspace.como_ficha(a) for a in vivos]
+    return [workspace.como_ficha(a, workspace.ajustes_de(texto, a.slug)) for a in vivos]
 
 
 # What a roster looks like on a card is workspace.py's fact, not the wizard's:

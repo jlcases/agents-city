@@ -333,12 +333,42 @@ def sincroniza(agente, data):
     return [t for _, t in mounts_en_disco(data, agente.slug)]
 
 
-def como_ficha(agente, motor=None):
+#: What is somebody's SETTING for one agent rather than part of its identity:
+#: which CLI runs it, on what model, at what effort, with what face, in which
+#: window. `agentes()` does not carry them, because a reader does not need them
+#: — but a writer that rebuilds a card from `Agente` alone erases every one.
+AJUSTES = ('runs', 'model', 'effort', 'avatar', 'ui')
+
+
+def ajustes_de(texto, slug):
+    """One agent's settings as they stand on the card, ready to be written back.
+
+    This exists because `como_ficha` used to take `motor=None` and default it to
+    `{}`. Two of its four callers rewrite the WHOLE card, so "I did not mention
+    the engine" and "this agent has no engine" were the same sentence — and
+    saving your seat twenty seconds after choosing Codex for an agent replaced
+    it with nothing. The endpoint even carried a comment promising it never
+    emptied anything silently; it carried kind, role and mounts, and dropped
+    exactly this.
+    """
+    fuera = {}
+    for prefijo in AJUSTES:
+        valor = card.campo(texto, f'{prefijo}.{slug}')
+        if valor:
+            fuera[f'{prefijo}.{slug}'] = valor
+    return fuera
+
+
+def como_ficha(agente, motor):
     """One agent in the shape the card writers speak: a plain dict.
 
     `Agente` is what readers get; this is what writers take. Keeping the two
     shapes converted in one place is what stops the wizard and the Hall from
     each inventing their own idea of what an agent looks like on a card.
+
+    `motor` is REQUIRED, and that is the whole point: it was optional, it
+    defaulted to empty, and a caller that forgot it silently deleted somebody's
+    engine choice. A caller with nothing to say passes `{}` and has said so.
     """
     return {
         'nombre': agente.nombre,
