@@ -313,11 +313,39 @@ def sonda_compartida():
             os.environ.pop("CITY_CAGE_BWRAP", None)
         else:
             os.environ["CITY_CAGE_BWRAP"] = previo
-    lanzador = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"),
-                    encoding="utf-8").read()
-    afirma("the launcher asks once and exports the answer to every window",
-           "export CITY_CAGE_BWRAP" in lanzador and lanzador.count("$CAGE\" check") <= 1,
-           "")
+    # The launcher asks the kernel once and hands the answer to every window.
+    # `cage.py` runs as a fresh process per window, so without this the probe —
+    # which means actually building a namespace — is paid once per agent, and on
+    # a kernel that refuses them, paid slowly. Exercised by making this machine
+    # answer as Linux, because the branch does not exist anywhere else.
+    sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
+    import sesion  # noqa: PLC0415
+
+    veces = []
+    plataforma, sondeo = sesion.sys.platform, sesion.cage.bwrap_sirve
+    guardado = os.environ.pop("CITY_CAGE_BWRAP", None)
+    try:
+        sesion.sys.platform = "linux"
+        sesion.cage.bwrap_sirve = lambda: (veces.append(1), True)[1]
+        sesion.calienta_la_jaula()
+        primera = os.environ.get("CITY_CAGE_BWRAP")
+        sesion.calienta_la_jaula()          # a second window asks again
+        afirma("the launcher asks once and hands the answer to every window",
+               primera == "1" and len(veces) == 1 and os.environ["CITY_CAGE_BWRAP"] == "1",
+               f"{primera!r} probes={len(veces)}")
+        # And a kernel that refuses is remembered as a refusal, not re-probed.
+        os.environ.pop("CITY_CAGE_BWRAP", None)
+        veces.clear()
+        sesion.cage.bwrap_sirve = lambda: (veces.append(1), False)[1]
+        sesion.calienta_la_jaula()
+        afirma("non-happy: a kernel that refuses is remembered, not asked twice",
+               os.environ.get("CITY_CAGE_BWRAP") == "0" and len(veces) == 1,
+               os.environ.get("CITY_CAGE_BWRAP"))
+    finally:
+        sesion.sys.platform, sesion.cage.bwrap_sirve = plataforma, sondeo
+        os.environ.pop("CITY_CAGE_BWRAP", None)
+        if guardado is not None:
+            os.environ["CITY_CAGE_BWRAP"] = guardado
 
 
 def jaula_linux():

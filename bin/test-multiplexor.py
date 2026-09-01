@@ -40,7 +40,7 @@ NODO = ['node', '--experimental-strip-types', '--no-warnings']
 #: values only have to be recognisable.
 CAMPOS = {'session': 'alice-home', 'window': 'prod', 'target': 'alice-home:prod',
           'cwd': '/tmp/x', 'name': 'mouse', 'value': 'on', 'text': 'hola',
-          'buffer': 'buf-1', 'lines': '30'}
+          'buffer': 'buf-1', 'lines': '30', 'key': 'M-1', 'command': 'next-window'}
 
 
 def js_argv(verbos):

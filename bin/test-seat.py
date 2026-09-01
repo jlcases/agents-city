@@ -363,14 +363,13 @@ def caminos_infelices():
         "· while claude stays the default for windows without it",
         _c2.campo(open(fmix).read(), "runs.etl") == "",
     )
-    # The launcher reads a window's whole card line in one go now, so the key
-    # is spelled where the reading happens rather than in the shell. Follow it
-    # there: what matters is that `runs.<window>` still reaches a launch.
-    sesion = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")).read()
-    lector = open(os.path.join(RAIZ, "plugin", "scripts", "read-card.py")).read()
+    # The launcher reads the card once and asks it for each window's key, so
+    # this follows the key rather than a spelling: what matters is that
+    # `runs.<window>` still reaches a launch.
+    fuente = open(os.path.join(RAIZ, "plugin", "scripts", "sesion.py")).read()
     afirma(
         "· and the session script wires it in",
-        '"$LEER" --ventana "$FICHA" "$win"' in sesion and "f'runs.{win}'" in lector,
+        "c.campo(f'runs.{win}')" in fuente and "runtime_de(otro)" in fuente,
         "",
     )
     # Six lines, in the order the shell slices them out of. A field inserted in
@@ -582,20 +581,12 @@ def maquinas_hostiles():
         any(o[:3] == ["claude", "plugin", "install"] for o in llamadas),
         f"calls={llamadas!r}",
     )
-    lanzador = open(os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"),
+    lanzador = open(os.path.join(RAIZ, "plugin", "scripts", "sesion.py"),
                     encoding="utf-8").read()
     afirma(
         "· including the launcher, which is where the Hall and the shortcut meet",
-        "conciencia.py" in lanzador and "asegura" in lanzador,
+        "import conciencia" in lanzador and "conciencia.asegura()" in lanzador,
         "seat.py was the only door that ensured it, and it is not the only door",
-    )
-
-    # Windows. tmux is not a thing there outside WSL, and city-session.sh is bash.
-    afirma(
-        "· this is a POSIX front door and the tests know it",
-        os.name == "posix",
-        "On Windows this needs WSL: tmux and bash are both required. "
-        "That belongs in the README, not in a silent failure.",
     )
 
 
@@ -605,22 +596,24 @@ def opciones_tmux():
     if not shutil.which("tmux"):
         print("    (tmux not here — skipped)")
         return
-    guion = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
-    cuerpo = subprocess.run(
-        ["sed", "-n", "/^comodidades()/,/^}/p", guion], capture_output=True, text=True
-    ).stdout
-    servidor = f"city-test-{os.getpid()}"
-    subprocess.run(["tmux", "-L", servidor, "new-session", "-d", "-s", "p"], capture_output=True)
+    # The function itself, run against a server of this test's own. It used to
+    # be sliced out of the shell with `sed` and eval'd back, which could pass
+    # while nothing called it.
+    sitio = tempfile.mkdtemp(prefix="agents-city-tmux-")
+    entorno = dict(os.environ, TMUX_TMPDIR=sitio)
+    subprocess.run(["tmux", "new-session", "-d", "-s", "p"],
+                   capture_output=True, env=entorno)
     subprocess.run(
-        ["/bin/bash", "-c", cuerpo.replace("tmux ", f"tmux -L {servidor} ") + "\ncomodidades"],
-        capture_output=True,
+        [sys.executable, "-c",
+         "import sys; sys.path.insert(0, sys.argv[1]); import sesion; sesion.comodidades()",
+         os.path.join(RAIZ, "plugin", "scripts")],
+        capture_output=True, env=entorno,
     )
 
     def opt(nombre, ventana=False):
         return subprocess.run(
-            ["tmux", "-L", servidor, "show-options", "-gwv" if ventana else "-gv", nombre],
-            capture_output=True,
-            text=True,
+            ["tmux", "show-options", "-gwv" if ventana else "-gv", nombre],
+            capture_output=True, text=True, env=entorno,
         ).stdout.strip()
 
     # Window options. Setting these with -g fails silently, which is exactly how
@@ -646,7 +639,8 @@ def opciones_tmux():
         "%H:%M" in opt("status-right") and "#(" not in opt("status-right"),
         opt("status-right"),
     )
-    subprocess.run(["tmux", "-L", servidor, "kill-server"], capture_output=True)
+    subprocess.run(["tmux", "kill-server"], capture_output=True, env=entorno)
+    shutil.rmtree(sitio, ignore_errors=True)
 
 
 # ══ role, goal, and where the folders come from ════════════════════════════
@@ -1192,79 +1186,51 @@ def arranque_escalonado():
     print("  claude windows start one at a time")
 
     guion = os.path.join(RAIZ, "plugin", "scripts", "city-session.sh")
-    trozo = subprocess.run(
-        [
-            "sed",
-            "-n",
-            "-e",
-            "/^entero()/,/^}/p",
-            "-e",
-            "/^SETTLE=/p",
-            "-e",
-            "/^STAGGER=/p",
-            "-e",
-            "/^retraso()/,/^}/p",
-            guion,
-        ],
-        capture_output=True,
-        text=True,
-    ).stdout
-    afirma(
-        "· the delay arithmetic is where this test expects it",
-        "retraso()" in trozo and "SETTLE=" in trozo,
-        trozo[:200],
-    )
+    # The arithmetic and the sync line, asked of the functions themselves.
+    # They used to be extracted from the shell with `sed` and eval'd back — which
+    # meant the test could pass while the script called them with the wrong
+    # arguments, and could break because somebody moved a brace.
+    sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
+    import sesion  # noqa: PLC0415
 
-    sync_trozo = subprocess.run(
-        ["sed", "-n", "/^sync_line()/,/^}/p", guion],
-        capture_output=True,
-        text=True,
-    ).stdout
+    comprueba("· the first repo window carries the whole settle", sesion.retraso(0), 8)
+    comprueba("· the ones after it only space out", sesion.retraso(1), 9)
+    comprueba("· the eighteenth is not a two-minute wait", sesion.retraso(17), 25)
+    comprueba(
+        "· a chair on another engine means the first Claude waits for nobody",
+        sesion.retraso(-1), 0,
+    )
+    comprueba(
+        "· zero opens everything at once, for whoever wants that",
+        sesion.retraso(3, 0, 0), 0,
+    )
+    comprueba("· both knobs are honoured", sesion.retraso(2, 3, 2), 7)
+    comprueba(
+        "· a typo falls back to the default instead of crashing the day",
+        sesion.entero("ocho", sesion.SETTLE), 8,
+    )
+    comprueba("· and so does an empty one", sesion.entero("", sesion.STAGGER), 1)
+
+    # And the sync line stays quiet in a folder that is not a repository: a city
+    # folder usually is not one, and `fatal: not a git repository` at the top of
+    # somebody's chair window reads like the product is broken.
     no_repo = tempfile.mkdtemp(prefix="agents-city-non-git-")
     sync = subprocess.run(
-        [
-            "bash",
-            "-c",
-            f'DO_SYNC=1\n{sync_trozo}\ncd "$1"\neval "$(sync_line)"',
-            "sync-test",
-            no_repo,
-        ],
-        capture_output=True,
-        text=True,
+        ["bash", "-c", f'cd "$1"; {sesion.sync_line()}', "sync-test", no_repo],
+        capture_output=True, text=True,
     )
-    shutil.rmtree(no_repo)
+    shutil.rmtree(no_repo, ignore_errors=True)
     afirma(
         "· sync quietly skips a city folder that is not a Git repository",
         sync.returncode == 0
         and "fatal:" not in sync.stdout
-        and "fatal:" not in sync.stderr
-        and "git rev-parse --is-inside-work-tree" in sync_trozo,
+        and "fatal:" not in sync.stderr,
         f"stdout={sync.stdout!r} stderr={sync.stderr!r}",
     )
-
-    def retraso(n, **entorno):
-        return subprocess.run(
-            ["bash", "-c", f"{trozo}\nretraso {n}"],
-            capture_output=True,
-            text=True,
-            env=dict(os.environ, **entorno),
-        ).stdout.strip()
-
-    comprueba("· the first repo window carries the whole settle", retraso(0), "8")
-    comprueba("· the ones after it only space out", retraso(1), "9")
-    comprueba("· the eighteenth is not a two-minute wait", retraso(17), "25")
-    comprueba(
-        "· zero opens everything at once, for whoever wants that",
-        retraso(3, CITY_SETTLE="0", CITY_STAGGER="0"),
-        "0",
+    afirma(
+        "· non-happy: and --no-sync means no line at all, not a quiet one",
+        sesion.Opciones(["--no-sync"]).sync is False, "",
     )
-    comprueba("· both knobs are honoured", retraso(2, CITY_SETTLE="3", CITY_STAGGER="2"), "7")
-    comprueba(
-        "· a typo falls back to the default instead of crashing the day",
-        retraso(0, CITY_SETTLE="ocho"),
-        "8",
-    )
-    comprueba("· and so does an empty one", retraso(1, CITY_STAGGER=""), "9")
 
     # And now the real script, with a tmux that writes down what it is told
     # instead of running it. `has-session` has to fail, or the script decides the
@@ -1389,9 +1355,16 @@ def arranque_escalonado():
         and "CITY_BUS_ACTOR=api" in api
         and "CITY_BUS_ACTOR=docs" in docs,
     )
+    # Asked of the parsed command rather than of its spelling: the values are
+    # quoted now, because a city folder with a space in its name used to produce
+    # windows that launched somewhere else entirely.
+    def sin_carretera(linea):
+        piezas = shlex.split(linea)
+        return "CITY_BUS_URL=" in piezas and "CITY_BUS_TOKEN=" in piezas
+
     afirma(
         "· repo windows receive neither remote road URL nor token",
-        "CITY_BUS_URL= CITY_BUS_TOKEN=" in api and "CITY_BUS_URL= CITY_BUS_TOKEN=" in docs,
+        sin_carretera(api) and sin_carretera(docs), api[:200],
     )
     claude_contract = (asiento + "\n" + api).replace("\\", "")
     el_settings_sobrevive_a_la_shell(asiento, api)
@@ -1410,12 +1383,12 @@ def arranque_escalonado():
     # A house does need that, and keeps the gateway.
     afirma(
         "· the chair opens Claude Code itself, not a prompt in front of it",
-        "city-runtime.sh gateway seat" not in asiento and "claude" in asiento,
+        "runtimes.py gateway seat" not in asiento and "claude" in asiento,
         asiento[:400],
     )
     afirma(
         "· and an agent house still runs behind the gateway, so work can reach it",
-        "city-runtime.sh gateway api" in api, api[:400],
+        "runtimes.py gateway api" in api, api[:400],
     )
     afirma(
         "· neither uses Channels or an admin prompt",
@@ -1437,7 +1410,7 @@ def arranque_escalonado():
     )
     afirma(
         "· a known non-Claude runtime starts its native gateway without fallback",
-        "city-runtime.sh gateway docs" in docs
+        "runtimes.py gateway docs" in docs
         and "fallback" not in docs
         and "adapter.js" not in docs,
         docs[:300],
@@ -1519,7 +1492,7 @@ def arranque_escalonado():
     afirma(
         "· clearing the key puts plain Claude Code back in the seat",
         "claude" in asiento
-        and "city-runtime.sh gateway seat" not in asiento
+        and "runtimes.py gateway seat" not in asiento
         and "--channels" not in asiento,
         asiento[:160],
     )
@@ -1531,7 +1504,7 @@ def arranque_escalonado():
     api_tui = next((l for l in lineas if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· happy: `ui.api: tui` opens that house's own Claude Code, not a prompt in front of it",
-        "city-runtime.sh gateway api" not in api_tui and "claude" in api_tui,
+        "runtimes.py gateway api" not in api_tui and "claude" in api_tui,
         api_tui[:300],
     )
     aviso = subprocess.run(
@@ -1557,14 +1530,14 @@ def arranque_escalonado():
         (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· non-happy: and clearing the key puts the gateway back, which is the default",
-        "city-runtime.sh gateway api" in api_pasarela, api_pasarela[:300],
+        "runtimes.py gateway api" in api_pasarela, api_pasarela[:300],
     )
     card.pon_campo(ficha, "ui.api", "ventana-preciosa")
     api_raro = next(
         (l for l in corre(CITY_SETTLE="0", CITY_STAGGER="0") if "CITY_BUS_ACTOR=api" in l), "")
     afirma(
         "· non-happy: a value that is neither tui nor gateway is not a third mode",
-        "city-runtime.sh gateway api" in api_raro, api_raro[:300],
+        "runtimes.py gateway api" in api_raro, api_raro[:300],
     )
     card.pon_campo(ficha, "ui.api", "")
 
@@ -1574,7 +1547,7 @@ def arranque_escalonado():
     asiento = next((l for l in corre() if ":seat" in l), "")
     afirma(
         "· and `ui.seat: gateway` puts the city's own prompt back",
-        "city-runtime.sh gateway seat" in asiento, asiento[:200],
+        "runtimes.py gateway seat" in asiento, asiento[:200],
     )
     card.pon_campo(ficha, "ui.seat", "")
 

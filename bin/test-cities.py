@@ -189,27 +189,44 @@ def clave_de_ciudad():
             r.stderr,
         )
 
-    # The launcher consumes the key and routes it into the seat's own line: a
-    # source contract, because the seat launch itself needs a live tmux.
-    lanzador = open(
-        os.path.join(RAIZ, "plugin", "scripts", "city-session.sh"), encoding="utf-8"
-    ).read()
-    afirma(
-        "· city-session reads seat_yolo and arms the seat with it",
-        "cities.py\" clave \"$EQUIPO\" seat_yolo" in lanzador.replace("'", '"')
-        or "clave \"$EQUIPO\" seat_yolo" in lanzador,
-        "",
-    )
-    afirma(
-        "· the seat line carries the flag and the gateway auto-approve together",
-        "$SEAT_YOLO_FLAG" in lanzador and '"$SEAT_AUTO"' in lanzador,
-        "",
-    )
-    afirma(
-        "· --no-yolo still brakes the seat too",
-        '[ "$YOLO" -eq 0 ] && SEAT_YOLO=0' in lanzador,
-        "",
-    )
+        # The launcher consumes the key and arms the chair with it. Asked of
+        # the object it builds, not of the text of a script: the key, the flag
+        # and the gateway's auto-approve are three fields that have to agree,
+        # and reading a file could only ever check that three names appear in
+        # it.
+        sys.path.insert(0, os.path.join(RAIZ, "plugin", "scripts"))
+        import sesion  # noqa: PLC0415
+
+        open(os.path.join(home, "alice.md"), "w", encoding="utf-8").write(
+            "---\nuser: alice\nagent: alice/ceo\n---\n")
+        previo = dict(os.environ)
+        os.environ.update({"AGENTS_CITY_DATA": home, "AGENTS_CITY_USER": "alice"})
+        try:
+            cities.pon_clave(home, "seat_yolo", "1")
+            armada = sesion.Ciudad(sesion.Opciones([]))
+            afirma(
+                "· the launcher reads seat_yolo and arms the chair with it",
+                armada.seat_yolo_flag == " --dangerously-skip-permissions"
+                and armada.seat_auto == 1,
+                f"{armada.seat_yolo_flag!r} {armada.seat_auto}",
+            )
+            frenada = sesion.Ciudad(sesion.Opciones(["--no-yolo"]))
+            afirma(
+                "· non-happy: --no-yolo brakes the chair too, and its houses",
+                frenada.seat_yolo_flag == "" and frenada.seat_auto == 0
+                and frenada.yolo_flag == "",
+                f"{frenada.seat_yolo_flag!r} {frenada.seat_auto} {frenada.yolo_flag!r}",
+            )
+            cities.pon_clave(home, "seat_yolo", "0")
+            apagada = sesion.Ciudad(sesion.Opciones([]))
+            afirma(
+                "· non-happy: and with the key off the chair is asked, as by default",
+                apagada.seat_yolo_flag == "" and apagada.seat_auto == 0,
+                f"{apagada.seat_yolo_flag!r} {apagada.seat_auto}",
+            )
+        finally:
+            os.environ.clear()
+            os.environ.update(previo)
 
 
 def migracion_v1():
