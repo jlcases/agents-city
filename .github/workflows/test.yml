@@ -75,7 +75,7 @@ jobs:
       - name: the remote road relay holds its typed envelope and durable queue
         run: cd bus/worker && npm ci --silent && npm run typecheck && npm run test:local
       - name: python lint — bugbear, style, and the god-function gate (C901 ≤ 12)
-        run: pip install --quiet ruff && ruff check bin plugin/scripts plugin/hooks city/scripts demo benchmarks
+        run: pip install --quiet ruff && ruff check bin plugin/scripts plugin/hooks city demo benchmarks
       # Found, not listed. The hand-written list broke the day plugin/hooks
       # stopped containing shell — its glob matched nothing — and it had been
       # quietly missing seven scripts, bin/seat among them. Same rule as the
