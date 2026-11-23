@@ -56,7 +56,19 @@ The wire constant is `agents-city-relay/4`. A new Road works as follows:
    sender device. Rebinding ciphertext to other transport metadata fails.
 8. The recipient registers a bounded pool of one-use sealed capabilities and
    sends their secrets through the encrypted Road. Later sender submissions
-   contain only the capability and padded ratchet ciphertext.
+   contain only the capability and padded ratchet ciphertext. The pool exists
+   only while a Road is in use: a sender with no capability mints one of its
+   own, and that grant is what prompts the peer to fill its pool. A Road at
+   rest holds none and writes nothing to the relay. This has a price. The
+   relay sees a registration and a grant envelope, both identified, just before
+   the first sealed message after a pause: it can tell that a conversation
+   started on a Road, when, and which side started it. As before, it sees the
+   recipient replace each capability a message spent. It does not see content,
+   and no message names its sender. A message to a peer that is offline is
+   queued by the relay only while the peer's capabilities live, fifteen to
+   thirty minutes after the two last exchanged messages; after that the send
+   fails and it is for the sending program to try again, which the reception
+   outbox does.
 9. Decrypted text stays in encrypted local pending state until the Hall durably
    inserts it under the stable message ID and returns an exact inbox receipt.
    Before commit, an at-least-once retry returns the same pending plaintext and

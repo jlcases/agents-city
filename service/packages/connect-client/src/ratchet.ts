@@ -1250,7 +1250,15 @@ export class RoadRatchet {
     revision = 1,
     desired = DEFAULT_SEALED_CAPABILITY_POOL,
     now = Date.now(),
+    options: {
+      /** Mint this many even when the pool is whole, unless a grant is already owed. */
+      fresh?: number;
+      /** Count a capability as usable only if it outlives this. */
+      horizonMs?: number;
+    } = {},
   ): Promise<SealedCapabilityRegistration[]> {
+    const fresh = options.fresh ?? 0;
+    const horizonMs = options.horizonMs ?? SEALED_CAPABILITY_REFRESH_HORIZON_MS;
     const scope = roadScope(roadId, revision);
     if (
       !Number.isSafeInteger(desired)
@@ -1258,6 +1266,12 @@ export class RoadRatchet {
       || desired > MAX_SEALED_CAPABILITIES_PER_BATCH
       || !Number.isSafeInteger(now)
       || now < 0
+      || !Number.isSafeInteger(fresh)
+      || fresh < 0
+      || fresh > desired
+      || !Number.isSafeInteger(horizonMs)
+      || horizonMs < 0
+      || horizonMs >= MAX_SEALED_CAPABILITY_TTL_MS
     ) throw new Error('invalid_sealed_capability_request');
     return this.store.update(async (current) => {
       const state = requireInitialized(current);
@@ -1265,9 +1279,22 @@ export class RoadRatchet {
       const scoped = Object.values(state.inboundSealedCapabilities)
         .filter((capability) => roadScope(capability.roadId, capability.revision) === scope
           && capability.status !== 'consumed'
-          && capability.expiresAt > now + SEALED_CAPABILITY_REFRESH_HORIZON_MS);
+          && capability.expiresAt > now + horizonMs);
       const channelTag = scoped[0]?.channelTag ?? randomBase64url(24);
-      const needed = Math.max(0, desired - scoped.length);
+      // `fresh` mints even when the pool is whole: a new capability is the only
+      // thing a peer that let its own pool lapse will notice. It mints nothing
+      // when a grant is owed anyway (a registration or a share that did not
+      // finish), or when the road already holds twice the pool, so a sender
+      // that keeps asking cannot pile capabilities onto its peer.
+      const live = Object.values(state.inboundSealedCapabilities)
+        .filter((capability) => capability.roadId === roadId
+          && capability.revision === revision
+          && capability.status !== 'consumed'
+          && capability.expiresAt > now);
+      const owed = live.some((capability) => capability.status === 'pending'
+        || capability.sharedAt === null);
+      const wake = owed || live.length >= 2 * DEFAULT_SEALED_CAPABILITY_POOL ? 0 : fresh;
+      const needed = Math.max(wake, desired - scoped.length);
       if (Object.keys(state.inboundSealedCapabilities).length + needed > 4_096) {
         throw new Error('sealed_capability_state_full');
       }
@@ -1293,6 +1320,8 @@ export class RoadRatchet {
           && capability.revision === revision
           && capability.status === 'pending'
           && capability.expiresAt > now)
+        // One registration frame carries one batch; the rest go next time.
+        .slice(0, MAX_SEALED_CAPABILITIES_PER_BATCH)
         .map((capability) => ({
           tokenHash: capability.tokenHash,
           receiptTag: capability.receiptTag,
@@ -1410,12 +1439,17 @@ export class RoadRatchet {
         scoped.push({ ...capability });
         all.push(capability);
       }
-      if (all.length > 4_096 || scoped.length > MAX_SEALED_CAPABILITIES_PER_ROAD) {
-        throw new Error('sealed_capability_state_full');
-      }
-      state.outboundSealedCapabilities[scope] = scoped.sort(
+      if (all.length > 4_096) throw new Error('sealed_capability_state_full');
+      scoped.sort(
         (left, right) => left.expiresAt - right.expiresAt || left.receiptTag.localeCompare(right.receiptTag),
       );
+      // A peer that grants more than a road may hold loses the ones that expire
+      // first. Refusing the grant instead would leave it unacknowledged and
+      // redelivered for as long as it lives.
+      if (scoped.length > MAX_SEALED_CAPABILITIES_PER_ROAD) {
+        scoped.splice(0, scoped.length - MAX_SEALED_CAPABILITIES_PER_ROAD);
+      }
+      state.outboundSealedCapabilities[scope] = scoped;
       return { state, result: scoped.length };
     });
   }

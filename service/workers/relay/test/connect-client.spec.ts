@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers";
-import { applyD1Migrations, reset } from "cloudflare:test";
+import { applyD1Migrations, reset, runInDurableObject } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { onRequestPost as authorizeDevice } from "../../../functions/api/device/authorize";
 import { onRequestPost as approveDevice } from "../../../functions/api/device/approve";
@@ -779,6 +779,21 @@ describe("managed Connect end to end", () => {
     await Promise.all([leftSession.ready(), rightSession.ready()]);
     const leftRoad = leftSession.roads()[0]!;
     const rightRoad = rightSession.roads()[0]!;
+    // A connection nobody is using holds no capabilities: what the operator
+    // pays for is messages, not hours of computers left switched on.
+    const heldCapabilities = (endpoint: string) => runInDurableObject(
+      env.CITY_MAILBOX.getByName(endpoint),
+      (_instance, state) => state.storage.sql
+        .exec<{ held: number }>("SELECT COUNT(*) AS held FROM sealed_capabilities")
+        .one().held,
+    );
+    await eventually(async () => (
+      await left.ratchet.hasSession(leftRoad.id, leftRoad.revision)
+      && await right.ratchet.hasSession(rightRoad.id, rightRoad.revision)
+    ));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(await heldCapabilities(leftEndpoint)).toBe(0);
+    expect(await heldCapabilities(rightEndpoint)).toBe(0);
     const responderIsLeft = leftRoad.ratchetRole === "responder";
     const senderSession = responderIsLeft ? leftSession : rightSession;
     const senderIdentity = responderIsLeft ? left : right;
@@ -815,6 +830,9 @@ describe("managed Connect end to end", () => {
       senderRoad.revision,
     )).toHaveLength(0);
     expect(receivedCount).toBe(1);
+    // The first message woke both sides, and only then.
+    expect(await heldCapabilities(leftEndpoint)).toBeGreaterThan(0);
+    expect(await heldCapabilities(rightEndpoint)).toBeGreaterThan(0);
 
     const revoked = await invoke(
       revokeConnection,

@@ -1,6 +1,7 @@
 import {
   HYBRID_ESTABLISHMENT_SUITE,
   RELAY_PROTOCOL,
+  MAX_SEALED_CAPABILITY_TTL_MS,
   SEALED_CAPABILITY_REFRESH_INTERVAL_MS,
   parseRelayServerFrame,
   type RelayRoadDirectoryEntry,
@@ -23,8 +24,27 @@ import {
   submitSealedMessage,
 } from "./sealed-client";
 
+/** A sender with no capability asks its peer for some at most this often. */
+const SEALED_WAKE_INTERVAL_MS = 5_000;
+/**
+ * Answering a peer's grant replaces a pool older than two and a half minutes.
+ * A grant of half a pool or more is a peer starting or renewing, and is always
+ * answered, so a peer on an older client, which renews every twelve minutes
+ * and never asks, keeps capabilities. Smaller grants are the peer replacing
+ * what it spent, and are answered this way at most every ten minutes.
+ */
+const SEALED_POOL_GRANT = 16;
+const SEALED_ANSWER_HORIZON_MS = MAX_SEALED_CAPABILITY_TTL_MS - 150_000;
+const SEALED_ANSWER_INTERVAL_MS = 10 * 60_000;
+
 export type RelayTransport = {
   send: (raw: string) => void;
+  /**
+   * A WebSocket protocol ping, where the transport has one. The relay's
+   * platform answers it without waking the mailbox, so keeping a connection
+   * open costs the operator nothing.
+   */
+  ping?: () => void;
   close: (code?: number, reason?: string) => void;
   onMessage: (handler: (raw: string) => void) => void;
   onClose: (handler: () => void) => void;
@@ -155,6 +175,10 @@ export class ManagedRelaySession {
   private readonly readyPromise: Promise<void>;
   private inboundTail: Promise<void> = Promise.resolve();
   private sealedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Per road: until when the peer is using the capabilities handed to it. */
+  private readonly sealedActiveUntil = new Map<string, number>();
+  private readonly sealedWokeAt = new Map<string, number>();
+  private readonly sealedAnsweredAt = new Map<string, number>();
   private closed = false;
 
   constructor(
@@ -332,44 +356,57 @@ export class ManagedRelaySession {
     return result;
   }
 
-  private async primeSealedCapabilities(road: RelayRoadDirectoryEntry) {
-    if (!this.options.sealedSender || this.closed) return;
+  /**
+   * Tops up the capabilities this computer hands the peer so the peer can
+   * send without naming itself to the relay. Nothing calls this on a timer
+   * for a road nobody is using: a road at rest holds no capabilities and
+   * writes nothing. `fresh` mints one even when the pool is full, which is
+   * how a sender wakes a peer whose pool has lapsed.
+   */
+  private primeSealedCapabilities(
+    road: RelayRoadDirectoryEntry,
+    options: { fresh?: number; horizonMs?: number; desired?: number } = {},
+  ): Promise<void> {
+    if (!this.options.sealedSender || this.closed) return Promise.resolve();
     const scope = this.roadScope(road);
-    if (this.sealedBootstraps.has(scope)) return this.sealedBootstraps.get(scope)!;
-    const bootstrap = (async () => {
-      const pending = await this.identity.ratchet.ensureInboundSealedCapabilities(
-        road.id,
-        road.revision,
-      );
-      if (pending.length) {
-        await this.capabilityRequest({ type: 'capability_register', capabilities: pending });
-        await this.identity.ratchet.confirmInboundSealedCapabilities(
-          pending.map((capability) => capability.receiptTag),
+    const run = (this.sealedBootstraps.get(scope) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        if (this.closed || this.roadsById.get(road.id)?.revision !== road.revision) return;
+        const pending = await this.identity.ratchet.ensureInboundSealedCapabilities(
+          road.id,
+          road.revision,
+          options.desired,
+          undefined,
+          { fresh: options.fresh, horizonMs: options.horizonMs },
         );
-      }
-      const capabilities = await this.identity.ratchet.unsharedInboundSealedCapabilities(
-        road.id,
-        road.revision,
-      );
-      if (capabilities.length) {
-        const envelope = await createRoadCapabilityGrantEnvelope(
-          this.identity,
-          road,
-          capabilities,
+        if (pending.length) {
+          await this.capabilityRequest({ type: 'capability_register', capabilities: pending });
+          await this.identity.ratchet.confirmInboundSealedCapabilities(
+            pending.map((capability) => capability.receiptTag),
+          );
+        }
+        const capabilities = await this.identity.ratchet.unsharedInboundSealedCapabilities(
+          road.id,
+          road.revision,
         );
-        await this.sendEnvelope(envelope);
-        await this.identity.ratchet.confirmSharedInboundSealedCapabilities(
-          capabilities.map((capability) => capability.receiptTag),
-        );
-      }
-    })();
-    this.sealedBootstraps.set(scope, bootstrap);
-    try {
-      await bootstrap;
-    } catch (error) {
-      this.sealedBootstraps.delete(scope);
-      throw error;
-    }
+        if (capabilities.length) {
+          const envelope = await createRoadCapabilityGrantEnvelope(
+            this.identity,
+            road,
+            capabilities,
+          );
+          await this.sendEnvelope(envelope);
+          await this.identity.ratchet.confirmSharedInboundSealedCapabilities(
+            capabilities.map((capability) => capability.receiptTag),
+          );
+        }
+      });
+    this.sealedBootstraps.set(scope, run);
+    void run.catch(() => undefined).then(() => {
+      if (this.sealedBootstraps.get(scope) === run) this.sealedBootstraps.delete(scope);
+    });
+    return run;
   }
 
   private markSealedReady(road: RelayRoadDirectoryEntry) {
@@ -385,11 +422,15 @@ export class ManagedRelaySession {
 
   private async ensureSealedReady(road: RelayRoadDirectoryEntry) {
     if (await this.identity.ratchet.outboundSealedCapabilityCount(road.id, road.revision)) return;
-    void this.primeSealedCapabilities(road).catch((error) => this.options.onLocalError?.(
+    const scope = this.roadScope(road);
+    const wake = (this.sealedWokeAt.get(scope) ?? 0) + SEALED_WAKE_INTERVAL_MS <= Date.now();
+    if (wake) this.sealedWokeAt.set(scope, Date.now());
+    // A wake is one capability, not a pool: the peer may be away, and a
+    // message waiting for it must not cost what a conversation costs.
+    void this.primeSealedCapabilities(road, wake ? { fresh: 1, desired: 1 } : { desired: 1 }).catch((error) => this.options.onLocalError?.(
       error instanceof Error ? error : new Error('sealed_capability_bootstrap_failed'),
     ));
     return new Promise<void>((resolve, reject) => {
-      const scope = this.roadScope(road);
       const waiter: RoadSecurityWaiter = {
         resolve,
         reject,
@@ -458,8 +499,9 @@ export class ManagedRelaySession {
     if (!this.options.sealedSender || this.closed || this.sealedRefreshTimer) return;
     this.sealedRefreshTimer = setTimeout(() => {
       this.sealedRefreshTimer = null;
+      const now = Date.now();
       for (const road of this.roadsById.values()) {
-        this.sealedBootstraps.delete(this.roadScope(road));
+        if ((this.sealedActiveUntil.get(this.roadScope(road)) ?? 0) <= now) continue;
         void this.primeSealedCapabilities(road).catch((error) => this.options.onLocalError?.(
           error instanceof Error ? error : new Error('sealed_capability_refresh_failed'),
         ));
@@ -470,7 +512,8 @@ export class ManagedRelaySession {
 
   ping() {
     if (this.closed) throw new Error("relay_connection_closed");
-    this.transport.send(JSON.stringify({ type: "ping", at: Date.now() }));
+    if (this.transport.ping) this.transport.ping();
+    else this.transport.send(JSON.stringify({ type: "ping", at: Date.now() }));
   }
 
   close() {
@@ -740,12 +783,7 @@ export class ManagedRelaySession {
     const current = this.roadsById.get(road.id);
     if (!current || current.revision !== road.revision) return;
     this.secureRoads.add(scope);
-    if (this.options.sealedSender) {
-      void this.primeSealedCapabilities(road).catch((error) => this.options.onLocalError?.(
-        error instanceof Error ? error : new Error("sealed_capability_bootstrap_failed"),
-      ));
-      this.scheduleSealedRefresh();
-    }
+    if (this.options.sealedSender) this.scheduleSealedRefresh();
     const waiters = this.roadSecurityWaiters.get(scope);
     if (!waiters) return;
     this.roadSecurityWaiters.delete(scope);
@@ -760,6 +798,9 @@ export class ManagedRelaySession {
     this.secureRoads.delete(scope);
     this.roadBootstraps.delete(scope);
     this.sealedBootstraps.delete(scope);
+    this.sealedActiveUntil.delete(scope);
+    this.sealedWokeAt.delete(scope);
+    this.sealedAnsweredAt.delete(scope);
     const waiters = this.roadSecurityWaiters.get(scope);
     if (waiters) {
       this.roadSecurityWaiters.delete(scope);
@@ -881,6 +922,22 @@ export class ManagedRelaySession {
             );
             this.markSealedReady(road);
           }
+          // A grant is also the peer saying it means to talk, and the peer may
+          // have lost what it was handed before. A whole pool from the peer is
+          // answered with a whole pool unless this one was minted moments ago;
+          // a single replenished capability, at most once in a while. Either
+          // answer finds the peer's pool new and ends there: two peers cannot
+          // keep each other awake.
+          const scope = this.roadScope(road);
+          const answer = opened.capabilities.length >= SEALED_POOL_GRANT
+            || (this.sealedAnsweredAt.get(scope) ?? 0) + SEALED_ANSWER_INTERVAL_MS <= Date.now();
+          if (answer) this.sealedAnsweredAt.set(scope, Date.now());
+          void this.primeSealedCapabilities(
+            road,
+            answer ? { horizonMs: SEALED_ANSWER_HORIZON_MS } : {},
+          ).catch((error) => this.options.onLocalError?.(
+            error instanceof Error ? error : new Error("sealed_capability_bootstrap_failed"),
+          ));
         }
         await this.identity.ratchet.commitInbound(
           road.id,
@@ -983,7 +1040,7 @@ export class ManagedRelaySession {
         opened.messageId,
       );
       accepted.push(opened.messageId);
-      this.sealedBootstraps.delete(this.roadScope(road));
+      this.sealedActiveUntil.set(this.roadScope(road), Date.now() + MAX_SEALED_CAPABILITY_TTL_MS);
       void this.primeSealedCapabilities(road).catch((error) => this.options.onLocalError?.(
         error instanceof Error ? error : new Error("sealed_capability_replenishment_failed"),
       ));
