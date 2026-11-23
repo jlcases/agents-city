@@ -724,6 +724,33 @@ agents-city road disconnect product <remote-city-id>
 A city cannot connect to itself. Each machine must independently accept the
 other remote invitation.
 
+### `agents-city publish`
+
+Lets the network reach one of your herdr agents — as a separate, caged tab, and
+never the pane you are working in. Your own herdr agents stay private.
+
+```bash
+agents-city publish add ~/code/api --name api --level consult --workspace WORK
+agents-city publish open api
+agents-city publish ask api "Which endpoints changed this week?"
+agents-city publish pending
+agents-city publish approve <request-id>
+agents-city publish remove api
+```
+
+| Level | What the cage lets the agent touch | Delivery |
+|---|---|---|
+| `consult` | the mounted work is read-only | direct |
+| `request` | read-only | waits for the owner to `approve` |
+| `operate` | the mounted work is writable | direct |
+
+`open` creates a tab named `pub-<name>` in the herdr workspace and starts the
+agent behind the cage; on a machine that cannot cage a window it refuses rather
+than opening one uncaged. The agent answers by writing a file in its own
+workspace under `~/.agents-city/published/<name>/`, which is the only place a
+`consult` cage lets it write. `ask` is the local door; delivery of a question
+that arrives over a managed Road is not wired to it yet.
+
 ### `agents-city connect`
 
 Pairs this computer with a managed Road service. It does not create a

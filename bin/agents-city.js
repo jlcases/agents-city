@@ -48,6 +48,10 @@ const ORDENES = {
     py: 'plugin/scripts/workspace.py',
     di: 'list agents and manage their workspace mounts',
   },
+  publish: {
+    py: 'plugin/scripts/publicados.py',
+    di: 'let the network reach one caged herdr agent, at a level',
+  },
   road: { py: 'plugin/scripts/roads.py', di: 'connect two cities explicitly' },
   connect: {
     node: 'plugin/channel/managed-connect-cli.js',

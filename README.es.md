@@ -735,6 +735,35 @@ agents-city road disconnect producto <city-id-remoto>
 No se puede conectar una ciudad consigo misma. Una invitación remota debe
 aceptarse de forma independiente en cada máquina.
 
+### `agents-city publish`
+
+Deja que la red alcance a uno de tus agentes de herdr — como una pestaña
+aparte y enjaulada, nunca el panel en el que trabajas. Tus agentes de herdr
+siguen siendo privados.
+
+```bash
+agents-city publish add ~/code/api --name api --level consult --workspace WORK
+agents-city publish open api
+agents-city publish ask api "¿Qué endpoints han cambiado esta semana?"
+agents-city publish pending
+agents-city publish approve <request-id>
+agents-city publish remove api
+```
+
+| Nivel | Qué le deja tocar la jaula | Entrega |
+|---|---|---|
+| `consult` | el trabajo montado es de solo lectura | directa |
+| `request` | solo lectura | espera a que el dueño haga `approve` |
+| `operate` | el trabajo montado es escribible | directa |
+
+`open` crea una pestaña `pub-<nombre>` en el workspace de herdr y arranca el
+agente detrás de la jaula; en una máquina que no puede enjaular una ventana se
+niega en vez de abrirla sin jaula. El agente responde escribiendo un fichero en
+su propio workspace, `~/.agents-city/published/<nombre>/`, que es el único
+sitio donde una jaula `consult` le deja escribir. `ask` es la puerta local; la
+entrega de una pregunta que llega por una Road gestionada todavía no está
+conectada a esto.
+
 ### `agents-city connect`
 
 Empareja este ordenador con un servicio de Roads gestionadas. No crea una
