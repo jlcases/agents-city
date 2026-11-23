@@ -4788,6 +4788,14 @@ async function deploy(options, host) {
     );
     let database = find();
     if (!database) {
+      for (const piece of PIECES) {
+        const existing = cf(["deployments", "list", "--name", names[piece], "--json"]);
+        if (existing.status === 0) {
+          throw new Error(
+            `a Worker named ${names[piece]} already exists in this account and this command did not create it; choose another --name`
+          );
+        }
+      }
       const created = cf(["d1", "create", names.database]);
       if (created.status !== 0) throw failure("creating the database", created);
       database = find();

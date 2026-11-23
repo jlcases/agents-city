@@ -23,15 +23,57 @@ anybody's agents.
 | `packages/connect-client/`     | The client; `plugin/channel/managed-connect-client.js` is built here |
 | `packages/hybrid-crypto/`      | The post-quantum key establishment, in Rust, compiled to WebAssembly |
 
-## What does not work yet
+## Deploying it
 
-This is the source of the service, moved here so that anyone can read it, test
-it and run it. One thing is still missing before one command deploys it:
+One command, from a computer where `wrangler login` has been run:
 
-- **No deploy command.** `agents-city infra deploy` does not exist yet. The
-  `wrangler.jsonc` files here are the configuration the tests run against; their
-  database id is a placeholder. Until it exists, nothing here has run on a real
-  Cloudflare account, the terminal sign-up below included.
+```bash
+agents-city infra deploy --as ana
+```
+
+It creates a D1 database, deploys the witness, the relay and the control plane
+as three Workers, generates every key and secret, publishes the signed root of
+trust, writes `agents-city-trust.json`, and signs this computer in as `ana`,
+the first account and the owner of whatever it creates next. It asks for no API
+key and prints no secret: private material goes from this process to wrangler's
+standard input and nowhere else.
+
+| Option              | What it does                                               |
+| :------------------ | :--------------------------------------------------------- |
+| `--name NAME`       | Prefix of everything it creates. Default `agents-city`     |
+| `--account ID`      | The Cloudflare account, when your login reaches several    |
+| `--as HANDLE`       | Also make the first account, here, and sign in             |
+| `--trust-file FILE` | Where to write the trust file. Default `./NAME-trust.json` |
+
+Then, for each colleague:
+
+```bash
+agents-city orgs create acme
+agents-city orgs invite acme                # prints a join code
+# on the colleague's computer, with the trust file you sent them:
+agents-city auth login --service URL --trust-file agents-city-trust.json --as maria --join
+```
+
+**Running it again upgrades the service.** It deploys the current code, applies
+new migrations, and leaves every key as it is.
+
+**Keep the computer that first deployed.** The root key, which signs who the
+service's keys are, is in that computer's keyring and nowhere else. The root it
+signs lasts a year; `infra deploy` renews it when fewer than ninety days are
+left, and can only do so from there. Lose that key and every computer has to
+sign in again against a new deployment.
+
+**The witness is yours too.** A witness co-signs the public key log so that the
+operator of the relay cannot quietly show two people different keys. Here one
+operator runs both, in one account, so the witness catches a fault, not a
+dishonest operator. It runs as `APP_ENV=self-hosted` so that nobody mistakes it
+for an independent one.
+
+From a source checkout, build the three Workers first:
+
+```bash
+cd service && npm ci && npm run build:workers
+```
 
 ## What it costs to run
 

@@ -30,6 +30,11 @@ const cloudflare = (accounts = [{ id: ACCOUNT, name: 'Acme' }]) => {
     state.calls.push({ args, input, account });
     const config = () => JSON.parse(readFileSync(args[args.indexOf('--config') + 1]!, 'utf8'));
     if (args[0] === 'whoami') return ok(JSON.stringify({ loggedIn: true, accounts }));
+    if (args[0] === 'deployments') {
+      return state.deployed.includes(args[args.indexOf('--name') + 1]!)
+        ? ok('[]')
+        : { status: 1, stdout: '', stderr: 'This Worker does not exist on your account.' };
+    }
     if (args[0] === 'd1' && args[1] === 'list') return ok(JSON.stringify(state.databases));
     if (args[0] === 'd1' && args[1] === 'create') {
       state.databases.push({ uuid: '11111111-1111-4111-8111-111111111111', name: args[2]! });
@@ -235,6 +240,14 @@ describe('agents-city infra deploy', () => {
         ? ok(JSON.stringify([{ uuid: 'x', name: 'other-name-control' }]))
         : result;
     }))).rejects.toThrow('published under another address');
+
+    // A Worker of that name that this command did not create is left alone.
+    const taken = cloudflare();
+    taken.state.deployed.push('agents-city-relay');
+    await expect(deploy(options(), host(taken.wrangler)))
+      .rejects.toThrow('a Worker named agents-city-relay already exists');
+    expect(taken.state.databases).toEqual([]);
+    expect(taken.state.deployed).toEqual(['agents-city-relay']);
 
     rmSync(join(directory, 'service', 'dist', 'relay'), { recursive: true });
     await expect(deploy(options(), host(cloudflare().wrangler))).rejects.toThrow('not built');
