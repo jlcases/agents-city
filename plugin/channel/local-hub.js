@@ -7255,6 +7255,7 @@ import { join as join13 } from "node:path";
 import {
   ConnectApiError,
   beginDeviceAuthorization,
+  enrollDeviceAccount,
   listDeviceRoads,
   organizationRequest,
   pollDeviceAuthorization,

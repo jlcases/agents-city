@@ -60,6 +60,8 @@ export type ControlEnv = {
   WEBAUTHN_RP_ID?: string;
   WEBAUTHN_ORIGIN?: string;
   TURNSTILE_SECRET_KEY?: string;
+  /** Makes the first account from a terminal; inert once any account exists. */
+  SIGNUP_BOOTSTRAP_SECRET?: string;
   MANAGED_CONNECT_RELEASE_CHANNEL?: string;
   APP_ENV?: string;
 };

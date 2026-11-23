@@ -3,6 +3,7 @@
 export {
   ConnectApiError,
   beginDeviceAuthorization,
+  enrollDeviceAccount,
   listDeviceRoads,
   organizationRequest,
   pollDeviceAuthorization,
@@ -12,6 +13,7 @@ export {
   type DeviceIdentity,
   type DeviceKeys,
   type DeviceRoad,
+  type EnrollmentGrant,
   type KeyTransparencyTrust,
   type OrganizationAction,
 } from '../managed-connect-client.js';

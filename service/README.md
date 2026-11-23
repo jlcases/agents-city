@@ -26,14 +26,29 @@ anybody's agents.
 ## What does not work yet
 
 This is the source of the service, moved here so that anyone can read it, test
-it and run it. Two things are still missing before one command deploys it:
+it and run it. One thing is still missing before one command deploys it:
 
 - **No deploy command.** `agents-city infra deploy` does not exist yet. The
   `wrangler.jsonc` files here are the configuration the tests run against; their
-  database id is a placeholder.
-- **No sign-up without a browser.** An account is created with a passkey, on a
-  web page this directory does not contain. Creating the first account from the
-  terminal is the next change.
+  database id is a placeholder. Until it exists, nothing here has run on a real
+  Cloudflare account, the terminal sign-up below included.
+
+## Accounts without a website
+
+`POST /api/device/enroll` creates an account from the terminal and approves the
+computer asking for it. Exactly one of two things permits it:
+
+- **A join code.** Whoever holds an organization's code was invited by one of
+  its administrators. The code is checked here and spent only by the signed
+  join that follows: `agents-city auth login --as maria --join org_...`.
+- **The operator's secret.** `SIGNUP_BOOTSTRAP_SECRET`, at least 32 characters,
+  set when deploying. It works only while the service has no account at all,
+  so it makes the first owner and is inert afterwards:
+  `agents-city auth login --as ana --bootstrap`.
+
+An account made this way has no passkey and no recovery code. It lives in the
+keys of the computer that created it; if they are lost, an administrator's new
+invitation is the way back, under a new handle.
 
 ## Known limits of organizations
 

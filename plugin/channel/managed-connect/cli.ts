@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import {
   beginDeviceAuthorization,
   ConnectApiError,
+  enrollDeviceAccount,
   listDeviceRoads,
   organizationRequest,
   pollDeviceAuthorization,
@@ -46,7 +47,52 @@ type CliOptions = {
   identityOnly: boolean;
   /** Reached through `agents-city auth`, so messages name that command. */
   viaAuth: boolean;
+  /** `auth login --as`: make the account here, with no browser to approve it. */
+  enroll: Enrollment | null;
 };
+
+/** An account made from the terminal: its handle, and what permits it. */
+type Enrollment = { account: string; code: string } | { account: string; bootstrap: true };
+
+const HANDLE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const JOIN_CODE = /^org_[A-Za-z0-9_-]{36,124}$/;
+
+/** One line from standard input, not echoed when it is typed at a terminal. */
+async function secretLine(prompt: string): Promise<string> {
+  const input = process.stdin;
+  if (!input.isTTY) {
+    let piped = '';
+    for await (const chunk of input) piped += chunk;
+    return piped.split(/\r?\n/, 1)[0] ?? '';
+  }
+  process.stderr.write(prompt);
+  input.setRawMode(true);
+  input.resume();
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      let typed = '';
+      const onData = (chunk: Buffer) => {
+        for (const char of chunk.toString('utf8')) {
+          if (char === '\r' || char === '\n') {
+            input.off('data', onData);
+            return resolve(typed);
+          }
+          if (char === '\u0003') {
+            input.off('data', onData);
+            return reject(new Error('cancelled'));
+          }
+          if (char === '\u007f') typed = typed.slice(0, -1);
+          else typed += char;
+        }
+      };
+      input.on('data', onData);
+    });
+  } finally {
+    input.setRawMode(false);
+    input.pause();
+    process.stderr.write('\n');
+  }
+}
 
 function usage(): string {
   return `usage:
@@ -81,6 +127,8 @@ async function openOrganizations(): Promise<Ask> {
 function authUsage(): string {
   return `usage:
   agents-city auth login [--sandbox | --service URL] [--trust-file FILE] [--no-open]
+  agents-city auth login --service URL --trust-file FILE --as HANDLE --join CODE
+  agents-city auth login --service URL --trust-file FILE --as HANDLE --bootstrap
   agents-city auth status [--json]
 
 Signs this computer in to a managed service. It creates the signing and
@@ -88,7 +136,14 @@ encryption keys here, prints a one-use PASCO and opens the browser to approve
 it; no private key and no reusable token ever leaves this computer. With no
 local city it signs in the account alone, which is all \`agents-city orgs\`
 needs. --sandbox is the managed sandbox, the only service whose signed root
-ships with Agents City; any other service needs --service and --trust-file.`;
+ships with Agents City; any other service needs --service and --trust-file.
+
+On a service with no website there is no browser step. --as HANDLE creates the
+account from here: with --join, for whoever holds an organization's join code,
+which also seats them in it; with --bootstrap, for the operator, who is asked
+for the secret set at deploy time and becomes the first account. An account made
+this way has no passkey: it lives in this computer's keys, and an
+administrator's new invitation is the way back if they are lost.`;
 }
 
 /** `agents-city auth <verb>` is the account's face of the same device flow. */
@@ -112,7 +167,11 @@ function optionsOf(args: string[]): CliOptions {
     command: 'connect',
     identityOnly: false,
     viaAuth: false,
+    enroll: null,
   };
+  let account = '';
+  let code = '';
+  let bootstrap = false;
   const rest = [...args];
   let sandbox = false;
   let service = false;
@@ -134,7 +193,16 @@ function optionsOf(args: string[]): CliOptions {
       const value = rest.shift();
       if (!value) throw new Error('--trust-file needs a JSON file');
       options.trustFile = value;
-    } else if (arg === '--sandbox') sandbox = true;
+    } else if (arg === '--as') {
+      account = rest.shift() || '';
+      if (!HANDLE.test(account)) {
+        throw new Error('--as needs an account handle: lowercase letters, digits, _ or -');
+      }
+    } else if (arg === '--join') {
+      code = rest.shift() || '';
+      if (!JOIN_CODE.test(code)) throw new Error('--join needs a join code; it starts with org_');
+    } else if (arg === '--bootstrap') bootstrap = true;
+    else if (arg === '--sandbox') sandbox = true;
     else if (arg === '--all') options.all = true;
     else if (arg === '--no-open') options.openBrowser = false;
     else if (arg === '--json') options.json = true;
@@ -148,6 +216,15 @@ function optionsOf(args: string[]): CliOptions {
     throw new Error('--sandbox uses the root that ships with Agents City; drop --trust-file');
   }
   if (sandbox) options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
+  if (code && bootstrap) throw new Error('--join and --bootstrap are two ways in; give one');
+  if ((code || bootstrap) && !account) {
+    throw new Error('name the account to create: --as <handle>');
+  }
+  if (account && !code && !bootstrap) {
+    throw new Error('--as creates an account, which needs --join <code> or --bootstrap');
+  }
+  if (code) options.enroll = { account, code };
+  if (bootstrap) options.enroll = { account, bootstrap: true };
   return options;
 }
 
@@ -175,6 +252,7 @@ async function identityFor(
   serviceUrl: string,
   openBrowser: boolean,
   keyTransparency: StoredTransparencyProfile,
+  enroll: Enrollment | null = null,
 ): Promise<{
   identity: DeviceIdentity;
   connectedAt: string;
@@ -190,6 +268,9 @@ async function identityFor(
     );
   }
   if (current?.status === 'connected') {
+    if (enroll && 'bootstrap' in enroll) {
+      throw new Error(`this computer is already signed in as ${current.device.ownerPrefix}`);
+    }
     return {
       identity: await loadConnectIdentity(current),
       connectedAt: current.connectedAt,
@@ -217,10 +298,29 @@ async function identityFor(
   }
   if (!pending || !authorization) throw new Error('device authorization could not start');
 
-  process.stdout.write(`\n  PASCO  ${authorization.user_code}\n`);
-  process.stdout.write(`  Open   ${authorization.verification_uri}\n`);
-  process.stdout.write('  Approve this computer there; waiting for approval…\n\n');
-  if (openBrowser) openUrl(authorization.verification_uri);
+  if (enroll) {
+    // No browser: the join code, or the operator's secret, is the approval.
+    const grant =
+      'code' in enroll
+        ? { code: enroll.code }
+        : { bootstrap: await secretLine('  Bootstrap secret: ') };
+    try {
+      await enrollDeviceAccount(serviceUrl, authorization.device_code, enroll.account, grant);
+    } catch (error) {
+      if (error instanceof ConnectApiError && error.code === 'device_code_not_found_or_expired') {
+        removePendingConnectState();
+      }
+      throw error;
+    }
+    process.stderr.write(
+      `\n  Created the account ${enroll.account}; registering this computer…\n\n`,
+    );
+  } else {
+    process.stdout.write(`\n  PASCO  ${authorization.user_code}\n`);
+    process.stdout.write(`  Open   ${authorization.verification_uri}\n`);
+    process.stdout.write('  Approve this computer there; waiting for approval…\n\n');
+    if (openBrowser) openUrl(authorization.verification_uri);
+  }
   try {
     const identity = await pollDeviceAuthorization(serviceUrl, authorization, keys, {
       onPending: () => {},
@@ -330,7 +430,12 @@ async function connect(options: CliOptions): Promise<void> {
   // must not publish a city's name or restart its hub as a side effect.
   const accountOnly = options.identityOnly && !options.selectors.length && !options.all;
   const chosen = accountOnly ? [] : selectLocalCities(catalogue, options.selectors, options.all);
-  const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
+  const paired = await identityFor(
+    options.serviceUrl,
+    options.openBrowser,
+    transparency.stored,
+    options.enroll,
+  );
   if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
     throw new Error('key_transparency_relay_mismatch');
   }
@@ -365,16 +470,30 @@ async function connect(options: CliOptions): Promise<void> {
   };
   writeConnectState(state);
   for (const city of chosen) await restartHub(city);
+  // The code that let the account exist is the same one that seats it. Signed
+  // in first, so a join that fails leaves an account that can simply retry.
+  const joined =
+    options.enroll && 'code' in options.enroll
+      ? await organizationRequest<{ organization: string; role: string }>(
+          state.serviceUrl,
+          paired.identity,
+          'join',
+          { code: options.enroll.code },
+        )
+      : null;
   const value = {
     connected: true,
     deviceId: state.device.deviceId,
     service: state.serviceUrl,
     cities: state.cities.map((city) => ({ local: city.name, address: city.remoteAddress })),
+    account: state.device.ownerPrefix,
+    ...(joined ? { organization: joined.organization, role: joined.role } : {}),
   };
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else {
     if (!state.cities.length) {
       console.log(`  Signed in to ${state.serviceUrl} as ${state.device.ownerPrefix}.`);
+      if (joined) console.log(`  Joined ${joined.organization} as ${joined.role}.`);
       console.log('  No city is connected, so this computer receives nothing yet.');
       console.log('  Organizations work already: agents-city orgs --help\n');
       return;
@@ -500,6 +619,9 @@ export async function managedConnectCli(args = process.argv.slice(2)): Promise<v
   const options = optionsOf(args);
   options.identityOnly = identityOnly;
   options.viaAuth = viaAuth;
+  if (options.enroll && !identityOnly) {
+    throw new Error('--as, --join and --bootstrap belong to agents-city auth login');
+  }
   if (options.command === 'help' && identityOnly) {
     console.log(authUsage());
     return;

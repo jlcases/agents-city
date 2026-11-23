@@ -290,6 +290,29 @@ export const beginDeviceAuthorization = async (
   }), fetcher);
 };
 
+/** What stands in for a browser's approval on a service that has no website. */
+export type EnrollmentGrant = { code: string } | { bootstrap: string };
+
+/**
+ * Create an account for the computer whose authorization is pending, and
+ * approve it, without a browser. The device code proves it is this computer;
+ * the grant is an organization's join code or the operator's bootstrap secret.
+ */
+export const enrollDeviceAccount = async (
+  controlPlaneUrl: string,
+  deviceCode: string,
+  account: string,
+  grant: EnrollmentGrant,
+  fetcher: typeof fetch = fetch,
+) => apiJson<{ approved: boolean; account: string; first: boolean }>(
+  new Request(new URL('/api/device/enroll', controlPlaneUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device_code: deviceCode, account, ...grant }),
+  }),
+  fetcher,
+);
+
 export const claimDeviceAuthorization = async (
   controlPlaneUrl: string,
   deviceCode: string,

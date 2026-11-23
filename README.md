@@ -807,6 +807,12 @@ messages still needs a city, so run `agents-city connect` for that. `--sandbox` 
 managed sandbox, the only service whose signed root ships with Agents City; any
 other service needs `--service` and `--trust-file`.
 
+A service with no website has no browser step. There, `auth login --as maria
+--join org_...` creates the account from the terminal for whoever holds an
+organization's join code, and seats them in it; `auth login --as ana
+--bootstrap` makes the first account with the secret the operator set at
+deploy time. Such an account has no passkey: it lives in this computer's keys.
+
 The owner is fixed and cannot leave. An admin invites and removes members.
 Connections are opened on first use, not when somebody joins. Removing a
 member, or leaving, closes the connections the organization opened for that
