@@ -2,8 +2,10 @@
 import { managedConnectCli } from './managed-connect/cli.js';
 import { explainOrganizationError } from './managed-connect/orgs.js';
 
-// The same program answers three commands; an error names the one that was run.
-const door = ['auth', 'orgs'].includes(process.argv[2] ?? '') ? process.argv[2] : 'connect';
+// The same program answers four commands; an error names the one that was run.
+const door = ['auth', 'orgs', 'infra'].includes(process.argv[2] ?? '')
+  ? process.argv[2]
+  : 'connect';
 
 managedConnectCli().catch((error) => {
   // Organization wording only for organization commands: the same code from
