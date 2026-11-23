@@ -52,9 +52,11 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
+import unicodedata
 
 import cage
 import cities
@@ -139,9 +141,28 @@ def lee():
     except (OSError, ValueError):
         return []
     agentes = datos.get('agents') if isinstance(datos, dict) else None
+    # The registry is a file a person can edit, and an older version wrote it
+    # too. What it says is checked on the way in, not trusted on the way out.
     return [a for a in (agentes or [])
             if isinstance(a, dict) and NOMBRE.match(str(a.get('name') or ''))
-            and a.get('level') in NIVELES]
+            and a.get('name') != DIRECTORIO
+            and a.get('level') in NIVELES
+            and isinstance(a.get('allow') or [], list)]
+
+
+def _una_linea(texto):
+    """One printable line out of anything: no model control token, however it
+    was split to survive one removal; no control or formatting character, which
+    is how a line repaints a terminal or reverses its own reading order."""
+    texto = str(texto or '')
+    while True:
+        limpio = TOKEN_ESPECIAL.sub('', texto)
+        if limpio == texto:
+            break
+        texto = limpio
+    texto = ''.join(' ' if unicodedata.category(c) in ('Cc', 'Cf', 'Zl', 'Zp') else c
+                    for c in texto)
+    return ' '.join(texto.split())
 
 
 def _escribe(agentes):
@@ -172,7 +193,7 @@ def publica(repo, nombre='', nivel='consult', espacio='', permitidos=(), acerca=
         raise Rechazo('a name is lowercase letters, digits and dashes, up to 40')
     if nombre == DIRECTORIO:
         raise Rechazo(f'@{DIRECTORIO} is the directory; publish under another name')
-    acerca = ' '.join(TOKEN_ESPECIAL.sub('', str(acerca or '')).split())
+    acerca = _una_linea(acerca)
     if len(acerca) > MAX_ACERCA:
         raise Rechazo(f'--about is one line, up to {MAX_ACERCA} characters')
     if nivel not in NIVELES:
@@ -483,7 +504,7 @@ def _responde(conexion, texto):
     try:
         reception.envia(conexion, texto)
         return True
-    except reception.ReceptionError:
+    except (reception.ReceptionError, sqlite3.Error):
         return False
 
 
@@ -507,7 +528,9 @@ def _atiende_uno(entrada, m, por, segundos=300):
         return 'gone', str(e)
     try:
         respuesta = _entrega(entrada, secrets.token_hex(6), texto, m['from'], segundos)
-    except Rechazo as e:
+    except (Rechazo, OSError, sqlite3.Error) as e:
+        # Claimed means nobody else will pick it up: whatever went wrong, the
+        # route is closed and the person is told, never left waiting.
         reception.cierra_publicado(m['id'], nombre, str(e))
         _responde(m['connection_id'], f'@{nombre} could not answer: {e}')
         return 'failed', str(e)
@@ -533,12 +556,28 @@ def directorio(conexion, agentes=None):
              if _alcanza(a, conexion)]
     if not suyos:
         return ''
-    lineas = ['Published agents you can reach over this connection:', '']
+    cabeza = 'Published agents you can reach over this connection:\n'
+    pie = '\n\nOpen a message with @name to ask one.'
+    resto = '\n  ... and {} more. Ask the owner for the full list.'
+    # Whole entries or none: a directory cut in the middle of a line lists an
+    # agent that is not there and hides the ones after it without saying so.
+    margen = (reception.MAX_OUTBOX_BYTES - len((cabeza + pie).encode('utf-8'))
+              - len(resto.format(len(suyos)).encode('utf-8')))
+    lineas = []
     for a in sorted(suyos, key=lambda a: a['name']):
-        acerca = f" — {a['about']}" if a.get('about') else ''
-        lineas.append(f"  @{a['name']} ({COMO[a['level']]}){acerca}")
-    lineas += ['', 'Open a message with @name to ask one.']
-    return '\n'.join(lineas)
+        acerca = _una_linea(a.get('about'))[:MAX_ACERCA]
+        linea = f"\n  @{a['name']} ({COMO[a['level']]})" + (f' — {acerca}' if acerca else '')
+        margen -= len(linea.encode('utf-8'))
+        if margen < 0:
+            break
+        lineas.append(linea)
+    fuera = len(suyos) - len(lineas)
+    return cabeza + ''.join(lineas) + (resto.format(fuera) if fuera else '') + pie
+
+
+#: `@agents` alone asks for the directory. With anything else after it, it is
+#: a person's sentence that happens to start that way, and it stays theirs.
+PIDE_DIRECTORIO = ('', '?', 'list')
 
 
 def _atiende_directorio(m, agentes):
@@ -551,9 +590,12 @@ def _atiende_directorio(m, agentes):
         reception.toma_publicado(m['id'], DIRECTORIO, 'auto')
     except reception.ReceptionError:
         return 'gone'
-    enviado = _responde(m['connection_id'], texto)
-    reception.cierra_publicado(m['id'], DIRECTORIO,
-                               '' if enviado else 'the answer could not be queued')
+    enviado = False
+    try:
+        enviado = _responde(m['connection_id'], texto)
+    finally:
+        reception.cierra_publicado(m['id'], DIRECTORIO,
+                                   '' if enviado else 'the answer could not be queued')
     return 'answered' if enviado else 'failed'
 
 
@@ -568,27 +610,38 @@ def atiende(segundos=300):
     if not agentes:
         return []
     ya = {p.get('reception') for p in pendientes()}
+    todos = list(agentes.values())
+
+    def admite(m):
+        if m['id'] in ya:
+            return False
+        if m['agent'] == DIRECTORIO:
+            return (m['text'].lower() in PIDE_DIRECTORIO
+                    and any(_alcanza(a, m['connection_id']) for a in todos))
+        return _alcanza(agentes[m['agent']], m['connection_id'])
+
     hechos = []
     nombres = sorted(agentes) + [DIRECTORIO]
-    for m in reception.para_publicados(nombres, vacios=(DIRECTORIO,)):
-        if m['agent'] == DIRECTORIO:
-            estado = _atiende_directorio(m, list(agentes.values()))
-            if estado:
-                hechos.append((m['id'], DIRECTORIO, estado))
-            continue
-        entrada = agentes[m['agent']]
-        if not _alcanza(entrada, m['connection_id']):
-            continue
-        if m['id'] in ya:
-            continue
-        if entrada['level'] == 'request':
-            _encola(entrada['name'], m['text'][:MAX_PREGUNTA], m['from'],
-                    {'reception': m['id'], 'connection_id': m['connection_id']})
-            hechos.append((m['id'], entrada['name'], 'pending'))
-            continue
-        estado, _ = _atiende_uno(entrada, m, 'auto', segundos)
-        hechos.append((m['id'], entrada['name'], estado))
-    return hechos
+    for m in reception.para_publicados(nombres, vacios=(DIRECTORIO,), admite=admite):
+        # One message that cannot be served must not end the pass, or the
+        # bridge: the ones behind it belong to other people.
+        try:
+            hechos.append((m['id'], m['agent'], _atiende_mensaje(agentes, todos, m, segundos)))
+        except (Rechazo, reception.ReceptionError, sqlite3.Error, OSError) as e:
+            print(f"  {m['agent']}: {m['id']} failed: {e}", file=sys.stderr)
+            hechos.append((m['id'], m['agent'], 'failed'))
+    return [h for h in hechos if h[2]]
+
+
+def _atiende_mensaje(agentes, todos, m, segundos):
+    if m['agent'] == DIRECTORIO:
+        return _atiende_directorio(m, todos)
+    entrada = agentes[m['agent']]
+    if entrada['level'] == 'request':
+        _encola(entrada['name'], m['text'][:MAX_PREGUNTA], m['from'],
+                {'reception': m['id'], 'connection_id': m['connection_id']})
+        return 'pending'
+    return _atiende_uno(entrada, m, 'auto', segundos)[0]
 
 
 # ══ the door ═════════════════════════════════════════════════════════════════
@@ -623,7 +676,13 @@ def _cli_add(resto):
     nombre = _opcion(resto, '--name')
     nivel = _opcion(resto, '--level', 'consult')
     espacio = _opcion(resto, '--workspace')
-    permitidos = [p for p in _opcion(resto, '--allow').split(',') if p]
+    limita = '--allow' in resto
+    permitidos = [p.strip() for p in _opcion(resto, '--allow').split(',') if p.strip()]
+    if limita and not permitidos:
+        # No --allow means any connection. An --allow that names nobody is an
+        # empty variable or a typo, and must not mean the same thing.
+        raise Rechazo('--allow names no connection; leave it out to publish '
+                      'to every connection')
     acerca = _opcion(resto, '--about')
     if len(resto) != 1:
         raise Rechazo('add takes one folder')

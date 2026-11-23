@@ -4261,6 +4261,9 @@ async function loadConnectIdentity(state, appHome = "") {
 // managed-connect/orgs.ts
 var SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 var ACCOUNT = /^[a-z0-9_-]{1,32}$/;
+var CODE = /^org_[A-Za-z0-9_-]{36,124}$/;
+var NAME = /^[\p{L}\p{N}][\p{L}\p{N} .&'-]{0,59}$/u;
+var USES = /^[1-9]\d{0,2}$/;
 function organizationsUsage() {
   return `usage:
   agents-city orgs list
@@ -4312,10 +4315,11 @@ function explainOrganizationError(error) {
 }
 function take(rest, flag) {
   const at = rest.indexOf(flag);
-  if (at < 0) return "";
+  if (at < 0) return void 0;
   const value = rest[at + 1];
-  if (value === void 0) throw new Error(`${flag} needs a value`);
+  if (value === void 0 || value.startsWith("--")) throw new Error(`${flag} needs a value`);
   rest.splice(at, 2);
+  if (rest.includes(flag)) throw new Error(`${flag} is given once`);
   return value;
 }
 function slugOf(value) {
@@ -4328,7 +4332,23 @@ function accountOf(value) {
   return value;
 }
 function only(rest, count, what) {
+  const stray = rest.find((arg) => arg.startsWith("--"));
+  if (stray) throw new Error(`unknown option: ${stray}; see agents-city orgs --help`);
   if (rest.length !== count) throw new Error(`${what}; see agents-city orgs --help`);
+}
+function answered(value, ...fields) {
+  const missing = fields.filter(
+    (field) => value?.[field] === void 0
+  );
+  if (missing.length) {
+    throw new Error(`the service answered without ${missing.join(", ")}; is it up to date?`);
+  }
+  return value;
+}
+function lasts(seconds) {
+  const hours = Math.round(seconds / 3600);
+  if (hours >= 48) return `${Math.round(hours / 24)} days`;
+  return hours >= 2 ? `${hours} hours` : `${Math.max(1, Math.round(seconds / 60))} minutes`;
 }
 var COMMANDS = {
   async list(rest, ask) {
@@ -4343,9 +4363,14 @@ var COMMANDS = {
     const name = take(rest, "--name");
     only(rest, 1, "create takes one organization");
     const organization = slugOf(rest[0]);
-    const value = await ask(
-      "create",
-      name ? { organization, name } : { organization }
+    if (name !== void 0 && !NAME.test(name))
+      throw new Error(EXPLAINED.invalid_organization_name);
+    const value = answered(
+      await ask(
+        "create",
+        name === void 0 ? { organization } : { organization, name }
+      ),
+      "organization"
     );
     return {
       value,
@@ -4359,16 +4384,20 @@ var COMMANDS = {
     const uses = take(rest, "--uses");
     only(rest, 1, "invite takes one organization");
     const organization = slugOf(rest[0]);
-    const count = uses ? Number(uses) : 1;
-    if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
-      throw new Error("--uses is a number from 1 to 100");
-    }
-    const value = await ask("invite", { organization, uses: count });
+    if (uses !== void 0 && !USES.test(uses)) throw new Error("--uses is a number from 1 to 100");
+    const count = uses === void 0 ? 1 : Number(uses);
+    if (count > 100) throw new Error("--uses is a number from 1 to 100");
+    const value = answered(
+      await ask("invite", { organization, uses: count }),
+      "code",
+      "uses",
+      "expiresIn"
+    );
     return {
       value,
       lines: [
         `  ${value.code}`,
-        `  Good for ${value.uses} ${value.uses === 1 ? "person" : "people"}, for 7 days. It is shown once:`,
+        `  Good for ${value.uses} ${value.uses === 1 ? "person" : "people"}, for ${lasts(value.expiresIn)}. It is shown once:`,
         "  the service keeps only its hash. Whoever has it runs:",
         "    agents-city orgs join <code>"
       ]
@@ -4376,9 +4405,13 @@ var COMMANDS = {
   },
   async join(rest, ask) {
     only(rest, 1, "join takes one code");
-    const value = await ask("join", {
-      code: rest[0] ?? ""
-    });
+    const code = rest[0] ?? "";
+    if (!CODE.test(code)) throw new Error(EXPLAINED.invalid_organization_code);
+    const value = answered(
+      await ask("join", { code }),
+      "organization",
+      "role"
+    );
     return {
       value,
       lines: [
@@ -4449,10 +4482,10 @@ async function removal(ask, organization, account, leaving) {
 async function organizationsCli(args, deps) {
   const rest = [...args];
   const print = deps.print ?? ((line) => console.log(line));
-  const jsonAt = rest.indexOf("--json");
-  if (jsonAt >= 0) rest.splice(jsonAt, 1);
+  const json = rest.includes("--json");
+  for (let at = rest.indexOf("--json"); at >= 0; at = rest.indexOf("--json")) rest.splice(at, 1);
   const command = rest.shift() ?? "help";
-  const run = COMMANDS[command];
+  const run = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : void 0;
   if (!run || rest.includes("--help") || rest.includes("-h")) {
     if (!run && !["help", "--help", "-h"].includes(command)) {
       throw new Error(`unknown orgs command: ${command}; see agents-city orgs --help`);
@@ -4466,7 +4499,7 @@ async function organizationsCli(args, deps) {
     return ask(action, fields);
   };
   const { value, lines } = await run(rest, lazy);
-  if (jsonAt >= 0) print(JSON.stringify(value, null, 2));
+  if (json) print(JSON.stringify(value, null, 2));
   else for (const line of lines) print(line);
 }
 
@@ -4715,6 +4748,8 @@ function optionsOf(args) {
     viaAuth: false
   };
   const rest = [...args];
+  let sandbox = false;
+  let service = false;
   if (["status", "roads", "help"].includes(rest[0] || "")) {
     options.command = rest.shift();
   }
@@ -4724,6 +4759,7 @@ function optionsOf(args) {
       const value = rest.shift();
       if (!value) throw new Error("--service needs an https URL");
       options.serviceUrl = value;
+      service = true;
     } else if (arg === "--city") {
       const value = rest.shift();
       if (!value) throw new Error("--city needs a name, id, or path");
@@ -4732,13 +4768,18 @@ function optionsOf(args) {
       const value = rest.shift();
       if (!value) throw new Error("--trust-file needs a JSON file");
       options.trustFile = value;
-    } else if (arg === "--sandbox") options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
+    } else if (arg === "--sandbox") sandbox = true;
     else if (arg === "--all") options.all = true;
     else if (arg === "--no-open") options.openBrowser = false;
     else if (arg === "--json") options.json = true;
     else if (["-h", "--help"].includes(arg)) options.command = "help";
-    else throw new Error(`unknown connect option: ${arg}`);
+    else throw new Error(`unknown option: ${arg}`);
   }
+  if (sandbox && service) throw new Error("--sandbox and --service name two services; give one");
+  if (sandbox && options.trustFile) {
+    throw new Error("--sandbox uses the root that ships with Agents City; drop --trust-file");
+  }
+  if (sandbox) options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
   return options;
 }
 function openUrl(url) {
@@ -4887,7 +4928,7 @@ async function connect(options) {
     existing?.keyTransparency.root ?? null
   );
   const catalogue = discoverLocalCities();
-  const accountOnly = options.identityOnly && !catalogue.length && !options.selectors.length && !options.all;
+  const accountOnly = options.identityOnly && !options.selectors.length && !options.all;
   const chosen = accountOnly ? [] : selectLocalCities(catalogue, options.selectors, options.all);
   const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
   if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
@@ -5051,6 +5092,7 @@ async function managedConnectCli(args = process.argv.slice(2)) {
 // managed-connect-cli.ts
 var door = ["auth", "orgs"].includes(process.argv[2] ?? "") ? process.argv[2] : "connect";
 managedConnectCli().catch((error) => {
-  console.error(`agents-city ${door}: ${explainOrganizationError(error)}`);
+  const said = door === "orgs" ? explainOrganizationError(error) : error instanceof Error ? error.message : String(error);
+  console.error(`agents-city ${door}: ${said}`);
   process.exitCode = 1;
 });

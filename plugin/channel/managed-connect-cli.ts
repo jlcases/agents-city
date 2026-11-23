@@ -6,6 +6,14 @@ import { explainOrganizationError } from './managed-connect/orgs.js';
 const door = ['auth', 'orgs'].includes(process.argv[2] ?? '') ? process.argv[2] : 'connect';
 
 managedConnectCli().catch((error) => {
-  console.error(`agents-city ${door}: ${explainOrganizationError(error)}`);
+  // Organization wording only for organization commands: the same code from
+  // another endpoint means something else.
+  const said =
+    door === 'orgs'
+      ? explainOrganizationError(error)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  console.error(`agents-city ${door}: ${said}`);
   process.exitCode = 1;
 });
