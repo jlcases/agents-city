@@ -4,7 +4,7 @@ import {
   json,
   type ControlEnv,
 } from '../../../_lib/control-plane';
-import { provisionConnection } from '../../../_lib/connections';
+import { provisionConnection, revokeConnection } from '../../../_lib/connections';
 import {
   ACCOUNT_HANDLE,
   actingIn,
@@ -30,8 +30,8 @@ const existingAnswer = (connection: LiveConnection) => (
   ['provisioning', 'active'].includes(connection.status)
     ? json({ connection: { id: connection.id, status: connection.status }, duplicate: true })
     // One of the two closed or blocked it. Belonging to the same organization
-    // does not reopen what a person shut.
-    : json({ error: 'connection_unavailable', status: connection.status }, 409)
+    // does not reopen what a person shut, and does not say which of them did.
+    : json({ error: 'connection_unavailable' }, 409)
 );
 
 /**
@@ -60,43 +60,61 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
   if (already) return existingAnswer(already);
 
   const requestId = crypto.randomUUID();
+  const ask = () => env.CONTROL.prepare(`
+    INSERT INTO connection_requests (
+      id, reception_link_id, organization_id, target_account_id, requester_account_id,
+      status, expires_at, created_at
+    ) VALUES (?, NULL, ?, ?, ?, 'pending', datetime('now', '+10 minutes'), datetime('now'))
+  `).bind(requestId, membership.space_id, peer.account_id, identity.accountId).run();
   try {
-    await env.CONTROL.prepare(`
-      INSERT INTO connection_requests (
-        id, reception_link_id, organization_id, target_account_id, requester_account_id,
-        status, expires_at, created_at
-      ) VALUES (?, NULL, ?, ?, ?, 'pending', datetime('now', '+10 minutes'), datetime('now'))
-    `).bind(requestId, membership.space_id, peer.account_id, identity.accountId).run();
+    await ask();
   } catch (error) {
     const detail = String(error);
     if (detail.includes('organization_membership_required')) {
       return json({ error: 'member_not_found' }, 404);
     }
-    if (detail.includes('connection_already_exists')) {
-      const raced = await liveConnection(env, identity.accountId, peer.account_id);
-      if (raced) return existingAnswer(raced);
-    }
-    if (detail.includes('UNIQUE constraint failed')) {
+    const raced = await liveConnection(env, identity.accountId, peer.account_id);
+    if (raced) return existingAnswer(raced);
+    if (!detail.includes('UNIQUE constraint failed')) throw error;
+    // The pair's one open request is taken. If it is an organization request
+    // past its ten minutes, a call died holding it: clear it and ask once more.
+    const cleared = await env.CONTROL.prepare(`
+      UPDATE connection_requests SET status = 'expired', reviewed_at = datetime('now')
+      WHERE status IN ('pending', 'reviewing') AND organization_id IS NOT NULL
+        AND expires_at <= datetime('now')
+        AND ((target_account_id = ? AND requester_account_id = ?)
+          OR (target_account_id = ? AND requester_account_id = ?))
+    `).bind(peer.account_id, identity.accountId, identity.accountId, peer.account_id).run();
+    if (!cleared.meta.changes) return json({ error: 'connection_request_already_pending' }, 409);
+    try {
+      await ask();
+    } catch {
       return json({ error: 'connection_request_already_pending' }, 409);
     }
-    throw error;
   }
 
-  const provisioned = await provisionConnection(env, {
-    requestId,
-    decisionToken: crypto.randomUUID(),
-    targetAccountId: peer.account_id,
-    requesterAccountId: identity.accountId,
-    sponsorSpaceId: membership.space_id,
-    sponsorAccountId: identity.accountId,
-  });
+  // Whatever happens next, the request does not stay open: an accepted one is
+  // untouched by this, and anything else frees the pair to try again.
+  const withdraw = () => env.CONTROL.prepare(`
+    UPDATE connection_requests SET status = 'withdrawn', reviewed_at = datetime('now')
+    WHERE id = ? AND status IN ('pending', 'reviewing')
+  `).bind(requestId).run();
+  let provisioned: Awaited<ReturnType<typeof provisionConnection>>;
+  try {
+    provisioned = await provisionConnection(env, {
+      requestId,
+      decisionToken: crypto.randomUUID(),
+      targetAccountId: peer.account_id,
+      requesterAccountId: identity.accountId,
+      sponsorSpaceId: membership.space_id,
+      sponsorAccountId: identity.accountId,
+    });
+  } catch (error) {
+    await withdraw().catch(() => undefined);
+    throw error;
+  }
   if (!provisioned.ok) {
-    // Nothing was provisioned: the batch is atomic. Close the request so the
-    // pair is not left holding the one open request it is allowed.
-    await env.CONTROL.prepare(`
-      UPDATE connection_requests SET status = 'withdrawn', reviewed_at = datetime('now')
-      WHERE id = ? AND status IN ('pending', 'reviewing')
-    `).bind(requestId).run();
+    await withdraw();
     await audit(env, request, 'organization.connect', 'denied', {
       accountId: identity.accountId,
       deviceId: identity.id,
@@ -105,6 +123,28 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
       detailCode: provisioned.error,
     });
     return json({ error: provisioned.error }, 409);
+  }
+  // Membership was checked when the request was written. If either of the two
+  // was removed while the connection was being opened, removal could not see
+  // it yet: close it here, so no order of the two calls leaves it open.
+  const still = await env.CONTROL.prepare(`
+    SELECT COUNT(*) AS members FROM space_members
+    WHERE space_id = ? AND account_id IN (?, ?) AND status = 'active'
+      AND role IN ('owner', 'admin', 'member')
+  `).bind(membership.space_id, identity.accountId, peer.account_id).first<{ members: number }>();
+  if (still?.members !== 2) {
+    const opened = await env.CONTROL.prepare(
+      'SELECT id, transport_road_id FROM connections WHERE id = ?',
+    ).bind(provisioned.connectionId).first<{ id: string; transport_road_id: string | null }>();
+    if (opened) await revokeConnection(env, opened);
+    await audit(env, request, 'organization.connect', 'denied', {
+      accountId: identity.accountId,
+      deviceId: identity.id,
+      targetType: 'organization',
+      targetId: membership.space_id,
+      detailCode: 'membership_ended_during_connect',
+    });
+    return json({ error: 'member_not_found' }, 404);
   }
   await audit(env, request, 'organization.connect', 'allowed', {
     accountId: identity.accountId,

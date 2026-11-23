@@ -11,6 +11,8 @@ import { onRequestPost as listMembers } from '../../../functions/api/device/orgs
 import { onRequestPost as connectMembers } from '../../../functions/api/device/orgs/connect';
 import { onRequestPost as removeMember } from '../../../functions/api/device/orgs/remove';
 import { onRequestPost as setRole } from '../../../functions/api/device/orgs/role';
+import { onRequestPost as deleteAccount } from '../../../functions/api/account/delete';
+import { onRequestPost as createRoadInvitation } from '../../../functions/api/roads/invitations';
 import { sha256Hex, type ControlEnv } from '../../../functions/_lib/control-plane';
 import {
   ConnectApiError,
@@ -342,7 +344,7 @@ describe('organizations', () => {
       status: 200,
       body: {
         organization: 'acme', account: 'ben', status: 'removed',
-        connections: { closed: 1, closing: 0 },
+        connections: { closed: 1, closing: 0, failed: 0 },
       },
     });
     const statuses = await env.CONTROL.prepare('SELECT id, status FROM connections ORDER BY id')
@@ -374,11 +376,192 @@ describe('organizations', () => {
       status: 202,
       body: {
         organization: 'acme', account: 'ben', status: 'removed',
-        connections: { closed: 0, closing: 1 },
+        connections: { closed: 0, closing: 1, failed: 0 },
       },
     });
     expect(await count("SELECT COUNT(*) AS count FROM connections WHERE status = 'revoking'")).toBe(1);
     expect(await count("SELECT COUNT(*) AS count FROM roads WHERE status = 'revoking'")).toBe(1);
+  });
+
+  it('stops honouring a join code when whoever minted it stops administering', async () => {
+    const ana = await person(120, 'ana');
+    const ben = await person(121, 'ben');
+    const cai = await person(122, 'cai');
+    const dee = await person(123, 'dee');
+    await organizationOf(ana, 'acme', [ben, cai]);
+    const promote = (account: string, role: string) => call(
+      setRole, ana, '/api/device/orgs/role', { organization: 'acme', account, role },
+    );
+    expect((await promote('ben', 'admin')).status).toBe(200);
+    expect((await promote('cai', 'admin')).status).toBe(200);
+    const bens = await invite(ben, 'acme', 50);
+    const cais = await invite(cai, 'acme', 50);
+    expect([bens.status, cais.status]).toEqual([201, 201]);
+
+    // Removed, ben cannot walk back in with the code he kept, nor hand it on.
+    expect((await remove(ana, 'acme', 'ben')).status).toBe(200);
+    expect(await join(ben, bens.body.code)).toEqual({
+      status: 404, body: { error: 'organization_code_unavailable' },
+    });
+    expect((await join(dee, bens.body.code)).status).toBe(404);
+
+    // Demoted, cai's code dies too, and stays dead if cai is promoted again.
+    expect((await promote('cai', 'member')).status).toBe(200);
+    expect((await join(dee, cais.body.code)).status).toBe(404);
+    expect((await promote('cai', 'admin')).status).toBe(200);
+    expect((await join(dee, cais.body.code)).status).toBe(404);
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM organization_invitations WHERE status = 'revoked'",
+    )).toBe(2);
+    expect(await count(`
+      SELECT COUNT(*) AS count FROM space_members m JOIN spaces s ON s.id = m.space_id
+      WHERE s.slug = 'acme' AND m.account_id = ?
+    `, dee.accountId)).toBe(0);
+  });
+
+  it('leaves no connection open for a member removed while it was being opened', async () => {
+    const ana = await person(124, 'ana');
+    const ben = await person(125, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    // The relay is asked while the connection is provisioned: that is the
+    // moment the owner's removal lands, after every check has passed.
+    const removedMidway: Partial<ControlEnv> = {
+      ROADS_CONTROL_SECRET: 'test-control-secret',
+      ROADS_BUS: {
+        fetch: async () => {
+          await env.CONTROL.prepare(`
+            UPDATE space_members SET status = 'removed', removed_at = datetime('now')
+            WHERE account_id = ? AND role = 'member'
+          `).bind(ben.accountId).run();
+          return Response.json({ status: 'active' });
+        },
+      } as unknown as Fetcher,
+    };
+    expect(await connect(ben, 'acme', 'ana', removedMidway)).toEqual({
+      status: 404, body: { error: 'member_not_found' },
+    });
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM connections WHERE status IN ('provisioning', 'active', 'suspended')",
+    )).toBe(0);
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM connection_requests WHERE status IN ('pending', 'reviewing')",
+    )).toBe(0);
+  });
+
+  it('withdraws what a removed member had in flight, and finishes a removal run twice', async () => {
+    const ana = await person(126, 'ana');
+    const ben = await person(127, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    const space = await env.CONTROL.prepare("SELECT id FROM spaces WHERE slug = 'acme'")
+      .first<{ id: string }>();
+    await env.CONTROL.prepare(`
+      INSERT INTO connection_requests (
+        id, reception_link_id, organization_id, target_account_id, requester_account_id,
+        status, expires_at, created_at
+      ) VALUES (?, NULL, ?, ?, ?, 'pending', datetime('now', '+10 minutes'), datetime('now'))
+    `).bind(crypto.randomUUID(), space!.id, ana.accountId, ben.accountId).run();
+    expect((await connect(ben, 'acme', 'ana', relay('active'))).body).toEqual({
+      error: 'connection_request_already_pending',
+    });
+
+    expect((await remove(ana, 'acme', 'ben')).status).toBe(200);
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM connection_requests WHERE status = 'withdrawn'",
+    )).toBe(1);
+    // Asked again about somebody already out: no error, nothing left to close.
+    expect(await remove(ana, 'acme', 'ben')).toEqual({
+      status: 200,
+      body: {
+        organization: 'acme', account: 'ben', status: 'removed',
+        connections: { closed: 0, closing: 0, failed: 0 },
+      },
+    });
+  });
+
+  it('clears a request a dead call left behind instead of locking the pair out', async () => {
+    const ana = await person(128, 'ana');
+    const ben = await person(129, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    const space = await env.CONTROL.prepare("SELECT id FROM spaces WHERE slug = 'acme'")
+      .first<{ id: string }>();
+    await env.CONTROL.prepare(`
+      INSERT INTO connection_requests (
+        id, reception_link_id, organization_id, target_account_id, requester_account_id,
+        status, expires_at, created_at
+      ) VALUES (?, NULL, ?, ?, ?, 'pending', datetime('now', '+10 minutes'), datetime('now'))
+    `).bind(crypto.randomUUID(), space!.id, ana.accountId, ben.accountId).run();
+    await env.CONTROL.prepare(
+      "UPDATE connection_requests SET expires_at = datetime('now', '-1 minute')",
+    ).run();
+    // From either side: the stale request is not theirs to wait on.
+    expect((await connect(ana, 'acme', 'ben', relay('active'))).status).toBe(201);
+    expect(await count(
+      "SELECT COUNT(*) AS count FROM connection_requests WHERE status IN ('pending', 'reviewing')",
+    )).toBe(0);
+  });
+
+  it('shows, and lets the owner remove, a member whose account is no longer active', async () => {
+    const ana = await person(130, 'ana');
+    const ben = await person(131, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    expect((await connect(ana, 'acme', 'ben', relay('active'))).status).toBe(201);
+    await env.CONTROL.prepare("UPDATE accounts SET status = 'suspended' WHERE id = ?")
+      .bind(ben.accountId).run();
+    const listed = await members(ana, 'acme');
+    expect(listed.body.members.map((m: any) => [m.account, m.active])).toEqual([
+      ['ana', true], ['ben', false],
+    ]);
+    // Nobody connects to it, but its seat and its connection can be taken back.
+    expect((await connect(ana, 'acme', 'ben')).body).toEqual({ error: 'member_not_found' });
+    const removed = await call(removeMember, ana, '/api/device/orgs/remove', {
+      organization: 'acme', account: 'ben',
+    }, relay('revoked'));
+    expect(removed.body.connections).toEqual({ closed: 1, closing: 0, failed: 0 });
+    expect((await members(ana, 'acme')).body.members).toHaveLength(1);
+  });
+
+  it('does not say which of the two closed a connection', async () => {
+    const ana = await person(132, 'ana');
+    const ben = await person(133, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    expect((await connect(ana, 'acme', 'ben', relay('active'))).status).toBe(201);
+    await env.CONTROL.prepare("UPDATE connections SET status = 'blocked'").run();
+    expect(await connect(ben, 'acme', 'ana')).toEqual({
+      status: 409, body: { error: 'connection_unavailable' },
+    });
+  });
+
+  it('refuses a join-code size that is not a number', async () => {
+    const ana = await person(134, 'ana');
+    await organizationOf(ana, 'acme', []);
+    for (const uses of [true, [7], '7', 1.5, 0, 101]) {
+      expect((await call(inviteToOrganization, ana, '/api/device/orgs/invite', {
+        organization: 'acme', uses,
+      })).body).toEqual({ error: 'uses_must_be_1_to_100' });
+    }
+  });
+
+  it('keeps guests out of an organization, and an organization from vanishing under its members', async () => {
+    const ana = await person(135, 'ana');
+    const ben = await person(136, 'ben');
+    await organizationOf(ana, 'acme', [ben]);
+    const space = await env.CONTROL.prepare("SELECT id FROM spaces WHERE slug = 'acme'")
+      .first<{ id: string }>();
+    const browser = (pathname: string, body: unknown) => new Request(`https://sandbox.agentscity.net${pathname}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://sandbox.agentscity.net', cookie: ana.cookie },
+      body: JSON.stringify(body),
+    });
+    const road = await invoke(createRoadInvitation, browser('/api/roads/invitations', {
+      source_city: 'ana/home', space_id: space!.id,
+    }));
+    expect([road.status, await road.json()]).toEqual([409, { error: 'organization_cannot_sponsor_road' }]);
+
+    const deletion = await invoke(deleteAccount, browser('/api/account/delete', { confirmation: 'ana' }));
+    expect([deletion.status, await deletion.json()]).toEqual([
+      409, { error: 'organization_has_members', organization: 'acme' },
+    ]);
+    expect(await count('SELECT COUNT(*) AS count FROM accounts WHERE id = ?', ana.accountId)).toBe(1);
   });
 
   it('is driven end to end by the client a paired computer ships', async () => {

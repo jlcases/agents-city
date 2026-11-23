@@ -55,6 +55,13 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
         WHERE i.id = ? AND i.status = 'active' AND i.used_count < i.use_limit
           AND i.expires_at > datetime('now')
           AND s.kind = 'organization' AND s.status = 'active'
+          -- Whoever minted it must still be allowed to invite: a code does
+          -- not outlive the authority it was issued under.
+          AND EXISTS (
+            SELECT 1 FROM space_members author
+            WHERE author.space_id = i.space_id AND author.account_id = i.created_by_account_id
+              AND author.status = 'active' AND author.role IN ('owner', 'admin')
+          )
       `).bind(identity.accountId, claimToken, invitation.id),
       env.CONTROL.prepare(`
         INSERT INTO space_members (space_id, account_id, role, status, joined_at)

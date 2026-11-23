@@ -35,6 +35,24 @@ it and run it. Two things are still missing before one command deploys it:
   web page this directory does not contain. Creating the first account from the
   terminal is the next change.
 
+## Known limits of organizations
+
+Found by review and not fixed yet. None of them lets an outsider in; each is a
+case an administrator can run into.
+
+- **An organization cannot be closed or handed over.** Its owner cannot leave,
+  and an account may own three. Deleting the owner's account is refused while
+  the organization has other members.
+- **A join code cannot be revoked on its own.** It stops working after seven
+  days, when it is used up, or when whoever minted it is removed or demoted.
+- **A blocked connection keeps its place in the plan's allowance** after one of
+  the two is removed from the organization.
+- **A pending request made through a personal reception link blocks**
+  `orgs connect` between the same two accounts until it is reviewed or expires.
+- **The member list stops at 1,000.**
+- **Removing a member closes connections one by one.** If some cannot be
+  closed the answer says how many, and running the removal again finishes it.
+
 ## Running the tests
 
 Node 22.12 or newer, and Rust 1.96.0 for the cryptography crate.

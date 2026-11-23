@@ -40,6 +40,16 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
     env.CONTROL.prepare('SELECT id, transparency_status FROM devices WHERE account_id = ? ORDER BY id')
       .bind(account.id).all<DeviceRow>(),
   ]);
+  // Deleting the owner deletes the organization under everybody in it. That is
+  // not a side effect to discover afterwards: empty it first.
+  const peopled = await env.CONTROL.prepare(`
+    SELECT s.slug FROM spaces s
+    WHERE s.owner_account_id = ? AND s.kind = 'organization' AND EXISTS (
+      SELECT 1 FROM space_members m
+      WHERE m.space_id = s.id AND m.status = 'active' AND m.account_id <> s.owner_account_id
+    ) LIMIT 1
+  `).bind(account.id).first<{ slug: string }>();
+  if (peopled) return json({ error: 'organization_has_members', organization: peopled.slug }, 409);
   if (subscriptions.results.length && !canCancelSubscriptions(env)) {
     return json({ error: 'billing_not_configured_for_cancellation' }, 503);
   }

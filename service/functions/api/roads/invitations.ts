@@ -27,6 +27,11 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
 
   const space = await getOwnedSpace(env, account.id, requestedSpace);
   if (!space) return json({ error: 'owned_space_not_found' }, 404);
+  // An organization has members, admitted by a join code. A Road invitation
+  // would add a guest there, who could then neither join nor be removed.
+  const kind = await env.CONTROL.prepare('SELECT kind FROM spaces WHERE id = ?')
+    .bind(space.id).first<{ kind: string }>();
+  if (kind?.kind !== 'personal') return json({ error: 'organization_cannot_sponsor_road' }, 409);
   const entitlement = spaceEntitlement(space);
   if (!entitlement.active) return json({ error: 'space_inactive' }, 403);
   const city = await env.CONTROL.prepare(`

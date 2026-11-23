@@ -13,13 +13,33 @@ import {
  * `/api/device/*`: the terminal is where an organization is run from, and no
  * reusable bearer credential is issued for it. Every body is a closed schema —
  * an unknown field is refused, so a caller cannot make the control plane hold
- * a label, a description or any other human-written text about a member.
+ * a label, a description or a note about a member.
+ *
+ * One field is written by a person: the organization's display name, at most
+ * sixty letters, digits, spaces and `. & ' -`, the same kind of short public
+ * name an account and a city already carry. Nothing longer or freer exists.
  */
 
 export const ORGANIZATION_SLUG = /^[a-z0-9](?:[a-z0-9-]{1,38})[a-z0-9]$/;
 export const ACCOUNT_HANDLE = /^[a-z0-9_-]{1,32}$/;
 export const ORGANIZATION_ROLES = ['owner', 'admin', 'member'] as const;
 export type OrganizationRole = typeof ORGANIZATION_ROLES[number];
+
+/**
+ * Who may do what, in one place. An owner is fixed: nobody changes or removes
+ * them, themselves included. Leaving is not here because it needs no role.
+ */
+export type OrganizationAction = 'invite' | 'change-role' | 'remove';
+export const may = (
+  actor: OrganizationRole,
+  action: OrganizationAction,
+  target?: OrganizationRole,
+): boolean => {
+  if (target === 'owner') return false;
+  if (actor === 'owner') return true;
+  if (actor === 'admin') return action === 'invite' || (action === 'remove' && target === 'member');
+  return false;
+};
 
 export type Membership = {
   space_id: string;
@@ -74,6 +94,31 @@ export const memberByHandle = (env: ControlEnv, spaceId: string, handle: string)
       AND m.status = 'active' AND m.role IN ('owner', 'admin', 'member')
     LIMIT 1
   `).bind(spaceId, handle).first<{ account_id: string; owner_prefix: string; role: OrganizationRole }>()
+);
+
+/**
+ * A member by handle whatever became of them: removed, or with an account
+ * that is no longer active. Removal has to see exactly the members connecting
+ * must not, or a suspended account keeps its seat and its connections forever.
+ */
+export const anyMemberByHandle = (env: ControlEnv, spaceId: string, handle: string) => (
+  env.CONTROL.prepare(`
+    SELECT a.id AS account_id, a.owner_prefix, m.role, m.status
+    FROM space_members m JOIN accounts a ON a.id = m.account_id
+    WHERE m.space_id = ? AND a.owner_prefix = ?
+      AND m.status IN ('active', 'removed') AND m.role IN ('owner', 'admin', 'member')
+    LIMIT 1
+  `).bind(spaceId, handle).first<{
+    account_id: string; owner_prefix: string; role: OrganizationRole; status: 'active' | 'removed';
+  }>()
+);
+
+/** Codes a person minted stop working when they stop administering. */
+export const revokeInvitationsBy = (env: ControlEnv, spaceId: string, accountId: string) => (
+  env.CONTROL.prepare(`
+    UPDATE organization_invitations SET status = 'revoked'
+    WHERE space_id = ? AND created_by_account_id = ? AND status = 'active'
+  `).bind(spaceId, accountId)
 );
 
 /**

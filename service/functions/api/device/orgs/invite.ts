@@ -5,7 +5,7 @@ import {
   sha256Hex,
   type ControlEnv,
 } from '../../../_lib/control-plane';
-import { actingIn, methodNotAllowed, signedBody } from '../../../_lib/organizations';
+import { actingIn, may, methodNotAllowed, signedBody } from '../../../_lib/organizations';
 
 type InviteBody = { organization?: unknown; uses?: unknown };
 
@@ -17,8 +17,11 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
   const { identity, body } = signed;
   const membership = await actingIn(env, body.organization, identity.accountId);
   if (membership instanceof Response) return membership;
-  if (!['owner', 'admin'].includes(membership.role)) return json({ error: 'forbidden' }, 403);
-  const uses = body.uses === undefined ? 1 : Number(body.uses);
+  if (!may(membership.role, 'invite')) return json({ error: 'forbidden' }, 403);
+  if (body.uses !== undefined && typeof body.uses !== 'number') {
+    return json({ error: 'uses_must_be_1_to_100' }, 400);
+  }
+  const uses = body.uses ?? 1;
   if (!Number.isSafeInteger(uses) || uses < 1 || uses > 100) {
     return json({ error: 'uses_must_be_1_to_100' }, 400);
   }

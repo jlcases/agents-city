@@ -2,8 +2,10 @@ import { audit, json, type ControlEnv } from '../../../_lib/control-plane';
 import {
   ACCOUNT_HANDLE,
   actingIn,
+  may,
   memberByHandle,
   methodNotAllowed,
+  revokeInvitationsBy,
   signedBody,
 } from '../../../_lib/organizations';
 
@@ -16,7 +18,7 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
   const { identity, body } = signed;
   const membership = await actingIn(env, body.organization, identity.accountId);
   if (membership instanceof Response) return membership;
-  if (membership.role !== 'owner') return json({ error: 'forbidden' }, 403);
+  if (!may(membership.role, 'change-role')) return json({ error: 'forbidden' }, 403);
   const handle = String(body.account ?? '');
   const role = String(body.role ?? '');
   if (!ACCOUNT_HANDLE.test(handle)) return json({ error: 'invalid_account' }, 400);
@@ -24,10 +26,16 @@ export const onRequestPost: PagesFunction<ControlEnv> = async ({ request, env })
   const target = await memberByHandle(env, membership.space_id, handle);
   if (!target) return json({ error: 'member_not_found' }, 404);
   if (target.role === 'owner') return json({ error: 'owner_role_is_fixed' }, 409);
-  await env.CONTROL.prepare(`
-    UPDATE space_members SET role = ?
-    WHERE space_id = ? AND account_id = ? AND status = 'active' AND role IN ('admin', 'member')
-  `).bind(role, membership.space_id, target.account_id).run();
+  const [changed] = await env.CONTROL.batch([
+    env.CONTROL.prepare(`
+      UPDATE space_members SET role = ?
+      WHERE space_id = ? AND account_id = ? AND status = 'active' AND role IN ('admin', 'member')
+    `).bind(role, membership.space_id, target.account_id),
+    // Demoted, their codes go with the authority that issued them.
+    ...(role === 'member' ? [revokeInvitationsBy(env, membership.space_id, target.account_id)] : []),
+  ]);
+  // Removed between the lookup and here: say so, rather than report a change.
+  if (!changed?.meta.changes) return json({ error: 'member_not_found' }, 404);
   await audit(env, request, 'organization.role', 'allowed', {
     accountId: identity.accountId,
     deviceId: identity.id,

@@ -33,6 +33,8 @@ type Member = {
   name: string;
   role: string;
   self: boolean;
+  /** Absent from a service that predates it; only `false` means suspended. */
+  active?: boolean;
   paired: boolean;
   connection: string | null;
 };
@@ -240,13 +242,15 @@ const COMMANDS: Record<string, Run> = {
     const lines = value.members.map((m) => {
       const link = m.self
         ? 'you'
-        : m.connection === 'active'
-          ? 'connected'
-          : m.connection
-            ? 'connecting'
-            : m.paired
-              ? 'not connected yet'
-              : 'no computer paired';
+        : m.active === false
+          ? 'account suspended; still holds a seat'
+          : m.connection === 'active'
+            ? 'connected'
+            : m.connection
+              ? 'connecting'
+              : m.paired
+                ? 'not connected yet'
+                : 'no computer paired';
       return `  ${m.account.padEnd(24)} ${m.role.padEnd(7)} ${link}`;
     });
     return { value, lines };
@@ -290,16 +294,26 @@ const COMMANDS: Record<string, Run> = {
 };
 
 async function removal(ask: Ask, organization: string, account: string, leaving: boolean) {
-  const value = await ask<{ account: string; connections: { closed: number; closing: number } }>(
-    'remove',
-    account ? { organization, account } : { organization },
+  const value = answered(
+    await ask<{
+      account: string;
+      connections: { closed: number; closing: number; failed?: number };
+    }>('remove', account ? { organization, account } : { organization }),
+    'account',
+    'connections',
   );
-  const { closed, closing } = value.connections;
+  const { closed, closing, failed = 0 } = value.connections;
   return {
     value,
     lines: [
       leaving ? `  You left ${organization}.` : `  Removed ${value.account} from ${organization}.`,
       `  ${closed + closing} connection(s) the organization had opened ${closing ? 'are closing' : 'are closed'}.`,
+      // Still open, and said so: the same command again finishes the job.
+      ...(failed
+        ? [
+            `  ${failed} could not be closed and are still open. Run this again: agents-city orgs remove ${organization} ${value.account}`,
+          ]
+        : []),
     ],
   };
 }

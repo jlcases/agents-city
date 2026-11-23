@@ -673,6 +673,19 @@ async function organizationsBoundary() {
           && !/is not (iterable|a function)/.test(String(result.error)),
         String(result.error));
     }
+    const partly = await run(['remove', 'acme', 'ben'], {
+      remove: { account: 'ben', connections: { closed: 1, closing: 0, failed: 2 } },
+    });
+    check('a removal that left connections open says so and how to finish it',
+      partly.printed.includes('2 could not be closed')
+        && partly.printed.includes('agents-city orgs remove acme ben'), partly.printed);
+    const seats = await run(['members', 'acme'], {
+      members: { organization: 'acme', members: [
+        { account: 'eve', name: 'Eve', role: 'member', self: false, active: false, paired: true, connection: 'active' },
+      ] },
+    });
+    check('a member whose account is suspended is listed as holding a seat',
+      /eve\s+member\s+account suspended/.test(seats.printed), seats.printed);
     const stray = await run(['create', 'acme', '--name=Acme']);
     check('an option this command does not have is named, not counted as an argument',
       String(stray.error).includes('unknown option: --name=Acme'), String(stray.error));
