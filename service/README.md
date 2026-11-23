@@ -39,12 +39,18 @@ it and run it. One thing is still missing before one command deploys it:
 computer asking for it. Exactly one of two things permits it:
 
 - **A join code.** Whoever holds an organization's code was invited by one of
-  its administrators. The code is checked here and spent only by the signed
-  join that follows: `agents-city auth login --as maria --join org_...`.
+  its administrators. One use of the code is one account, seated in that
+  organization in the same step and bound by the plan's seats:
+  `agents-city auth login --as maria --join`.
 - **The operator's secret.** `SIGNUP_BOOTSTRAP_SECRET`, at least 32 characters,
-  set when deploying. It works only while the service has no account at all,
-  so it makes the first owner and is inert afterwards:
+  set when deploying. It makes the first account and is recorded as spent, so
+  it stays inert even if every account is later deleted:
   `agents-city auth login --as ana --bootstrap`.
+
+Asking again with the same computer and handle returns the same answer, so an
+interrupted command can simply be run again. An account whose computer never
+finished registering within ten minutes is removed the next time anybody signs
+up: its handle and its seat come back, though not the use of the code it spent.
 
 An account made this way has no passkey and no recovery code. It lives in the
 keys of the computer that created it; if they are lost, an administrator's new

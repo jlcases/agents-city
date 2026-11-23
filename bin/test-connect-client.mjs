@@ -807,9 +807,12 @@ function accountDoors() {
     const refusals = [
       [['auth', 'login', ...where, '--as', 'maria'], 'needs --join <code> or --bootstrap'],
       [['auth', 'login', ...where, '--join', code], 'name the account to create'],
+      [['auth', 'login', ...where, '--join'], 'name the account to create'],
       [['auth', 'login', ...where, '--bootstrap'], 'name the account to create'],
       [['auth', 'login', ...where, '--as', 'maria', '--join', code, '--bootstrap'], 'two ways in'],
       [['auth', 'login', ...where, '--as', 'Maria Lopez', '--join', code], '--as needs an account handle'],
+      [['auth', 'login', ...where, '--as', 'maria-', '--join', code], '--as needs an account handle'],
+      [['auth', 'login', ...where, '--as', 'maria', '--join', '--bootstrap'], 'two ways in'],
       [['auth', 'login', ...where, '--as', 'maria', '--join', 'not-a-code'], '--join needs a join code'],
       // The connect door takes its options bare: there is no verb in front.
       [[...where, '--as', 'maria', '--join', code], 'belong to agents-city auth login'],

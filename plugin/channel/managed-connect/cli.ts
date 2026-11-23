@@ -52,40 +52,53 @@ type CliOptions = {
 };
 
 /** An account made from the terminal: its handle, and what permits it. */
-type Enrollment = { account: string; code: string } | { account: string; bootstrap: true };
+type Enrollment = { account: string; code: string | null } | { account: string; bootstrap: true };
+type Seat = { organization: string; role: string };
 
-const HANDLE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+// What the service keeps a handle as; anything else it would refuse later.
+const HANDLE = /^[a-z0-9_](?:[a-z0-9_-]{0,30}[a-z0-9_])?$/;
 const JOIN_CODE = /^org_[A-Za-z0-9_-]{36,124}$/;
 
 /** One line from standard input, not echoed when it is typed at a terminal. */
 async function secretLine(prompt: string): Promise<string> {
   const input = process.stdin;
+  input.setEncoding('utf8');
   if (!input.isTTY) {
+    // Piped: the first line, and nothing is waited for beyond it.
     let piped = '';
-    for await (const chunk of input) piped += chunk;
-    return piped.split(/\r?\n/, 1)[0] ?? '';
+    for await (const chunk of input) {
+      piped += chunk;
+      if (piped.includes('\n')) break;
+    }
+    return (piped.split(/\r?\n/, 1)[0] ?? '').trim();
   }
   process.stderr.write(prompt);
   input.setRawMode(true);
   input.resume();
   try {
     return await new Promise<string>((resolve, reject) => {
-      let typed = '';
-      const onData = (chunk: Buffer) => {
-        for (const char of chunk.toString('utf8')) {
-          if (char === '\r' || char === '\n') {
-            input.off('data', onData);
-            return resolve(typed);
+      let typed: string[] = [];
+      const done = (act: () => void) => {
+        input.off('data', onData);
+        input.off('end', onEnd);
+        act();
+      };
+      const onEnd = () => done(() => reject(new Error('cancelled')));
+      const onData = (chunk: string) => {
+        for (const char of chunk) {
+          if (char === '\r' || char === '\n') return done(() => resolve(typed.join('')));
+          if (char === '\u0003' || (char === '\u0004' && !typed.length)) {
+            return done(() => reject(new Error('cancelled')));
           }
-          if (char === '\u0003') {
-            input.off('data', onData);
-            return reject(new Error('cancelled'));
-          }
-          if (char === '\u007f') typed = typed.slice(0, -1);
-          else typed += char;
+          if (char === '\u0004') return done(() => resolve(typed.join('')));
+          if (char === '\u007f' || char === '\b') typed.pop();
+          else if (char === '\u0015') typed = [];
+          // Arrow keys and other escapes are not part of anybody's secret.
+          else if (char >= ' ') typed.push(char);
         }
       };
       input.on('data', onData);
+      input.once('end', onEnd);
     });
   } finally {
     input.setRawMode(false);
@@ -127,7 +140,7 @@ async function openOrganizations(): Promise<Ask> {
 function authUsage(): string {
   return `usage:
   agents-city auth login [--sandbox | --service URL] [--trust-file FILE] [--no-open]
-  agents-city auth login --service URL --trust-file FILE --as HANDLE --join CODE
+  agents-city auth login --service URL --trust-file FILE --as HANDLE --join [CODE]
   agents-city auth login --service URL --trust-file FILE --as HANDLE --bootstrap
   agents-city auth status [--json]
 
@@ -140,8 +153,9 @@ ships with Agents City; any other service needs --service and --trust-file.
 
 On a service with no website there is no browser step. --as HANDLE creates the
 account from here: with --join, for whoever holds an organization's join code,
-which also seats them in it; with --bootstrap, for the operator, who is asked
-for the secret set at deploy time and becomes the first account. An account made
+which also seats them in it and spends one use of the code (leave the code out
+to be asked for it without it being shown); with --bootstrap, for the operator,
+who is asked for the secret set at deploy time and becomes the first account. An account made
 this way has no passkey: it lives in this computer's keys, and an
 administrator's new invitation is the way back if they are lost.`;
 }
@@ -170,7 +184,7 @@ function optionsOf(args: string[]): CliOptions {
     enroll: null,
   };
   let account = '';
-  let code = '';
+  let code: string | null | undefined;
   let bootstrap = false;
   const rest = [...args];
   let sandbox = false;
@@ -199,8 +213,13 @@ function optionsOf(args: string[]): CliOptions {
         throw new Error('--as needs an account handle: lowercase letters, digits, _ or -');
       }
     } else if (arg === '--join') {
-      code = rest.shift() || '';
-      if (!JOIN_CODE.test(code)) throw new Error('--join needs a join code; it starts with org_');
+      // With no code after it, the code is asked for and never shown: a code
+      // on the command line stays in the shell history and the process list.
+      const next = rest[0];
+      code = next === undefined || next.startsWith('--') ? null : (rest.shift() ?? null);
+      if (code !== null && !JOIN_CODE.test(code)) {
+        throw new Error('--join needs a join code; it starts with org_');
+      }
     } else if (arg === '--bootstrap') bootstrap = true;
     else if (arg === '--sandbox') sandbox = true;
     else if (arg === '--all') options.all = true;
@@ -216,14 +235,15 @@ function optionsOf(args: string[]): CliOptions {
     throw new Error('--sandbox uses the root that ships with Agents City; drop --trust-file');
   }
   if (sandbox) options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
-  if (code && bootstrap) throw new Error('--join and --bootstrap are two ways in; give one');
-  if ((code || bootstrap) && !account) {
+  const joining = code !== undefined;
+  if (joining && bootstrap) throw new Error('--join and --bootstrap are two ways in; give one');
+  if ((joining || bootstrap) && !account) {
     throw new Error('name the account to create: --as <handle>');
   }
-  if (account && !code && !bootstrap) {
+  if (account && !joining && !bootstrap) {
     throw new Error('--as creates an account, which needs --join <code> or --bootstrap');
   }
-  if (code) options.enroll = { account, code };
+  if (joining) options.enroll = { account, code: code ?? null };
   if (bootstrap) options.enroll = { account, bootstrap: true };
   return options;
 }
@@ -257,6 +277,8 @@ async function identityFor(
   identity: DeviceIdentity;
   connectedAt: string;
   previous: ConnectedConnectState | null;
+  /** The organization this sign-in seated the account in, when it did. */
+  seat: Seat | null;
 }> {
   const current = readConnectState();
   if (
@@ -268,14 +290,21 @@ async function identityFor(
     );
   }
   if (current?.status === 'connected') {
-    if (enroll && 'bootstrap' in enroll) {
-      throw new Error(`this computer is already signed in as ${current.device.ownerPrefix}`);
+    // An account exists here already. Making another, or joining under a name
+    // that is not this computer's, is not what would happen: say so.
+    if (enroll && ('bootstrap' in enroll || enroll.account !== current.device.ownerPrefix)) {
+      throw new Error(
+        `this computer is already signed in as ${current.device.ownerPrefix}; to join an organization with it, run agents-city orgs join`,
+      );
     }
-    return {
-      identity: await loadConnectIdentity(current),
-      connectedAt: current.connectedAt,
-      previous: current,
-    };
+    const identity = await loadConnectIdentity(current);
+    const seat =
+      enroll && 'code' in enroll
+        ? await organizationRequest<Seat>(serviceUrl, identity, 'join', {
+            code: enroll.code ?? (await joinCode()),
+          })
+        : null;
+    return { identity, connectedAt: current.connectedAt, previous: current, seat };
   }
 
   let pending = current?.status === 'pending' ? current : null;
@@ -298,14 +327,23 @@ async function identityFor(
   }
   if (!pending || !authorization) throw new Error('device authorization could not start');
 
+  let seat: Seat | null = null;
   if (enroll) {
     // No browser: the join code, or the operator's secret, is the approval.
     const grant =
       'code' in enroll
-        ? { code: enroll.code }
-        : { bootstrap: await secretLine('  Bootstrap secret: ') };
+        ? { code: enroll.code ?? (await joinCode()) }
+        : { bootstrap: await bootstrapSecret() };
     try {
-      await enrollDeviceAccount(serviceUrl, authorization.device_code, enroll.account, grant);
+      const made = await enrollDeviceAccount(
+        serviceUrl,
+        authorization.device_code,
+        enroll.account,
+        grant,
+      );
+      if (made.organization && made.role) {
+        seat = { organization: made.organization, role: made.role };
+      }
     } catch (error) {
       if (error instanceof ConnectApiError && error.code === 'device_code_not_found_or_expired') {
         removePendingConnectState();
@@ -326,7 +364,7 @@ async function identityFor(
       onPending: () => {},
     });
     await vault.saveIdentity(identity);
-    return { identity, connectedAt: new Date().toISOString(), previous: null };
+    return { identity, connectedAt: new Date().toISOString(), previous: null, seat };
   } catch (error) {
     if (
       error instanceof ConnectApiError &&
@@ -335,6 +373,19 @@ async function identityFor(
       removePendingConnectState();
     throw error;
   }
+}
+
+async function joinCode(): Promise<string> {
+  const code = await secretLine('  Join code: ');
+  if (!JOIN_CODE.test(code)) throw new Error('that is not a join code; it starts with org_');
+  return code;
+}
+
+async function bootstrapSecret(): Promise<string> {
+  const secret = await secretLine('  Bootstrap secret: ');
+  // The service refuses a shorter one; refusing here costs no attempt.
+  if (secret.length < 32) throw new Error('the bootstrap secret is at least 32 characters');
+  return secret;
 }
 
 const normalizedService = (value: string): string => normalizeConnectServiceUrl(value);
@@ -470,17 +521,7 @@ async function connect(options: CliOptions): Promise<void> {
   };
   writeConnectState(state);
   for (const city of chosen) await restartHub(city);
-  // The code that let the account exist is the same one that seats it. Signed
-  // in first, so a join that fails leaves an account that can simply retry.
-  const joined =
-    options.enroll && 'code' in options.enroll
-      ? await organizationRequest<{ organization: string; role: string }>(
-          state.serviceUrl,
-          paired.identity,
-          'join',
-          { code: options.enroll.code },
-        )
-      : null;
+  const joined = paired.seat;
   const value = {
     connected: true,
     deviceId: state.device.deviceId,

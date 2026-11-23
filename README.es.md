@@ -822,8 +822,8 @@ el único servicio cuya raíz firmada viene con Agents City; cualquier otro
 necesita `--service` y `--trust-file`.
 
 Un servicio sin web no tiene paso de navegador. Ahí, `auth login --as maria
---join org_...` crea la cuenta desde la terminal para quien tenga el código de
-una organización, y le da su sitio en ella; `auth login --as ana --bootstrap`
+--join` pide el código de una organización sin mostrarlo, crea la cuenta desde
+la terminal y le da su sitio en ella, gastando un uso del código; `auth login --as ana --bootstrap`
 crea la primera cuenta con el secreto que el operador fijó al desplegar. Una
 cuenta así no tiene passkey: vive en las claves de este ordenador.
 

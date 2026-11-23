@@ -2,7 +2,7 @@
   "protocol": "agents-city-public-connect-client/1",
   "generatedFrom": "agents-city-web",
   "sourceFiles": {
-    "packages/connect-client/src/device.ts": "8b9c426669c5159fb836b0c8f51b830146ef83a51fc1b2189d548adf72c35126",
+    "packages/connect-client/src/device.ts": "2e9bccf91fa7741cc3a976c8a089ad2d89f87d8bef94c65abbf98553ae8838a2",
     "packages/connect-client/src/encoding.ts": "79101839d73936e19df58e64c7a4a08c7506849ed62b608160b8aa1473b5c840",
     "packages/connect-client/src/hybrid-crypto.ts": "88039aab66586ebc82a8ac0ee7cdce0384bb30eba225af13993b7bf784b254e5",
     "packages/connect-client/src/index.ts": "ea2d1c932e8409138806cd2d2792684205b533badbf478db1265d41a70483593",
@@ -20,12 +20,12 @@
     "packages/service-protocol/src/key-transparency-root-chain.ts": "187638d50fb7a167f2a68f980ce534f302d4eedb53e08f20e74fae87efef2afe",
     "packages/service-protocol/src/sealed-sender.ts": "3700bd6175e440a184e39f6754d05533f4c4a8c786e70d3094fcf4a31e0df3fe",
     "packages/service-protocol/src/validation.ts": "ea49e43805cc507e59cf183904bf9f6a0896ca8017f474788640cacf486789d1",
-    "scripts/templates/managed-connect-client.d.ts": "5e3a03891c2a975d0ba3b76d4945de1b1b012721fea1d646e02e460011fb5d2c",
+    "scripts/templates/managed-connect-client.d.ts": "602fd4d7fd454404af38aff881b6895030a200f881fa063d7b43e8931d41720c",
     "config/sandbox-key-transparency-root-chain.json": "29067a5fd0d7bc6f5ad0810677c430bdd3b7f5177bbb304da4d1ce7fa815585f"
   },
   "exported": {
     "plugin/channel/managed-connect-client.js": "239e4954956037eab6510d5f0e5242298e37993c08ce507a7c999457d69f2d8e",
-    "plugin/channel/managed-connect-client.d.ts": "5e3a03891c2a975d0ba3b76d4945de1b1b012721fea1d646e02e460011fb5d2c",
+    "plugin/channel/managed-connect-client.d.ts": "602fd4d7fd454404af38aff881b6895030a200f881fa063d7b43e8931d41720c",
     "plugin/channel/trust/agents-city-sandbox-roots.json": "29067a5fd0d7bc6f5ad0810677c430bdd3b7f5177bbb304da4d1ce7fa815585f",
     "plugin/channel/kinsh_vodozemac_wasm_bg.wasm": "b05699476752705a95100a9c54874be89b636bd361497b524b798944b401ba12",
     "plugin/channel/agents_city_hybrid_crypto_bg.wasm": "bd14542b287c9166d2b6c55f8ad667b67bd8734c991115eb4c3aac50a54474e7",

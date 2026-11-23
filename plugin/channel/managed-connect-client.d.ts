@@ -259,13 +259,20 @@ export type OrganizationAction =
   'list' | 'create' | 'invite' | 'join' | 'members' | 'connect' | 'role' | 'remove';
 export const ORGANIZATION_ACTIONS: readonly OrganizationAction[];
 export type EnrollmentGrant = { code: string } | { bootstrap: string };
+export type EnrollmentResult = {
+  approved: boolean;
+  account: string;
+  first: boolean;
+  organization?: string;
+  role?: string;
+};
 export function enrollDeviceAccount(
   controlPlaneUrl: string,
   deviceCode: string,
   account: string,
   grant: EnrollmentGrant,
   fetcher?: typeof fetch,
-): Promise<{ approved: boolean; account: string; first: boolean }>;
+): Promise<EnrollmentResult>;
 export function organizationRequest<T = Record<string, unknown>>(
   controlPlaneUrl: string,
   identity: DeviceIdentity,
