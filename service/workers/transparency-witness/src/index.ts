@@ -113,7 +113,9 @@ export const witnessTrustDomainIdentity = (env: Pick<
   const integrationEnvironment = env.APP_ENV === 'sandbox'
     || env.APP_ENV === 'test'
     || env.APP_ENV === 'local'
-    || env.APP_ENV === 'acceptance';
+    || env.APP_ENV === 'acceptance'
+    // One operator runs the log and this witness in one account, and says so.
+    || env.APP_ENV === 'self-hosted';
   const configured = [relayAccountId, witnessAccountId, deploymentId, sourceCommit]
     .some((value) => value.length > 0);
   if (!configured && integrationEnvironment) {

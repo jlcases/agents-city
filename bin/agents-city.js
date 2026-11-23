@@ -63,6 +63,11 @@ const ORDENES = {
     antes: ['orgs'],
     di: 'an organization whose members connect without pairwise approval',
   },
+  infra: {
+    node: 'plugin/channel/managed-connect-cli.js',
+    antes: ['infra'],
+    di: 'put the service on your own Cloudflare account',
+  },
   connect: {
     node: 'plugin/channel/managed-connect-cli.js',
     di: 'pair this computer and open encrypted managed Roads',
@@ -146,7 +151,6 @@ function interprete() {
   return elInterprete;
 }
 
-
 function ayuda() {
   const v = require(path.join(RAIZ, 'package.json')).version;
   console.log(`
@@ -159,7 +163,9 @@ function ayuda() {
   for (const [n, o] of Object.entries(ORDENES)) {
     console.log(`    ${n.padEnd(11)}${o.di}`);
   }
-  const conShell = Object.entries(ORDENES).filter(([, o]) => o.sh).map(([n]) => n);
+  const conShell = Object.entries(ORDENES)
+    .filter(([, o]) => o.sh)
+    .map(([n]) => n);
   console.log(`
   Needs Python 3, and a window server for the ones that open a city (the seat
   installs it itself).
@@ -175,7 +181,10 @@ function main() {
   const args = process.argv.slice(2);
   const primera = args[0] || 'hall';
 
-  if (primera === '--help' || primera === '-h' || primera === 'help') { ayuda(); return 0; }
+  if (primera === '--help' || primera === '-h' || primera === 'help') {
+    ayuda();
+    return 0;
+  }
   if (primera === '--version' || primera === '-v') {
     console.log(require(path.join(RAIZ, 'package.json')).version);
     return 0;
@@ -231,13 +240,19 @@ function main() {
   // the console is on. Without it, on Windows, a card with an em dash is
   // written in cp1252 and read back as UTF-8 by the next door along.
   let entorno = {
-    ...process.env, PYTHONUNBUFFERED: '1', PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8',
+    ...process.env,
+    PYTHONUNBUFFERED: '1',
+    PYTHONUTF8: '1',
+    PYTHONIOENCODING: 'utf-8',
   };
   if (orden.entorno) {
     const py = interprete();
     if (py) {
-      const r = spawnSync(py[0], [...py.slice(1), path.join(RAIZ, 'plugin/scripts/city_env.py'),
-        '--json'], { encoding: 'utf8' });
+      const r = spawnSync(
+        py[0],
+        [...py.slice(1), path.join(RAIZ, 'plugin/scripts/city_env.py'), '--json'],
+        { encoding: 'utf8' },
+      );
       if (r.status === 0) {
         try {
           entorno = { ...entorno, ...JSON.parse(r.stdout) };
@@ -251,7 +266,9 @@ function main() {
   // Unbuffered, so the URL a server prints reaches a pipe as well as a terminal
   // — a CI log or a `| head` otherwise swallows it and the run looks silent.
   const r = spawnSync(programa, [...antes, ...resto], {
-    stdio: 'inherit', cwd: RAIZ, env: entorno,
+    stdio: 'inherit',
+    cwd: RAIZ,
+    env: entorno,
   });
   return r.status === null ? 1 : r.status;
 }

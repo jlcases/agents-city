@@ -136,6 +136,9 @@ jobs:
         run: npm run typecheck
       - name: control plane, relay, witness, client, cryptography and licence contracts
         run: npm test
+      # `agents-city infra deploy` uploads these three files as they are.
+      - name: the three Workers build, each as one module
+        run: npm run build:workers
       # The client the CLI ships is generated from this directory. A committed
       # copy that differs from what the sources build is a client nobody reviewed.
       - name: the committed client is the one these sources build

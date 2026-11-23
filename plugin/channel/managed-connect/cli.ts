@@ -31,6 +31,7 @@ import {
   type StoredTransparencyProfile,
 } from './storage.js';
 import { organizationsCli, type Ask } from './orgs.js';
+import { infraCli } from './infra.js';
 import { ensureHub } from '../hub-client.js';
 import { loadCityContext } from '../city-config.js';
 import { readEndpoint } from '../runtime-files.js';
@@ -52,7 +53,8 @@ type CliOptions = {
 };
 
 /** An account made from the terminal: its handle, and what permits it. */
-type Enrollment = { account: string; code: string | null } | { account: string; bootstrap: true };
+type Enrollment =
+  { account: string; code: string | null } | { account: string; bootstrap: true; secret?: string };
 type Seat = { organization: string; role: string };
 
 // What the service keeps a handle as; anything else it would refuse later.
@@ -333,7 +335,7 @@ async function identityFor(
     const grant =
       'code' in enroll
         ? { code: enroll.code ?? (await joinCode()) }
-        : { bootstrap: await bootstrapSecret() };
+        : { bootstrap: enroll.secret ?? (await bootstrapSecret()) };
     try {
       const made = await enrollDeviceAccount(
         serviceUrl,
@@ -644,8 +646,20 @@ async function roads(options: CliOptions): Promise<void> {
     }
 }
 
-export async function managedConnectCli(args = process.argv.slice(2)): Promise<void> {
+/**
+ * `held` carries the operator's secret straight from the deployment that
+ * minted it, so it is never typed, printed or put in the environment.
+ */
+export async function managedConnectCli(
+  args = process.argv.slice(2),
+  held: { bootstrapSecret?: string } = {},
+): Promise<void> {
   if (args[0] === 'orgs') return organizationsCli(args.slice(1), { open: openOrganizations });
+  if (args[0] === 'infra') {
+    return infraCli(args.slice(1), (login, bootstrapSecret) =>
+      managedConnectCli(login, { bootstrapSecret }),
+    );
+  }
   let identityOnly = false;
   const viaAuth = args[0] === 'auth';
   if (args[0] === 'auth') {
@@ -660,6 +674,9 @@ export async function managedConnectCli(args = process.argv.slice(2)): Promise<v
   const options = optionsOf(args);
   options.identityOnly = identityOnly;
   options.viaAuth = viaAuth;
+  if (options.enroll && 'bootstrap' in options.enroll && held.bootstrapSecret) {
+    options.enroll.secret = held.bootstrapSecret;
+  }
   if (options.enroll && !identityOnly) {
     throw new Error('--as, --join and --bootstrap belong to agents-city auth login');
   }

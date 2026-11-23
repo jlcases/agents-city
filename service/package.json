@@ -9,13 +9,14 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "typecheck": "npm run types && tsc -p tsconfig.json && tsc -p packages/connect-client/tsconfig.json && tsc -p workers/relay/tsconfig.json && tsc -p workers/transparency-witness/tsconfig.json",
+    "typecheck": "npm run types && tsc -p tsconfig.json && tsc -p packages/connect-client/tsconfig.json && tsc -p workers/control/tsconfig.json && tsc -p workers/relay/tsconfig.json && tsc -p workers/transparency-witness/tsconfig.json",
     "test": "npm run test:contracts && npm run test:hybrid && npm run test:ratchet && npm run test:relay && npm run test:witness",
     "test:contracts": "node --test tests/*.test.mjs",
     "test:hybrid": "cargo test --locked --offline --manifest-path packages/hybrid-crypto/Cargo.toml",
     "test:ratchet": "vitest run --config vitest.ratchet.config.ts --maxWorkers=1",
     "test:relay": "vitest run --config workers/relay/vitest.config.ts --maxWorkers=1 --no-isolate",
     "test:witness": "vitest run --config workers/transparency-witness/vitest.config.ts --maxWorkers=1 --no-isolate",
+    "build:workers": "node scripts/build-workers.mjs",
     "export:client": "node scripts/export-public-connect-client.mjs --target ..",
     "fuzz:hybrid:check": "node scripts/run-hybrid-fuzz.mjs --check",
     "fuzz:hybrid": "node scripts/run-hybrid-fuzz.mjs --run",

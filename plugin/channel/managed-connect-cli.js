@@ -2275,7 +2275,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes, createHash: createHash2 } = __require("crypto");
+    var { randomBytes: randomBytes2, createHash: createHash2 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2813,7 +2813,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes(16).toString("base64");
+      const key = randomBytes2(16).toString("base64");
       const request = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -3709,7 +3709,7 @@ var require_websocket_server = __commonJS({
 // managed-connect/cli.ts
 import { spawn as spawn2 } from "node:child_process";
 import { hostname, platform } from "node:os";
-import { existsSync as existsSync5 } from "node:fs";
+import { existsSync as existsSync6 } from "node:fs";
 
 // managed-connect/device.ts
 import {
@@ -4509,10 +4509,551 @@ async function organizationsCli(args, deps) {
   else for (const line of lines) print(line);
 }
 
+// managed-connect/infra.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { existsSync as existsSync3, mkdirSync as mkdirSync2, mkdtempSync, rmSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname as dirname2, join as join3, resolve as resolve2 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+import {
+  createKeyTransparencyRootSignature,
+  hashKeyTransparencyRoot,
+  parseKeyTransparencyRootChain as parseKeyTransparencyRootChain2,
+  resolveKeyTransparencyRootChain as resolveKeyTransparencyRootChain2
+} from "./managed-connect-client.js";
+var ROOT_PROTOCOL = "agents-city-key-transparency-root/1";
+var CHAIN_PROTOCOL = "agents-city-key-transparency-root-chain/1";
+var COMPATIBILITY_DATE = "2026-08-27";
+var NAME2 = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/;
+var HANDLE = /^[a-z0-9_](?:[a-z0-9_-]{0,30}[a-z0-9_])?$/;
+var ACCOUNT_ID = /^[0-9a-f]{32}$/;
+var DAY_MS = 24 * 60 * 6e4;
+var ROOT_LIFETIME_MS = 365 * DAY_MS;
+var ROOT_RENEW_BEFORE_MS = 90 * DAY_MS;
+var PIECES = ["witness", "relay", "control"];
+function infraUsage() {
+  return `Usage:
+  agents-city infra deploy [--name NAME] [--account ID] [--as HANDLE] [--trust-file FILE]
+
+Puts the Agents City service on your own Cloudflare account: a database, the
+relay, the key log witness and the control plane. It uses the session that
+\`wrangler login\` opened and asks for no API key.
+
+  --name NAME        prefix of everything it creates (default: agents-city)
+  --account ID       the Cloudflare account, when your login reaches several
+  --as HANDLE        also make the first account, on this computer, and sign in
+  --trust-file FILE  where to write the file colleagues need to sign in
+                     (default: ./NAME-trust.json)
+
+Run it again to upgrade the service. It never replaces a key that exists.`;
+}
+function infraOptions(args) {
+  const options = {
+    command: "deploy",
+    name: "agents-city",
+    account: "",
+    as: "",
+    trustFile: "",
+    json: false
+  };
+  const rest = [...args];
+  const verb = rest.shift() ?? "";
+  if (!verb || verb === "help" || verb === "--help" || verb === "-h") {
+    options.command = "help";
+    return options;
+  }
+  if (verb !== "deploy") {
+    throw new Error(`unknown infra command: ${verb}; see agents-city infra --help`);
+  }
+  const value = (flag) => {
+    const given = rest.shift();
+    if (given === void 0 || given.startsWith("--")) throw new Error(`${flag} needs a value`);
+    return given;
+  };
+  const seen = /* @__PURE__ */ new Set();
+  while (rest.length) {
+    const flag = rest.shift() ?? "";
+    if (flag === "--help" || flag === "-h") {
+      options.command = "help";
+      return options;
+    }
+    if (seen.has(flag)) throw new Error(`${flag} was given twice`);
+    seen.add(flag);
+    if (flag === "--name") options.name = value(flag);
+    else if (flag === "--account") options.account = value(flag);
+    else if (flag === "--as") options.as = value(flag);
+    else if (flag === "--trust-file") options.trustFile = value(flag);
+    else if (flag === "--json") options.json = true;
+    else throw new Error(`unknown option: ${flag}`);
+  }
+  if (!NAME2.test(options.name)) {
+    throw new Error(
+      "--name is 3 to 32 lowercase letters, digits and dashes, starting with a letter"
+    );
+  }
+  if (options.account && !ACCOUNT_ID.test(options.account)) {
+    throw new Error("--account is the 32-character id that `wrangler whoami` prints");
+  }
+  if (options.as && !HANDLE.test(options.as)) {
+    throw new Error("--as is 1 to 32 lowercase letters, digits, dashes and underscores");
+  }
+  return options;
+}
+var publicJwk = (jwk) => ({
+  kty: "OKP",
+  crv: "Ed25519",
+  x: jwk.x,
+  ext: true
+});
+function keyPair() {
+  const generated = generateKeyPairSync("ed25519");
+  const jwk = generated.privateKey.export({ format: "jwk" });
+  if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || !jwk.x || !jwk.d) {
+    throw new Error("this Node could not generate an Ed25519 key");
+  }
+  return {
+    publicJwk: publicJwk(jwk),
+    privateJwk: { kty: "OKP", crv: "Ed25519", x: jwk.x, d: jwk.d, ext: true }
+  };
+}
+var secret = () => randomBytes(32).toString("base64url");
+function failure(step, result) {
+  const detail = `${result.stderr}
+${result.stdout}`.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("\u26C5") && !/^[─-]+$/.test(line)).slice(-6).join("\n  ");
+  return new Error(`${step} failed${detail ? `:
+  ${detail}` : ""}`);
+}
+function jsonOf(step, result) {
+  if (result.status !== 0) throw failure(step, result);
+  const text = result.stdout;
+  const start = text.search(/[[{]/);
+  try {
+    return JSON.parse(start < 0 ? text : text.slice(start));
+  } catch {
+    throw new Error(`${step}: wrangler did not answer in JSON`);
+  }
+}
+var namesOf = (prefix) => ({
+  witness: `${prefix}-witness`,
+  relay: `${prefix}-relay`,
+  control: `${prefix}-control`,
+  database: `${prefix}-control`
+});
+function configOf(piece, names, databaseId, serviceRoot, relayUrl) {
+  const database = {
+    binding: "CONTROL",
+    database_name: names.database,
+    database_id: databaseId,
+    migrations_dir: join3(serviceRoot, "migrations", "control-plane")
+  };
+  const base = {
+    name: names[piece],
+    main: join3(serviceRoot, "dist", piece, "index.js"),
+    no_bundle: true,
+    compatibility_date: COMPATIBILITY_DATE,
+    workers_dev: true,
+    observability: { enabled: true }
+  };
+  if (piece === "witness") {
+    return {
+      ...base,
+      // One operator runs the log and its witness here, so the witness catches
+      // an accident, not a dishonest operator. The name says so.
+      vars: { APP_ENV: "self-hosted" },
+      durable_objects: {
+        bindings: [{ name: "WITNESS_STATE", class_name: "TransparencyWitness" }]
+      },
+      migrations: [{ tag: "v1", new_sqlite_classes: ["TransparencyWitness"] }],
+      ratelimits: [
+        { name: "WITNESS_COSIGN_LIMIT", namespace_id: "41002", simple: { limit: 600, period: 60 } }
+      ]
+    };
+  }
+  if (piece === "relay") {
+    const classes = [
+      ["CITY_MAILBOX", "CityMailbox"],
+      ["DELIVERY_LANE", "DeliveryLane"],
+      ["TRANSPARENCY_LOG", "TransparencyLog"],
+      ["CAPABILITY_SHARD", "CapabilityShard"],
+      ["ROAD_AUTHORITY", "RoadAuthority"]
+    ];
+    return {
+      ...base,
+      vars: { APP_ENV: "production", SEALED_CAPABILITY_PEPPER_VERSION: "1" },
+      d1_databases: [database],
+      durable_objects: {
+        bindings: classes.map(([name, class_name]) => ({ name, class_name }))
+      },
+      migrations: classes.map(([, class_name], index) => ({
+        tag: `v${index + 1}`,
+        new_sqlite_classes: [class_name]
+      })),
+      ratelimits: [
+        {
+          name: "SEALED_SUBMIT_LIMIT",
+          namespace_id: "41001",
+          simple: { limit: 12e4, period: 60 }
+        }
+      ],
+      triggers: { crons: ["*/1 * * * *"] }
+    };
+  }
+  return {
+    ...base,
+    vars: { APP_ENV: "production", ROADS_PUBLIC_BUS_URL: relayUrl },
+    d1_databases: [database],
+    services: [{ binding: "ROADS_BUS", service: names.relay }]
+  };
+}
+var deployedUrl = (name, result) => {
+  const found = new RegExp(`https://${name}\\.[a-z0-9-]+\\.workers\\.dev`).exec(
+    `${result.stdout}
+${result.stderr}`
+  );
+  if (!found) {
+    throw new Error(
+      `${name} was deployed but wrangler printed no workers.dev address; open Workers & Pages in the Cloudflare dashboard once to choose your subdomain, then run this again`
+    );
+  }
+  return found[0];
+};
+async function firstRoot(service, relayUrl, keys, ids, rootPrivate, now) {
+  const signed = {
+    protocol: ROOT_PROTOCOL,
+    version: 1,
+    environment: "production",
+    controlPlaneUrl: service,
+    relayUrl,
+    issuedAt: now,
+    expiresAt: now + ROOT_LIFETIME_MS,
+    previousRootHash: null,
+    keys: { [ids.root]: keys.root, [ids.operator]: keys.operator, [ids.witness]: keys.witness },
+    roles: {
+      root: { keyIds: [ids.root], threshold: 1 },
+      operator: { keyIds: [ids.operator], threshold: 1 },
+      witness: { keyIds: [ids.witness], threshold: 1 }
+    },
+    maximumHeadAgeMs: 3e5,
+    maximumWitnessLagMs: 3e4
+  };
+  return {
+    signed,
+    signatures: [await createKeyTransparencyRootSignature(signed, ids.root, rootPrivate)]
+  };
+}
+async function renewedRoot(latest, rootPrivate, now) {
+  const rootId = latest.signed.roles.root.keyIds[0];
+  const signed = {
+    ...latest.signed,
+    version: latest.signed.version + 1,
+    issuedAt: now,
+    expiresAt: now + ROOT_LIFETIME_MS,
+    previousRootHash: await hashKeyTransparencyRoot(latest.signed)
+  };
+  return {
+    signed,
+    signatures: [await createKeyTransparencyRootSignature(signed, rootId, rootPrivate)]
+  };
+}
+var sqlText = (value) => `'${value.replaceAll("'", "''")}'`;
+async function deploy(options, host) {
+  const { wrangler, say } = host;
+  const names = namesOf(options.name);
+  for (const piece of PIECES) {
+    if (!existsSync3(join3(host.serviceRoot, "dist", piece, "index.js"))) {
+      throw new Error(
+        "the service is not built in this copy of Agents City; from a source checkout run `npm ci && npm run build:workers` in service/ first"
+      );
+    }
+  }
+  const who = wrangler(["whoami", "--json"]);
+  const identity = who.status === 0 ? jsonOf("wrangler", who) : { loggedIn: false };
+  if (!identity.loggedIn || !identity.accounts?.length) {
+    throw new Error("wrangler is not signed in to Cloudflare; run `wrangler login` and try again");
+  }
+  const account = options.account ? identity.accounts.find(({ id }) => id === options.account) : identity.accounts.length === 1 ? identity.accounts[0] : void 0;
+  if (!account) {
+    if (options.account) throw new Error("your wrangler login cannot reach that --account");
+    throw new Error(
+      "your wrangler login reaches several Cloudflare accounts; name one with --account:\n" + identity.accounts.map(({ id, name }) => `  ${id}  ${name}`).join("\n")
+    );
+  }
+  const cf = (args, input) => wrangler(args, input, account.id);
+  say(`Cloudflare account: ${account.name}`);
+  const scratch = mkdtempSync(join3(tmpdir(), "agents-city-infra-"));
+  try {
+    const find = () => jsonOf("listing databases", cf(["d1", "list", "--json"])).find(
+      ({ name }) => name === names.database
+    );
+    let database = find();
+    if (!database) {
+      for (const piece of PIECES) {
+        const existing = cf(["deployments", "list", "--name", names[piece], "--json"]);
+        if (existing.status === 0) {
+          throw new Error(
+            `a Worker named ${names[piece]} already exists in this account and this command did not create it; choose another --name`
+          );
+        }
+      }
+      const created = cf(["d1", "create", names.database]);
+      if (created.status !== 0) throw failure("creating the database", created);
+      database = find();
+      if (!database)
+        throw new Error("Cloudflare created the database but does not list it yet; run this again");
+      say(`Database: ${names.database} (created)`);
+    } else say(`Database: ${names.database}`);
+    const configPath = (piece, relayUrl = "") => {
+      const path = join3(scratch, `${piece}.json`);
+      writeFileSync2(
+        path,
+        JSON.stringify(configOf(piece, names, database.uuid, host.serviceRoot, relayUrl), null, 2)
+      );
+      return path;
+    };
+    const migrated = cf([
+      "d1",
+      "migrations",
+      "apply",
+      "CONTROL",
+      "--remote",
+      "--config",
+      configPath("relay")
+    ]);
+    if (migrated.status !== 0) throw failure("applying the database migrations", migrated);
+    const put = (piece, relayUrl = "") => {
+      const result = cf(["deploy", "--config", configPath(piece, relayUrl)]);
+      if (result.status !== 0) throw failure(`deploying ${names[piece]}`, result);
+      const url = deployedUrl(names[piece], result);
+      say(`Deployed: ${url}`);
+      return url;
+    };
+    const witness = put("witness");
+    const relayOrigin = put("relay");
+    const relay = `${relayOrigin.replace(/^https:/, "wss:")}/v1/connect`;
+    const service = put("control", relay);
+    const query = (step, sql) => jsonOf(
+      step,
+      cf(["d1", "execute", names.database, "--remote", "--json", "--command", sql])
+    )[0]?.results ?? [];
+    const execute = (step, sql) => {
+      const file = join3(scratch, "statement.sql");
+      writeFileSync2(file, sql, { mode: 384 });
+      const result = cf(["d1", "execute", names.database, "--remote", "--yes", "--file", file]);
+      rmSync(file, { force: true });
+      if (result.status !== 0) throw failure(step, result);
+    };
+    const secrets = (piece, values) => {
+      const result = cf(
+        ["secret", "bulk", "--config", configPath(piece, relay)],
+        JSON.stringify(values)
+      );
+      if (result.status !== 0) throw failure(`setting the secrets of ${names[piece]}`, result);
+    };
+    const publish = async (root) => {
+      const text = JSON.stringify(root);
+      execute(
+        "publishing the root",
+        `INSERT INTO key_transparency_roots (version, root_hash, root_json, issued_at, expires_at)
+         VALUES (${root.signed.version}, ${sqlText(await hashKeyTransparencyRoot(root.signed))},
+                 ${sqlText(text)}, ${root.signed.issuedAt}, ${root.signed.expiresAt});`
+      );
+    };
+    const now = host.now();
+    const stored = query(
+      "reading the published roots",
+      "SELECT version, root_json FROM key_transparency_roots ORDER BY version ASC"
+    );
+    let roots = stored.map(({ root_json }) => JSON.parse(root_json));
+    let createdKeys = false;
+    if (!roots.length) {
+      const root = keyPair();
+      const operator = keyPair();
+      const witnessKey = keyPair();
+      const ids = {
+        root: `${options.name}-root-v1`,
+        operator: `${options.name}-operator-v1`,
+        witness: `${options.name}-witness-v1`
+      };
+      const first = await firstRoot(
+        service,
+        relay,
+        { root: root.publicJwk, operator: operator.publicJwk, witness: witnessKey.publicJwk },
+        ids,
+        root.privateJwk,
+        now
+      );
+      await host.rootKeys.save(`${account.id}:${options.name}`, root.privateJwk);
+      const control = secret();
+      secrets("witness", {
+        OPERATOR_KEY_ID: ids.operator,
+        OPERATOR_PUBLIC_JWK: JSON.stringify(operator.publicJwk),
+        WITNESS_KEY_ID: ids.witness,
+        WITNESS_PRIVATE_JWK: JSON.stringify(witnessKey.privateJwk)
+      });
+      secrets("relay", {
+        ROADS_CONTROL_SECRET: control,
+        SEALED_CAPABILITY_PEPPER_CURRENT: secret(),
+        TRANSPARENCY_OPERATOR_PRIVATE_JWK: JSON.stringify(operator.privateJwk),
+        TRANSPARENCY_OPERATOR_KEY_ID: ids.operator,
+        TRANSPARENCY_WITNESS_URL: `${witness}/v1/cosign`,
+        TRANSPARENCY_WITNESS_KEY_ID: ids.witness,
+        TRANSPARENCY_WITNESS_PUBLIC_JWK: JSON.stringify(witnessKey.publicJwk)
+      });
+      secrets("control", { ROADS_CONTROL_SECRET: control });
+      await publish(first);
+      roots = [first];
+      createdKeys = true;
+      say("Keys: created; the root key is in this computer\u2019s keyring");
+    } else {
+      const latest = roots.at(-1);
+      if (latest.signed.controlPlaneUrl !== service || latest.signed.relayUrl !== relay) {
+        throw new Error(
+          "this service was published under another address; its clients trust that one. Deploy with the same --name and account as before"
+        );
+      }
+      if (latest.signed.expiresAt - now < ROOT_RENEW_BEFORE_MS) {
+        const rootPrivate = await host.rootKeys.load(`${account.id}:${options.name}`);
+        if (rootPrivate) {
+          const next = await renewedRoot(latest, rootPrivate, now);
+          await publish(next);
+          roots = [...roots, next];
+          say(`Root: renewed, now version ${next.signed.version}`);
+        } else {
+          say(
+            `Warning: the root expires on ${new Date(latest.signed.expiresAt).toISOString().slice(0, 10)} and its key is not in this computer\u2019s keyring. Run this from the computer that first deployed the service.`
+          );
+        }
+      }
+    }
+    const chain = parseKeyTransparencyRootChain2({ protocol: CHAIN_PROTOCOL, roots });
+    const verified = await resolveKeyTransparencyRootChain2(chain, null, now);
+    const trustFile = resolve2(options.trustFile || `${options.name}-trust.json`);
+    mkdirSync2(dirname2(trustFile), { recursive: true });
+    writeFileSync2(trustFile, `${JSON.stringify(chain, null, 2)}
+`);
+    const [state] = query(
+      "reading whether an account exists",
+      "SELECT (SELECT COUNT(*) FROM accounts) AS accounts, (SELECT COUNT(*) FROM service_bootstrap) AS spent"
+    );
+    const firstAccountExists = Boolean(state && (state.accounts > 0 || state.spent > 0));
+    let bootstrapSecret2 = null;
+    if (options.as && !firstAccountExists) {
+      bootstrapSecret2 = secret();
+      secrets("control", { SIGNUP_BOOTSTRAP_SECRET: bootstrapSecret2 });
+    }
+    return {
+      account: account.name,
+      service,
+      relay,
+      witness,
+      database: names.database,
+      trustFile,
+      rootVersion: verified.root.signed.version,
+      rootExpiresAt: verified.root.signed.expiresAt,
+      createdKeys,
+      bootstrapSecret: bootstrapSecret2,
+      firstAccountExists
+    };
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+function systemWrangler() {
+  const probe = spawnSync2("wrangler", ["--version"], { encoding: "utf8" });
+  const [command, prefix] = probe.status === 0 ? ["wrangler", []] : ["npx", ["--yes", "wrangler@4"]];
+  return (args, input, account) => {
+    const environment = { ...process.env, WRANGLER_SEND_METRICS: "false" };
+    if (account) environment.CLOUDFLARE_ACCOUNT_ID = account;
+    const result = spawnSync2(command, [...prefix, ...args], {
+      encoding: "utf8",
+      env: environment,
+      input: input ?? "",
+      maxBuffer: 16 * 1024 * 1024
+    });
+    if (result.error) {
+      return { status: 1, stdout: "", stderr: `could not run wrangler: ${result.error.message}` };
+    }
+    return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+  };
+}
+function keyringRootKeys() {
+  const entry = async (name) => {
+    const { AsyncEntry } = await import("@napi-rs/keyring");
+    return new AsyncEntry("agents-city-infra-root", name);
+  };
+  return {
+    async load(name) {
+      try {
+        const text = await (await entry(name)).getPassword();
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return null;
+      }
+    },
+    async save(name, key) {
+      try {
+        await (await entry(name)).setPassword(JSON.stringify(key));
+      } catch (error) {
+        throw new Error(
+          "the operating system keyring refused the root key, and without it the service could not be renewed in a year; nothing was created",
+          { cause: error }
+        );
+      }
+    }
+  };
+}
+var packagedServiceRoot = () => join3(dirname2(fileURLToPath3(import.meta.url)), "..", "..", "service");
+async function infraCli(args, signIn) {
+  const options = infraOptions(args);
+  if (options.command === "help") {
+    console.log(infraUsage());
+    return;
+  }
+  const host = {
+    wrangler: systemWrangler(),
+    rootKeys: keyringRootKeys(),
+    serviceRoot: packagedServiceRoot(),
+    now: Date.now,
+    say: (line) => {
+      if (!options.json) console.log(`  ${line}`);
+    }
+  };
+  const done = await deploy(options, host);
+  const login = ["--service", done.service, "--trust-file", done.trustFile];
+  if (options.json) {
+    const { bootstrapSecret: _never, ...shown } = done;
+    console.log(JSON.stringify(shown, null, 2));
+  } else {
+    console.log(`
+  The service is at ${done.service}`);
+    console.log(`  Trust file: ${done.trustFile}`);
+  }
+  if (done.bootstrapSecret) {
+    await signIn(
+      ["auth", "login", ...login, "--as", options.as, "--bootstrap"],
+      done.bootstrapSecret
+    );
+  } else if (options.as && !options.json) {
+    console.log("  The first account already exists; --as was not used.");
+  }
+  if (options.json) return;
+  if (!done.firstAccountExists && !done.bootstrapSecret) {
+    console.log("\n  Next, make the first account on this computer:");
+    console.log(`    agents-city infra deploy --name ${options.name} --as <handle>`);
+  }
+  console.log(
+    "\n  A colleague signs in with that file and a join code from `agents-city orgs invite`:"
+  );
+  console.log(
+    `    agents-city auth login --service ${done.service} --trust-file <file> --as <handle> --join`
+  );
+}
+
 // hub-client.ts
 import { spawn } from "child_process";
-import { mkdirSync as mkdirSync3, openSync as openSync3 } from "fs";
-import { fileURLToPath as fileURLToPath3 } from "url";
+import { mkdirSync as mkdirSync4, openSync as openSync3 } from "fs";
+import { fileURLToPath as fileURLToPath4 } from "url";
 
 // node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -4526,8 +5067,8 @@ var import_websocket_server = __toESM(require_websocket_server(), 1);
 
 // city-config.ts
 import { homedir as homedir2 } from "os";
-import { basename as basename2, join as join3, resolve as resolve2 } from "path";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "fs";
+import { basename as basename2, join as join4, resolve as resolve3 } from "path";
+import { existsSync as existsSync4, readFileSync as readFileSync3 } from "fs";
 
 // protocol.ts
 var MESSAGE_TTL_MS = 72 * 60 * 60 * 1e3;
@@ -4539,8 +5080,8 @@ function safeSegment(value, fallback = "actor") {
 // city-config.ts
 function loadCityContext(dataDir = process.env.AGENTS_CITY_DATA || "") {
   if (!dataDir) throw new Error("AGENTS_CITY_DATA does not point at a city");
-  dataDir = resolve2(dataDir);
-  const cityText = readFileSync3(join3(dataDir, "city.yml"), "utf8");
+  dataDir = resolve3(dataDir);
+  const cityText = readFileSync3(join4(dataDir, "city.yml"), "utf8");
   const owner = safeSegment(
     scalar2(cityText, "owner") || process.env.AGENTS_CITY_USER || "me",
     "me"
@@ -4550,10 +5091,10 @@ function loadCityContext(dataDir = process.env.AGENTS_CITY_DATA || "") {
     "home"
   );
   const id = scalar2(cityText, "id");
-  if (!id) throw new Error(`${join3(dataDir, "city.yml")} has no stable id`);
+  if (!id) throw new Error(`${join4(dataDir, "city.yml")} has no stable id`);
   const city = { id, address: `${owner}/${slug}`, name: scalar2(cityText, "name") || slug };
-  const cardPath = join3(dataDir, `${owner}.md`);
-  const card = existsSync3(cardPath) ? frontmatter(readFileSync3(cardPath, "utf8")) : {};
+  const cardPath = join4(dataDir, `${owner}.md`);
+  const card = existsSync4(cardPath) ? frontmatter(readFileSync3(cardPath, "utf8")) : {};
   const rawDomain = scalar2(cityText, "domain") || scalar2(cityText, "kind") || "software";
   const domain = rawDomain === "product" ? "software" : rawDomain === "blank" ? "custom" : rawDomain;
   const declarados = listValue(card.agents || "");
@@ -4570,7 +5111,7 @@ function loadCityContext(dataDir = process.env.AGENTS_CITY_DATA || "") {
     };
     engines[actor] = card[`runs.${actor}`] || "claude";
   }
-  const appHome = resolve2(process.env.AGENTS_CITY_HOME || join3(homedir2(), ".agents-city"));
+  const appHome = resolve3(process.env.AGENTS_CITY_HOME || join4(homedir2(), ".agents-city"));
   return {
     dataDir,
     appHome,
@@ -4585,7 +5126,7 @@ function loadCityContext(dataDir = process.env.AGENTS_CITY_DATA || "") {
   };
 }
 function runtimeDirForCity(appHome, cityId) {
-  return join3(appHome, ".runtime", "bus", safeSegment(cityId, "city"));
+  return join4(appHome, ".runtime", "bus", safeSegment(cityId, "city"));
 }
 function actorForRepo(repo) {
   return safeSegment(repo, "repo");
@@ -4612,7 +5153,7 @@ function safeOperatingRole(value = "") {
 }
 function loadRoads(dataDir) {
   try {
-    const value = JSON.parse(readFileSync3(join3(dataDir, "roads.json"), "utf8"));
+    const value = JSON.parse(readFileSync3(join4(dataDir, "roads.json"), "utf8"));
     return Array.isArray(value.roads) ? value.roads.filter(
       (road) => Boolean(road && typeof road === "object" && "id" in road && "address" in road)
     ) : [];
@@ -4629,18 +5170,18 @@ import {
   chmodSync as chmodSync2,
   closeSync as closeSync2,
   constants as constants2,
-  existsSync as existsSync4,
+  existsSync as existsSync5,
   fsyncSync as fsyncSync2,
-  mkdirSync as mkdirSync2,
+  mkdirSync as mkdirSync3,
   openSync as openSync2,
   readFileSync as readFileSync4,
   renameSync as renameSync2,
   unlinkSync as unlinkSync2,
-  writeFileSync as writeFileSync2
+  writeFileSync as writeFileSync3
 } from "fs";
-import { dirname as dirname2, join as join4 } from "path";
+import { dirname as dirname3, join as join5 } from "path";
 function endpointPath(context) {
-  return join4(context.runtimeDir, "endpoint.json");
+  return join5(context.runtimeDir, "endpoint.json");
 }
 function readEndpoint(context) {
   try {
@@ -4654,10 +5195,10 @@ function readEndpoint(context) {
 // hub-client.ts
 var debug = process.env.CITY_BUS_DEBUG === "1";
 async function ensureHub(context = loadCityContext()) {
-  mkdirSync3(context.runtimeDir, { recursive: true, mode: 448 });
+  mkdirSync4(context.runtimeDir, { recursive: true, mode: 448 });
   let endpoint = readEndpoint(context);
   if (endpoint && await healthy(endpoint)) return endpoint;
-  const hub = fileURLToPath3(new URL("./local-hub.js", import.meta.url));
+  const hub = fileURLToPath4(new URL("./local-hub.js", import.meta.url));
   const log = openSync3(`${context.runtimeDir}/hub.log`, "a", 384);
   const child = spawn(process.execPath, [hub, "--data", context.dataDir], {
     detached: true,
@@ -4692,10 +5233,10 @@ async function healthy(endpoint) {
     return false;
   }
 }
-var wait = (milliseconds) => new Promise((resolve3) => setTimeout(resolve3, milliseconds));
+var wait = (milliseconds) => new Promise((resolve4) => setTimeout(resolve4, milliseconds));
 
 // managed-connect/cli.ts
-var HANDLE = /^[a-z0-9_](?:[a-z0-9_-]{0,30}[a-z0-9_])?$/;
+var HANDLE2 = /^[a-z0-9_](?:[a-z0-9_-]{0,30}[a-z0-9_])?$/;
 var JOIN_CODE = /^org_[A-Za-z0-9_-]{36,124}$/;
 async function secretLine(prompt) {
   const input = process.stdin;
@@ -4712,7 +5253,7 @@ async function secretLine(prompt) {
   input.setRawMode(true);
   input.resume();
   try {
-    return await new Promise((resolve3, reject) => {
+    return await new Promise((resolve4, reject) => {
       let typed = [];
       const done = (act) => {
         input.off("data", onData);
@@ -4722,11 +5263,11 @@ async function secretLine(prompt) {
       const onEnd = () => done(() => reject(new Error("cancelled")));
       const onData = (chunk) => {
         for (const char of chunk) {
-          if (char === "\r" || char === "\n") return done(() => resolve3(typed.join("")));
+          if (char === "\r" || char === "\n") return done(() => resolve4(typed.join("")));
           if (char === "" || char === "" && !typed.length) {
             return done(() => reject(new Error("cancelled")));
           }
-          if (char === "") return done(() => resolve3(typed.join("")));
+          if (char === "") return done(() => resolve4(typed.join("")));
           if (char === "\x7F" || char === "\b") typed.pop();
           else if (char === "") typed = [];
           else if (char >= " ") typed.push(char);
@@ -4836,7 +5377,7 @@ function optionsOf(args) {
       options.trustFile = value;
     } else if (arg === "--as") {
       account = rest.shift() || "";
-      if (!HANDLE.test(account)) {
+      if (!HANDLE2.test(account)) {
         throw new Error("--as needs an account handle: lowercase letters, digits, _ or -");
       }
     } else if (arg === "--join") {
@@ -4926,7 +5467,7 @@ async function identityFor(serviceUrl, openBrowser, keyTransparency, enroll = nu
   if (!pending || !authorization) throw new Error("device authorization could not start");
   let seat = null;
   if (enroll) {
-    const grant = "code" in enroll ? { code: enroll.code ?? await joinCode() } : { bootstrap: await bootstrapSecret() };
+    const grant = "code" in enroll ? { code: enroll.code ?? await joinCode() } : { bootstrap: enroll.secret ?? await bootstrapSecret() };
     try {
       const made = await enrollDeviceAccount(
         serviceUrl,
@@ -4977,14 +5518,14 @@ async function joinCode() {
   return code;
 }
 async function bootstrapSecret() {
-  const secret = await secretLine("  Bootstrap secret: ");
-  if (secret.length < 32) throw new Error("the bootstrap secret is at least 32 characters");
-  return secret;
+  const secret2 = await secretLine("  Bootstrap secret: ");
+  if (secret2.length < 32) throw new Error("the bootstrap secret is at least 32 characters");
+  return secret2;
 }
 var normalizedService = (value) => normalizeConnectServiceUrl(value);
 function mergeCities(local, previous) {
   const existingIds = new Set(
-    (previous?.cities ?? []).filter((city) => city.connected && existsSync5(city.dataDir)).map((city) => city.localCityId)
+    (previous?.cities ?? []).filter((city) => city.connected && existsSync6(city.dataDir)).map((city) => city.localCityId)
   );
   const all = discoverLocalCities();
   const retained = all.filter((city) => existingIds.has(city.id));
@@ -5007,7 +5548,7 @@ async function restartHub(city) {
       } catch {
         break;
       }
-      await new Promise((resolve3) => setTimeout(resolve3, 50));
+      await new Promise((resolve4) => setTimeout(resolve4, 50));
     }
     try {
       process.kill(endpoint.pid, 0);
@@ -5199,8 +5740,14 @@ async function roads(options) {
       else console.log(`  ${road.from} \u2192 ${road.to}${road.purpose ? `  ${road.purpose}` : ""}`);
     }
 }
-async function managedConnectCli(args = process.argv.slice(2)) {
+async function managedConnectCli(args = process.argv.slice(2), held = {}) {
   if (args[0] === "orgs") return organizationsCli(args.slice(1), { open: openOrganizations });
+  if (args[0] === "infra") {
+    return infraCli(
+      args.slice(1),
+      (login, bootstrapSecret2) => managedConnectCli(login, { bootstrapSecret: bootstrapSecret2 })
+    );
+  }
   let identityOnly = false;
   const viaAuth = args[0] === "auth";
   if (args[0] === "auth") {
@@ -5215,6 +5762,9 @@ async function managedConnectCli(args = process.argv.slice(2)) {
   const options = optionsOf(args);
   options.identityOnly = identityOnly;
   options.viaAuth = viaAuth;
+  if (options.enroll && "bootstrap" in options.enroll && held.bootstrapSecret) {
+    options.enroll.secret = held.bootstrapSecret;
+  }
   if (options.enroll && !identityOnly) {
     throw new Error("--as, --join and --bootstrap belong to agents-city auth login");
   }
@@ -5232,7 +5782,7 @@ async function managedConnectCli(args = process.argv.slice(2)) {
 }
 
 // managed-connect-cli.ts
-var door = ["auth", "orgs"].includes(process.argv[2] ?? "") ? process.argv[2] : "connect";
+var door = ["auth", "orgs", "infra"].includes(process.argv[2] ?? "") ? process.argv[2] : "connect";
 managedConnectCli().catch((error) => {
   const said = door === "orgs" ? explainOrganizationError(error) : error instanceof Error ? error.message : String(error);
   console.error(`agents-city ${door}: ${said}`);

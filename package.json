@@ -6,7 +6,7 @@
     "agents-city": "bin/agents-city.js"
   },
   "scripts": {
-    "build": "npm --prefix plugin/channel ci --silent && npm --prefix plugin/channel run build && cd city/web && npm install --silent && npm run build && cd ../..",
+    "build": "npm --prefix plugin/channel ci --silent && npm --prefix plugin/channel run build && npm --prefix service ci --silent && npm --prefix service run build:workers && cd city/web && npm install --silent && npm run build && cd ../..",
     "prepublishOnly": "npm run build && ./bin/test",
     "test": "./bin/test"
   },
@@ -38,6 +38,9 @@
     "city/web/dist",
     "city/web/dist-hall",
     ".claude-plugin",
+    "service/dist",
+    "service/migrations",
+    "service/README.md",
     "bus/scripts",
     "bus/worker/src",
     "bus/worker/package.json",
