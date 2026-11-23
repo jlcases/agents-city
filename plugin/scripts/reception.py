@@ -593,11 +593,12 @@ def envia(connection_id, texto):
 # approved, and the delivery state are the ones a city route already has.
 
 
-def para_publicados(nombres, limite=50):
+def para_publicados(nombres, limite=50, vacios=()):
     """Pending person messages that open with `@name` for a published agent.
 
     Only messages that can be answered: they arrived over a connection that is
-    still active. Returns inert text; nothing is decided here.
+    still active. Returns inert text; nothing is decided here. A name in
+    `vacios` is one that means something with no text after it.
     """
     conocidos = {str(n) for n in nombres}
     if not conocidos:
@@ -623,7 +624,7 @@ def para_publicados(nombres, limite=50):
         if not mencion or mencion.group(1) not in conocidos:
             continue
         texto = fila["body"][mencion.end():].strip()
-        if not texto:
+        if not texto and mencion.group(1) not in vacios:
             continue
         fuera.append(
             {

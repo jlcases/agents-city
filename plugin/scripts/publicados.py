@@ -4,6 +4,7 @@
     agents-city publish list
     agents-city publish add <repo-or-folder> [--name N] [--level consult|request|operate]
                                              [--workspace LABEL] [--allow ID,ID]
+                                             [--about "one line"]
     agents-city publish open <name>
     agents-city publish close <name>
     agents-city publish remove <name>
@@ -35,6 +36,11 @@ reception, delivers them under the agent's level, and sends the answer back
 over the same connection. A message that names nothing published is left
 exactly where it was, for the owner to read.
 
+`@agents` is the directory: the bridge itself answers it, with the agents that
+connection may reach, their level and the line their owner wrote about them. It
+lists what `--allow` would serve and nothing else, so asking who is there never
+shows an agent that would not answer.
+
 Verified against the binary, not its documentation: herdr detects an agent
 started behind `sandbox-exec`, lets it be named, and `agent prompt --wait`
 returns when the turn settles.
@@ -59,6 +65,10 @@ import rutas
 PROTOCOLO = 'agents-city-published/1'
 NIVELES = ('consult', 'request', 'operate')
 NOMBRE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
+#: The one name nobody can publish: a message that opens with it asks the bridge
+#: what is published, and no agent is opened to answer.
+DIRECTORIO = 'agents'
+MAX_ACERCA = 200
 PETICION = re.compile(r'^[a-z0-9]{12}$')
 #: A managed connection, as the service names it. The only identity a
 #: published agent's allow-list accepts: a display name is whatever the
@@ -151,7 +161,7 @@ def _nombre_de(repo):
     return base[:40] or 'agent'
 
 
-def publica(repo, nombre='', nivel='consult', espacio='', permitidos=()):
+def publica(repo, nombre='', nivel='consult', espacio='', permitidos=(), acerca=''):
     """Declare one published agent. Writes the registry and its workspace;
     opens nothing — `abre` is the step that starts a process."""
     real = rutas.canonicaliza(os.path.expanduser(repo))
@@ -160,6 +170,11 @@ def publica(repo, nombre='', nivel='consult', espacio='', permitidos=()):
     nombre = nombre or _nombre_de(real)
     if not NOMBRE.match(nombre):
         raise Rechazo('a name is lowercase letters, digits and dashes, up to 40')
+    if nombre == DIRECTORIO:
+        raise Rechazo(f'@{DIRECTORIO} is the directory; publish under another name')
+    acerca = ' '.join(TOKEN_ESPECIAL.sub('', str(acerca or '')).split())
+    if len(acerca) > MAX_ACERCA:
+        raise Rechazo(f'--about is one line, up to {MAX_ACERCA} characters')
     if nivel not in NIVELES:
         raise Rechazo(f'a level is one of: {", ".join(NIVELES)}')
     # The cage refuses a sealed working directory at launch. Refusing here is
@@ -175,7 +190,8 @@ def publica(repo, nombre='', nivel='consult', espacio='', permitidos=()):
     if any(a['name'] == nombre for a in agentes):
         raise Rechazo(f'{nombre!r} is already published; remove it first')
     entrada = {'name': nombre, 'mount': real, 'level': nivel,
-               'workspace': espacio, 'allow': permitidos, 'created_at': _ahora()}
+               'workspace': espacio, 'allow': permitidos, 'about': acerca,
+               'created_at': _ahora()}
     sitio = carpeta(nombre)
     for sub in ('mounts', 'replies', 'pending'):
         os.makedirs(os.path.join(sitio, sub), mode=0o700, exist_ok=True)
@@ -500,6 +516,47 @@ def _atiende_uno(entrada, m, por, segundos=300):
     return 'answered', respuesta
 
 
+def _alcanza(entrada, conexion):
+    permitidos = entrada.get('allow') or []
+    return not permitidos or conexion in permitidos
+
+
+COMO = {'consult': 'answers directly, read-only',
+        'request': 'the owner approves each question',
+        'operate': 'answers directly, and can change the work'}
+
+
+def directorio(conexion, agentes=None):
+    """What one connection may reach, as the text sent back to it. Empty when
+    nothing is open to that connection."""
+    suyos = [a for a in (lee() if agentes is None else agentes)
+             if _alcanza(a, conexion)]
+    if not suyos:
+        return ''
+    lineas = ['Published agents you can reach over this connection:', '']
+    for a in sorted(suyos, key=lambda a: a['name']):
+        acerca = f" — {a['about']}" if a.get('about') else ''
+        lineas.append(f"  @{a['name']} ({COMO[a['level']]}){acerca}")
+    lineas += ['', 'Open a message with @name to ask one.']
+    return '\n'.join(lineas)
+
+
+def _atiende_directorio(m, agentes):
+    """Answer `@agents` from the registry. No agent is opened and the mount is
+    never read: the answer is what the owner declared, nothing more."""
+    texto = directorio(m['connection_id'], agentes)
+    if not texto:
+        return None
+    try:
+        reception.toma_publicado(m['id'], DIRECTORIO, 'auto')
+    except reception.ReceptionError:
+        return 'gone'
+    enviado = _responde(m['connection_id'], texto)
+    reception.cierra_publicado(m['id'], DIRECTORIO,
+                               '' if enviado else 'the answer could not be queued')
+    return 'answered' if enviado else 'failed'
+
+
 def atiende(segundos=300):
     """One pass over the reception. Returns `[(message-id, agent, state)]`.
 
@@ -512,10 +569,15 @@ def atiende(segundos=300):
         return []
     ya = {p.get('reception') for p in pendientes()}
     hechos = []
-    for m in reception.para_publicados(sorted(agentes)):
+    nombres = sorted(agentes) + [DIRECTORIO]
+    for m in reception.para_publicados(nombres, vacios=(DIRECTORIO,)):
+        if m['agent'] == DIRECTORIO:
+            estado = _atiende_directorio(m, list(agentes.values()))
+            if estado:
+                hechos.append((m['id'], DIRECTORIO, estado))
+            continue
         entrada = agentes[m['agent']]
-        permitidos = entrada.get('allow') or []
-        if permitidos and m['connection_id'] not in permitidos:
+        if not _alcanza(entrada, m['connection_id']):
             continue
         if m['id'] in ya:
             continue
@@ -562,9 +624,10 @@ def _cli_add(resto):
     nivel = _opcion(resto, '--level', 'consult')
     espacio = _opcion(resto, '--workspace')
     permitidos = [p for p in _opcion(resto, '--allow').split(',') if p]
+    acerca = _opcion(resto, '--about')
     if len(resto) != 1:
         raise Rechazo('add takes one folder')
-    a = publica(resto[0], nombre, nivel, espacio, permitidos)
+    a = publica(resto[0], nombre, nivel, espacio, permitidos, acerca)
     print(f"  Published {a['name']} ({a['level']}). Not open yet: "
           f"agents-city publish open {a['name']}")
 
