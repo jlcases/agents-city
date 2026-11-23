@@ -801,9 +801,9 @@ agents-city orgs remove acme maria        # or: agents-city orgs leave acme
 
 `auth login` is the same device flow as `connect`: keys are created on this
 computer, a one-use PASCO is approved in the browser, and no private key or
-reusable token is uploaded. On a computer with no city it signs the account in
-and stops there, which is all `orgs` needs; receiving messages still needs a
-city, so run `agents-city connect` once one exists. `--sandbox` names the
+reusable token is uploaded. It signs the account in and stops there, which is
+all `orgs` needs: it connects no city, even where one exists. Receiving
+messages still needs a city, so run `agents-city connect` for that. `--sandbox` names the
 managed sandbox, the only service whose signed root ships with Agents City; any
 other service needs `--service` and `--trust-file`.
 

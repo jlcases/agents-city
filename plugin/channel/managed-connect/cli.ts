@@ -114,6 +114,8 @@ function optionsOf(args: string[]): CliOptions {
     viaAuth: false,
   };
   const rest = [...args];
+  let sandbox = false;
+  let service = false;
   if (['status', 'roads', 'help'].includes(rest[0] || '')) {
     options.command = rest.shift() as CliOptions['command'];
   }
@@ -123,6 +125,7 @@ function optionsOf(args: string[]): CliOptions {
       const value = rest.shift();
       if (!value) throw new Error('--service needs an https URL');
       options.serviceUrl = value;
+      service = true;
     } else if (arg === '--city') {
       const value = rest.shift();
       if (!value) throw new Error('--city needs a name, id, or path');
@@ -131,13 +134,20 @@ function optionsOf(args: string[]): CliOptions {
       const value = rest.shift();
       if (!value) throw new Error('--trust-file needs a JSON file');
       options.trustFile = value;
-    } else if (arg === '--sandbox') options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
+    } else if (arg === '--sandbox') sandbox = true;
     else if (arg === '--all') options.all = true;
     else if (arg === '--no-open') options.openBrowser = false;
     else if (arg === '--json') options.json = true;
     else if (['-h', '--help'].includes(arg)) options.command = 'help';
-    else throw new Error(`unknown connect option: ${arg}`);
+    else throw new Error(`unknown option: ${arg}`);
   }
+  // The sandbox is one named service with the root that ships here. Naming
+  // another service, or another root, beside it would let the last word win.
+  if (sandbox && service) throw new Error('--sandbox and --service name two services; give one');
+  if (sandbox && options.trustFile) {
+    throw new Error('--sandbox uses the root that ships with Agents City; drop --trust-file');
+  }
+  if (sandbox) options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
   return options;
 }
 
@@ -316,8 +326,9 @@ async function connect(options: CliOptions): Promise<void> {
   const catalogue = discoverLocalCities();
   // An account does not need a city. `auth login` on a computer that has none
   // signs the account in and stops there; a city joins later with `connect`.
-  const accountOnly =
-    options.identityOnly && !catalogue.length && !options.selectors.length && !options.all;
+  // On one that has cities it still binds none unless one is named: signing in
+  // must not publish a city's name or restart its hub as a side effect.
+  const accountOnly = options.identityOnly && !options.selectors.length && !options.all;
   const chosen = accountOnly ? [] : selectLocalCities(catalogue, options.selectors, options.all);
   const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
   if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
