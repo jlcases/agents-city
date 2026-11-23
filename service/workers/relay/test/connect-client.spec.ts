@@ -4,6 +4,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { onRequestPost as authorizeDevice } from "../../../functions/api/device/authorize";
 import { onRequestPost as approveDevice } from "../../../functions/api/device/approve";
 import { onRequestPost as claimDevice } from "../../../functions/api/device/token";
+import { onRequestPost as enrollDevice } from "../../../functions/api/device/enroll";
+import {
+  onRequestGet as listOrganizations,
+  onRequestPost as createOrganization,
+} from "../../../functions/api/device/orgs/index";
+import { onRequestPost as inviteToOrganization } from "../../../functions/api/device/orgs/invite";
+import { onRequestPost as listMembers } from "../../../functions/api/device/orgs/members";
+import { onRequestPost as connectMembers } from "../../../functions/api/device/orgs/connect";
 import { onRequestPost as confirmTransparency } from "../../../functions/api/device/transparency";
 import { onRequestPost as syncCities } from "../../../functions/api/device/cities";
 import { onRequestGet as listRoads } from "../../../functions/api/device/roads";
@@ -19,6 +27,8 @@ import { onRequestPost as deleteAccount } from "../../../functions/api/account/d
 import {
   beginDeviceAuthorization,
   claimDeviceAuthorization,
+  enrollDeviceAccount,
+  organizationRequest,
   ConnectApiError,
   createRoadEnvelope,
   generateMlKem768Prekey,
@@ -496,6 +506,8 @@ const createAccount = async (tail: number, ownerPrefix: string) => {
   return { accountId, spaceId, cookie: session.cookie };
 };
 
+const BOOTSTRAP_SECRET = "bootstrap-secret-for-tests-with-more-than-32-characters";
+
 const deviceApi = ((input: RequestInfo | URL, init?: RequestInit) => {
   const request = input instanceof Request ? input : new Request(input, init);
   const pathname = new URL(request.url).pathname;
@@ -503,7 +515,17 @@ const deviceApi = ((input: RequestInfo | URL, init?: RequestInit) => {
     ROADS_PUBLIC_BUS_URL: "wss://relay.test/v1/connect",
     ROADS_BUS: relayBinding,
     ROADS_CONTROL_SECRET: CONTROL_SECRET,
+    SIGNUP_BOOTSTRAP_SECRET: BOOTSTRAP_SECRET,
   };
+  const organizations: Record<string, PagesFunction<ControlEnv>> = {
+    "/api/device/enroll": enrollDevice,
+    "/api/device/orgs": request.method === "GET" ? listOrganizations : createOrganization,
+    "/api/device/orgs/invite": inviteToOrganization,
+    "/api/device/orgs/members": listMembers,
+    "/api/device/orgs/connect": connectMembers,
+  };
+  const organization = organizations[pathname];
+  if (organization) return invoke(organization, request, overrides);
   if (pathname === "/api/device/authorize")
     return invoke(authorizeDevice, request, overrides);
   if (pathname === "/api/device/token")
@@ -1168,6 +1190,50 @@ describe("managed Connect end to end", () => {
     expect(session.roads()).toHaveLength(DIRECTORY_FIXTURE_ROADS);
     session.close();
   }, DIRECTORY_CORRECTNESS_TIMEOUT_MS);
+
+  it("stands up an organization with no browser: the operator, then a colleague by join code", async () => {
+    // Nothing exists: no account, no session, no website. Only two computers.
+    const anaKeys = await generateWorkerdDeviceKeys();
+    const anaWaiting = await beginDeviceAuthorization(SITE, "Ana Mac", "test", anaKeys, deviceApi);
+    expect(await enrollDeviceAccount(
+      SITE, anaWaiting.device_code, "ana", { bootstrap: BOOTSTRAP_SECRET }, deviceApi,
+    )).toEqual({ approved: true, account: "ana", first: true });
+    const ana = await claimDeviceAuthorization(SITE, anaWaiting.device_code, anaKeys, deviceApi);
+    expect(ana.ownerPrefix).toBe("ana");
+
+    await organizationRequest(SITE, ana, "create", { organization: "acme" }, deviceApi);
+    const invited = await organizationRequest<{ code: string }>(
+      SITE, ana, "invite", { organization: "acme", uses: 1 }, deviceApi,
+    );
+
+    const benKeys = await generateWorkerdDeviceKeys();
+    const benWaiting = await beginDeviceAuthorization(SITE, "Ben Linux", "test", benKeys, deviceApi);
+    expect(await enrollDeviceAccount(
+      SITE, benWaiting.device_code, "ben", { code: invited.code }, deviceApi,
+    )).toEqual({ approved: true, account: "ben", first: false, organization: "acme", role: "member" });
+    const ben = await claimDeviceAuthorization(SITE, benWaiting.device_code, benKeys, deviceApi);
+    expect(ben.ownerPrefix).toBe("ben");
+
+    // The account ben got from the terminal signs requests like any other.
+    const seen = await organizationRequest<{ members: { account: string; role: string; paired: boolean }[] }>(
+      SITE, ben, "members", { organization: "acme" }, deviceApi,
+    );
+    expect(seen.members.map((member) => [member.account, member.role, member.paired])).toEqual([
+      ["ana", "owner", true],
+      ["ben", "member", true],
+    ]);
+    const connected = await organizationRequest<{ connection: { status: string } }>(
+      SITE, ben, "connect", { organization: "acme", account: "ana" }, deviceApi,
+    );
+    expect(["active", "provisioning"]).toContain(connected.connection.status);
+
+    // The code was good for one person, and that person is ben.
+    const eveKeys = await generateWorkerdDeviceKeys();
+    const eveWaiting = await beginDeviceAuthorization(SITE, "Eve", "test", eveKeys, deviceApi);
+    await expect(enrollDeviceAccount(
+      SITE, eveWaiting.device_code, "eve", { code: invited.code }, deviceApi,
+    )).rejects.toMatchObject({ code: "enrollment_refused" });
+  });
 
   it("pairs two key-only devices, opens a sponsored Road, exchanges ciphertext and revokes it", async () => {
     const leftAccount = await createAccount(1, "maria");

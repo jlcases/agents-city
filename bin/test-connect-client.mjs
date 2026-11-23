@@ -802,6 +802,31 @@ function accountDoors() {
     check('signing in binds no city unless one is named, whether or not one exists',
       /const accountOnly = options\.identityOnly && !options\.selectors\.length && !options\.all;/
         .test(source));
+    const code = 'org_' + 'k'.repeat(48);
+    const where = ['--service', 'https://mine.example', '--trust-file', '/nonexistent.json'];
+    const refusals = [
+      [['auth', 'login', ...where, '--as', 'maria'], 'needs --join <code> or --bootstrap'],
+      [['auth', 'login', ...where, '--join', code], 'name the account to create'],
+      [['auth', 'login', ...where, '--join'], 'name the account to create'],
+      [['auth', 'login', ...where, '--bootstrap'], 'name the account to create'],
+      [['auth', 'login', ...where, '--as', 'maria', '--join', code, '--bootstrap'], 'two ways in'],
+      [['auth', 'login', ...where, '--as', 'Maria Lopez', '--join', code], '--as needs an account handle'],
+      [['auth', 'login', ...where, '--as', 'maria-', '--join', code], '--as needs an account handle'],
+      [['auth', 'login', ...where, '--as', 'maria', '--join', '--bootstrap'], 'two ways in'],
+      [['auth', 'login', ...where, '--as', 'maria', '--join', 'not-a-code'], '--join needs a join code'],
+      // The connect door takes its options bare: there is no verb in front.
+      [[...where, '--as', 'maria', '--join', code], 'belong to agents-city auth login'],
+    ];
+    for (const [args, said] of refusals) {
+      const result = cli(home, ...args);
+      const shown = args.filter((a) => !where.includes(a)).join(' ').replace(code, 'CODE');
+      check(`"${args[0] === 'auth' ? shown : `connect ${shown}`}" is refused before any request`,
+        result.status === 1 && result.stderr.includes(said), result.stderr);
+    }
+    const authHelp = cli(home, 'auth', '--help');
+    check('auth help says an account made from the terminal has no passkey and how to get back in',
+      authHelp.stdout.includes('--as HANDLE') && authHelp.stdout.includes('no passkey')
+        && authHelp.stdout.includes('new invitation'), authHelp.stdout);
     const help = cli(home, 'auth', '--help');
     check('auth help states that no private key or reusable token leaves the computer',
       help.status === 0 && help.stdout.includes('no private key and no reusable token'));

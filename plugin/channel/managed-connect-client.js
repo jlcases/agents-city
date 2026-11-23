@@ -4357,6 +4357,14 @@ var beginDeviceAuthorization = async (controlPlaneUrl, machineName, platform, ke
     })
   }), fetcher);
 };
+var enrollDeviceAccount = async (controlPlaneUrl, deviceCode, account, grant, fetcher = fetch) => apiJson(
+  new Request(new URL("/api/device/enroll", controlPlaneUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ device_code: deviceCode, account, ...grant })
+  }),
+  fetcher
+);
 var claimDeviceAuthorization = async (controlPlaneUrl, deviceCode, keys, fetcher = fetch) => {
   const value = await apiJson(new Request(new URL("/api/device/token", controlPlaneUrl), {
     method: "POST",
@@ -6596,6 +6604,7 @@ export {
   createSealedRoadSubmission,
   deriveHybridRecipientSecret,
   devicePrekeyStatus,
+  enrollDeviceAccount,
   generateDeviceKeys,
   generateMlKem768Prekey,
   generateRatchetMasterKey,

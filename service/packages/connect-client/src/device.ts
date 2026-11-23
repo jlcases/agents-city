@@ -290,6 +290,39 @@ export const beginDeviceAuthorization = async (
   }), fetcher);
 };
 
+/** What stands in for a browser's approval on a service that has no website. */
+export type EnrollmentGrant = { code: string } | { bootstrap: string };
+/** `organization` and `role` are present when a join code seated the account. */
+export type EnrollmentResult = {
+  approved: boolean;
+  account: string;
+  first: boolean;
+  organization?: string;
+  role?: string;
+};
+
+/**
+ * Create an account for the computer whose authorization is pending, and
+ * approve it, without a browser. The device code proves it is this computer;
+ * the grant is an organization's join code, of which this spends one use and
+ * seats the account, or the operator's bootstrap secret. Asking again with the
+ * same device code and handle returns the same answer.
+ */
+export const enrollDeviceAccount = async (
+  controlPlaneUrl: string,
+  deviceCode: string,
+  account: string,
+  grant: EnrollmentGrant,
+  fetcher: typeof fetch = fetch,
+) => apiJson<EnrollmentResult>(
+  new Request(new URL('/api/device/enroll', controlPlaneUrl), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ device_code: deviceCode, account, ...grant }),
+  }),
+  fetcher,
+);
+
 export const claimDeviceAuthorization = async (
   controlPlaneUrl: string,
   deviceCode: string,
