@@ -497,6 +497,14 @@ describe('Apache-compatible private Road ratchet', () => {
     expect(held).toBe(64);
   });
 
+  test('a wake on an empty road is one capability, not a pool', async () => {
+    const bob = await device();
+    const woken = await bob.ratchet.ensureInboundSealedCapabilities(
+      ROAD_ID, 1, 1, Date.now(), { fresh: 1 },
+    );
+    expect(woken).toHaveLength(1);
+  });
+
   test('an answer to a grant replaces a pool that is no longer new', async () => {
     const bob = await device();
     const now = Date.now();

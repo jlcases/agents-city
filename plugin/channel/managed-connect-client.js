@@ -5243,6 +5243,7 @@ var submitSealedMessage = async (endpoint, candidate, fetcher = fetch) => {
 
 // packages/connect-client/src/relay-session.ts
 var SEALED_WAKE_INTERVAL_MS = 5e3;
+var SEALED_POOL_GRANT = 16;
 var SEALED_ANSWER_HORIZON_MS = MAX_SEALED_CAPABILITY_TTL_MS - 15e4;
 var SEALED_ANSWER_INTERVAL_MS = 10 * 6e4;
 var RelayRequestError = class extends Error {
@@ -5449,9 +5450,9 @@ var ManagedRelaySession = class {
       const pending = await this.identity.ratchet.ensureInboundSealedCapabilities(
         road.id,
         road.revision,
+        options.desired,
         void 0,
-        void 0,
-        options
+        { fresh: options.fresh, horizonMs: options.horizonMs }
       );
       if (pending.length) {
         await this.capabilityRequest({ type: "capability_register", capabilities: pending });
@@ -5496,7 +5497,7 @@ var ManagedRelaySession = class {
     const scope = this.roadScope(road);
     const wake = (this.sealedWokeAt.get(scope) ?? 0) + SEALED_WAKE_INTERVAL_MS <= Date.now();
     if (wake) this.sealedWokeAt.set(scope, Date.now());
-    void this.primeSealedCapabilities(road, { fresh: wake ? 1 : 0 }).catch((error) => this.options.onLocalError?.(
+    void this.primeSealedCapabilities(road, wake ? { fresh: 1, desired: 1 } : { desired: 1 }).catch((error) => this.options.onLocalError?.(
       error instanceof Error ? error : new Error("sealed_capability_bootstrap_failed")
     ));
     return new Promise((resolve, reject) => {
@@ -5925,7 +5926,7 @@ var ManagedRelaySession = class {
             this.markSealedReady(road);
           }
           const scope = this.roadScope(road);
-          const answer = (this.sealedAnsweredAt.get(scope) ?? 0) + SEALED_ANSWER_INTERVAL_MS <= Date.now();
+          const answer = opened.capabilities.length >= SEALED_POOL_GRANT || (this.sealedAnsweredAt.get(scope) ?? 0) + SEALED_ANSWER_INTERVAL_MS <= Date.now();
           if (answer) this.sealedAnsweredAt.set(scope, Date.now());
           void this.primeSealedCapabilities(
             road,

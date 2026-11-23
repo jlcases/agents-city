@@ -27,10 +27,13 @@ import {
 /** A sender with no capability asks its peer for some at most this often. */
 const SEALED_WAKE_INTERVAL_MS = 5_000;
 /**
- * Answering a peer's grant replaces a pool older than two and a half minutes,
- * and does so at most every ten: often enough that a peer on an older client,
- * which grants every twelve, is never left without capabilities.
+ * Answering a peer's grant replaces a pool older than two and a half minutes.
+ * A grant of half a pool or more is a peer starting or renewing, and is always
+ * answered, so a peer on an older client, which renews every twelve minutes
+ * and never asks, keeps capabilities. Smaller grants are the peer replacing
+ * what it spent, and are answered this way at most every ten minutes.
  */
+const SEALED_POOL_GRANT = 16;
 const SEALED_ANSWER_HORIZON_MS = MAX_SEALED_CAPABILITY_TTL_MS - 150_000;
 const SEALED_ANSWER_INTERVAL_MS = 10 * 60_000;
 
@@ -362,7 +365,7 @@ export class ManagedRelaySession {
    */
   private primeSealedCapabilities(
     road: RelayRoadDirectoryEntry,
-    options: { fresh?: number; horizonMs?: number } = {},
+    options: { fresh?: number; horizonMs?: number; desired?: number } = {},
   ): Promise<void> {
     if (!this.options.sealedSender || this.closed) return Promise.resolve();
     const scope = this.roadScope(road);
@@ -373,9 +376,9 @@ export class ManagedRelaySession {
         const pending = await this.identity.ratchet.ensureInboundSealedCapabilities(
           road.id,
           road.revision,
+          options.desired,
           undefined,
-          undefined,
-          options,
+          { fresh: options.fresh, horizonMs: options.horizonMs },
         );
         if (pending.length) {
           await this.capabilityRequest({ type: 'capability_register', capabilities: pending });
@@ -422,7 +425,9 @@ export class ManagedRelaySession {
     const scope = this.roadScope(road);
     const wake = (this.sealedWokeAt.get(scope) ?? 0) + SEALED_WAKE_INTERVAL_MS <= Date.now();
     if (wake) this.sealedWokeAt.set(scope, Date.now());
-    void this.primeSealedCapabilities(road, { fresh: wake ? 1 : 0 }).catch((error) => this.options.onLocalError?.(
+    // A wake is one capability, not a pool: the peer may be away, and a
+    // message waiting for it must not cost what a conversation costs.
+    void this.primeSealedCapabilities(road, wake ? { fresh: 1, desired: 1 } : { desired: 1 }).catch((error) => this.options.onLocalError?.(
       error instanceof Error ? error : new Error('sealed_capability_bootstrap_failed'),
     ));
     return new Promise<void>((resolve, reject) => {
@@ -918,13 +923,14 @@ export class ManagedRelaySession {
             this.markSealedReady(road);
           }
           // A grant is also the peer saying it means to talk, and the peer may
-          // have lost what it was handed before. So, at most once in a while,
-          // anything but a pool minted moments ago is replaced. The answer
-          // finds the peer's pool new and ends there: two peers cannot keep
-          // each other awake.
+          // have lost what it was handed before. A whole pool from the peer is
+          // answered with a whole pool unless this one was minted moments ago;
+          // a single replenished capability, at most once in a while. Either
+          // answer finds the peer's pool new and ends there: two peers cannot
+          // keep each other awake.
           const scope = this.roadScope(road);
-          const answer = (this.sealedAnsweredAt.get(scope) ?? 0) + SEALED_ANSWER_INTERVAL_MS
-            <= Date.now();
+          const answer = opened.capabilities.length >= SEALED_POOL_GRANT
+            || (this.sealedAnsweredAt.get(scope) ?? 0) + SEALED_ANSWER_INTERVAL_MS <= Date.now();
           if (answer) this.sealedAnsweredAt.set(scope, Date.now());
           void this.primeSealedCapabilities(
             road,
