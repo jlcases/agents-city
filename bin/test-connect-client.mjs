@@ -643,40 +643,70 @@ async function organizationsBoundary() {
       name: 'ConnectApiError', code, status,
     });
 
-    const created = await run(['create', 'rankia', '--name', 'Rankia'], {
-      create: { organization: 'rankia', name: 'Rankia', plan: 'free', role: 'owner', members: 1 },
+    const created = await run(['create', 'acme', '--name', 'Acme'], {
+      create: { organization: 'acme', name: 'Acme', plan: 'free', role: 'owner', members: 1 },
     });
     check('creating an organization sends its slug and display name and nothing else',
-      JSON.stringify(created.asked) === JSON.stringify([['create', { organization: 'rankia', name: 'Rankia' }]])
+      JSON.stringify(created.asked) === JSON.stringify([['create', { organization: 'acme', name: 'Acme' }]])
         && created.printed.includes('You are its owner'), created.printed);
 
-    for (const bad of [['create', 'Rankia'], ['create', 'ra'], ['members', '../x'],
-      ['connect', 'rankia', 'Ana María'], ['role', 'rankia', 'ana', 'owner'],
-      ['invite', 'rankia', '--uses', '500'], ['create'], ['frobnicate']]) {
+    for (const bad of [['create', 'Acme'], ['create', 'ra'], ['members', '../x'],
+      ['connect', 'acme', 'Ana María'], ['role', 'acme', 'ana', 'owner'],
+      ['invite', 'acme', '--uses', '500'], ['create'], ['frobnicate']]) {
       const result = await run(bad);
       check(`a malformed "orgs ${bad.join(' ')}" is refused before the service is reached`,
         result.error instanceof Error && result.opened === 0 && result.asked.length === 0,
         String(result.error));
     }
 
+    for (const bad of [['join', ''], ['join', 'not-a-code'], ['join', 'org_short'],
+      ['join', 'org_' + 'k'.repeat(40) + '\u001b[2J'],
+      ['create', 'acme', '--name', 'x'.repeat(61)], ['create', 'acme', '--name', 'A\u001b[2J'],
+      ['create', 'acme', '--name', ''], ['create', 'acme', '--name=Acme'],
+      ['invite', 'acme', '--uses', ''], ['invite', 'acme', '--uses', '1e2'],
+      ['invite', 'acme', '--uses', '0x10'], ['invite', 'acme', '--uses', '0'],
+      ['invite', 'acme', '--uses', '5', '--uses', '50'], ['invite', 'acme', '--uses'],
+      ['constructor'], ['toString', '--json'], ['__proto__'], ['hasOwnProperty']]) {
+      const result = await run(bad);
+      check(`a malformed "orgs ${JSON.stringify(bad).slice(0, 60)}" never reaches the service`,
+        result.error instanceof Error && result.opened === 0 && result.asked.length === 0
+          && !/is not (iterable|a function)/.test(String(result.error)),
+        String(result.error));
+    }
+    const stray = await run(['create', 'acme', '--name=Acme']);
+    check('an option this command does not have is named, not counted as an argument',
+      String(stray.error).includes('unknown option: --name=Acme'), String(stray.error));
+    const twice = await run(['--json', 'list', '--json'], { list: { account: 'ana', organizations: [] } });
+    check('--json may be given anywhere, and more than once',
+      twice.error === null && JSON.parse(twice.printed).account === 'ana', String(twice.error));
+    const stale = await run(['join', 'org_' + 'k'.repeat(48)], { join: {} });
+    check('an answer missing what the command prints is an error, not "Joined undefined"',
+      stale.error instanceof Error && !stale.printed.includes('undefined'), stale.printed);
+    const brief = await run(['invite', 'acme'], {
+      invite: { organization: 'acme', code: 'org_' + 'k'.repeat(48), uses: 1, expiresIn: 3600 },
+    });
+    check('a join code says how long the service said it lasts, not a fixed week',
+      brief.printed.includes('1 person') && brief.printed.includes('60 minutes')
+        && !brief.printed.includes('7 days'), brief.printed);
     const code = 'org_' + 'k'.repeat(48);
-    const invited = await run(['invite', 'rankia', '--uses', '10'], {
-      invite: { organization: 'rankia', code, uses: 10, expiresIn: 604800 },
+    const invited = await run(['invite', 'acme', '--uses', '10'], {
+      invite: { organization: 'acme', code, uses: 10, expiresIn: 604800 },
     });
     check('a join code is printed once, with how many people it admits',
       invited.printed.includes(code) && invited.printed.includes('10 people')
-        && JSON.stringify(invited.asked[0]) === JSON.stringify(['invite', { organization: 'rankia', uses: 10 }]));
+        && invited.printed.includes('7 days')
+        && JSON.stringify(invited.asked[0]) === JSON.stringify(['invite', { organization: 'acme', uses: 10 }]));
 
-    const joined = await run(['join', code], { join: { organization: 'rankia', role: 'member' } });
+    const joined = await run(['join', code], { join: { organization: 'acme', role: 'member' } });
     const already = await run(['join', code], {
-      join: { organization: 'rankia', role: 'member', duplicate: true },
+      join: { organization: 'acme', role: 'member', duplicate: true },
     });
     check('joining says which organization, and says when the code was not spent',
-      joined.printed.includes('Joined rankia as member') && already.printed.includes('was not used'));
+      joined.printed.includes('Joined acme as member') && already.printed.includes('was not used'));
 
-    const listed = await run(['members', 'rankia'], {
+    const listed = await run(['members', 'acme'], {
       members: {
-        organization: 'rankia',
+        organization: 'acme',
         members: [
           { account: 'ana', name: 'Ana', role: 'owner', self: true, paired: true, connection: null },
           { account: 'ben', name: 'Ben', role: 'admin', self: false, paired: true, connection: 'active' },
@@ -690,22 +720,22 @@ async function organizationsBoundary() {
         && /cai\s+member\s+not connected yet/.test(listed.printed)
         && /dee\s+member\s+no computer paired/.test(listed.printed), listed.printed);
 
-    const connected = await run(['connect', 'rankia', 'ben'], {
+    const connected = await run(['connect', 'acme', 'ben'], {
       connect: { connection: { id: randomUUID(), status: 'provisioning' } },
     });
     check('connecting to a member says no approval was needed, and when the relay is not ready',
       connected.printed.includes('No approval was needed')
         && connected.printed.includes('still opening'), connected.printed);
 
-    const left = await run(['leave', 'rankia'], {
+    const left = await run(['leave', 'acme'], {
       remove: { account: 'ana', connections: { closed: 1, closing: 1 } },
     });
-    const removed = await run(['remove', 'rankia', 'ben'], {
+    const removed = await run(['remove', 'acme', 'ben'], {
       remove: { account: 'ben', connections: { closed: 2, closing: 0 } },
     });
     check('leaving names no account; removing names exactly one; both report closed connections',
-      JSON.stringify(left.asked[0]) === JSON.stringify(['remove', { organization: 'rankia' }])
-        && JSON.stringify(removed.asked[0]) === JSON.stringify(['remove', { organization: 'rankia', account: 'ben' }])
+      JSON.stringify(left.asked[0]) === JSON.stringify(['remove', { organization: 'acme' }])
+        && JSON.stringify(removed.asked[0]) === JSON.stringify(['remove', { organization: 'acme', account: 'ben' }])
         && left.printed.includes('2 connection(s)') && left.printed.includes('are closing')
         && removed.printed.includes('Removed ben') && removed.printed.includes('are closed'));
 
@@ -716,8 +746,8 @@ async function organizationsBoundary() {
     check('--json prints the answer itself; without it an empty list says what to do next',
       JSON.parse(json.printed).account === 'ana' && empty.printed.includes('belongs to no organization'));
 
-    const denied = await run(['invite', 'rankia'], { invite: refused('forbidden', 403) });
-    const unknown = await run(['invite', 'rankia'], { invite: refused('some_new_code') });
+    const denied = await run(['invite', 'acme'], { invite: refused('forbidden', 403) });
+    const unknown = await run(['invite', 'acme'], { invite: refused('some_new_code') });
     check('a refusal is explained in words, and an unknown one is passed through unchanged',
       explainOrganizationError(denied.error).includes('your role')
         && explainOrganizationError(unknown.error) === 'some_new_code');
@@ -749,6 +779,16 @@ function accountDoors() {
     check('signing in with no service named is refused rather than guessed',
       nowhere.status === 1 && nowhere.stderr.includes('--sandbox') && nowhere.stderr.includes('--trust-file'),
       nowhere.stderr);
+    const both = cli(home, 'auth', 'login', '--no-open', '--service', 'https://mine.example', '--sandbox');
+    const pinned = cli(home, 'auth', 'login', '--no-open', '--sandbox', '--trust-file', '/nonexistent.json');
+    check('the sandbox is not combined with another service or another root',
+      both.status === 1 && both.stderr.includes('name two services')
+        && pinned.status === 1 && pinned.stderr.includes('drop --trust-file'),
+      both.stderr + pinned.stderr);
+    const source = readFileSync(join(ROOT, 'plugin/channel/managed-connect/cli.ts'), 'utf8');
+    check('signing in binds no city unless one is named, whether or not one exists',
+      /const accountOnly = options\.identityOnly && !options\.selectors\.length && !options\.all;/
+        .test(source));
     const help = cli(home, 'auth', '--help');
     check('auth help states that no private key or reusable token leaves the computer',
       help.status === 0 && help.stdout.includes('no private key and no reusable token'));

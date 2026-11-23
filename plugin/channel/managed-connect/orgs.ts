@@ -39,6 +39,9 @@ type Member = {
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 const ACCOUNT = /^[a-z0-9_-]{1,32}$/;
+const CODE = /^org_[A-Za-z0-9_-]{36,124}$/;
+const NAME = /^[\p{L}\p{N}][\p{L}\p{N} .&'-]{0,59}$/u;
+const USES = /^[1-9]\d{0,2}$/;
 
 export function organizationsUsage(): string {
   return `usage:
@@ -100,12 +103,14 @@ export function explainOrganizationError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function take(rest: string[], flag: string): string {
+/** The value of a flag given at most once, or undefined when it is absent. */
+function take(rest: string[], flag: string): string | undefined {
   const at = rest.indexOf(flag);
-  if (at < 0) return '';
+  if (at < 0) return undefined;
   const value = rest[at + 1];
-  if (value === undefined) throw new Error(`${flag} needs a value`);
+  if (value === undefined || value.startsWith('--')) throw new Error(`${flag} needs a value`);
   rest.splice(at, 2);
+  if (rest.includes(flag)) throw new Error(`${flag} is given once`);
   return value;
 }
 
@@ -121,7 +126,28 @@ function accountOf(value: string | undefined): string {
 }
 
 function only(rest: string[], count: number, what: string): void {
+  // Named before it is counted: `--name=Acme` is an option this command does
+  // not have, not a second organization.
+  const stray = rest.find((arg) => arg.startsWith('--'));
+  if (stray) throw new Error(`unknown option: ${stray}; see agents-city orgs --help`);
   if (rest.length !== count) throw new Error(`${what}; see agents-city orgs --help`);
+}
+
+/** The service answered, but not with what this command prints from. */
+function answered<T extends object>(value: T, ...fields: (keyof T & string)[]): T {
+  const missing = fields.filter(
+    (field) => (value as Record<string, unknown> | null)?.[field] === undefined,
+  );
+  if (missing.length) {
+    throw new Error(`the service answered without ${missing.join(', ')}; is it up to date?`);
+  }
+  return value;
+}
+
+function lasts(seconds: number): string {
+  const hours = Math.round(seconds / 3600);
+  if (hours >= 48) return `${Math.round(hours / 24)} days`;
+  return hours >= 2 ? `${hours} hours` : `${Math.max(1, Math.round(seconds / 60))} minutes`;
 }
 
 type Run = (rest: string[], ask: Ask) => Promise<{ value: unknown; lines: string[] }>;
@@ -142,9 +168,14 @@ const COMMANDS: Record<string, Run> = {
     const name = take(rest, '--name');
     only(rest, 1, 'create takes one organization');
     const organization = slugOf(rest[0]);
-    const value = await ask<Organization>(
-      'create',
-      name ? { organization, name } : { organization },
+    if (name !== undefined && !NAME.test(name))
+      throw new Error(EXPLAINED.invalid_organization_name);
+    const value = answered(
+      await ask<Organization>(
+        'create',
+        name === undefined ? { organization } : { organization, name },
+      ),
+      'organization',
     );
     return {
       value,
@@ -158,21 +189,25 @@ const COMMANDS: Record<string, Run> = {
     const uses = take(rest, '--uses');
     only(rest, 1, 'invite takes one organization');
     const organization = slugOf(rest[0]);
-    const count = uses ? Number(uses) : 1;
-    if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
-      throw new Error('--uses is a number from 1 to 100');
-    }
-    const value = await ask<{
-      organization: string;
-      code: string;
-      uses: number;
-      expiresIn: number;
-    }>('invite', { organization, uses: count });
+    if (uses !== undefined && !USES.test(uses)) throw new Error('--uses is a number from 1 to 100');
+    const count = uses === undefined ? 1 : Number(uses);
+    if (count > 100) throw new Error('--uses is a number from 1 to 100');
+    const value = answered(
+      await ask<{
+        organization: string;
+        code: string;
+        uses: number;
+        expiresIn: number;
+      }>('invite', { organization, uses: count }),
+      'code',
+      'uses',
+      'expiresIn',
+    );
     return {
       value,
       lines: [
         `  ${value.code}`,
-        `  Good for ${value.uses} ${value.uses === 1 ? 'person' : 'people'}, for 7 days. It is shown once:`,
+        `  Good for ${value.uses} ${value.uses === 1 ? 'person' : 'people'}, for ${lasts(value.expiresIn)}. It is shown once:`,
         '  the service keeps only its hash. Whoever has it runs:',
         '    agents-city orgs join <code>',
       ],
@@ -180,9 +215,14 @@ const COMMANDS: Record<string, Run> = {
   },
   async join(rest, ask) {
     only(rest, 1, 'join takes one code');
-    const value = await ask<{ organization: string; role: string; duplicate?: boolean }>('join', {
-      code: rest[0] ?? '',
-    });
+    const code = rest[0] ?? '';
+    // A mistyped code is refused here: sent, it would count as a failed attempt.
+    if (!CODE.test(code)) throw new Error(EXPLAINED.invalid_organization_code);
+    const value = answered(
+      await ask<{ organization: string; role: string; duplicate?: boolean }>('join', { code }),
+      'organization',
+      'role',
+    );
     return {
       value,
       lines: [
@@ -267,10 +307,11 @@ async function removal(ask: Ask, organization: string, account: string, leaving:
 export async function organizationsCli(args: string[], deps: OrganizationsDeps): Promise<void> {
   const rest = [...args];
   const print = deps.print ?? ((line: string) => console.log(line));
-  const jsonAt = rest.indexOf('--json');
-  if (jsonAt >= 0) rest.splice(jsonAt, 1);
+  const json = rest.includes('--json');
+  for (let at = rest.indexOf('--json'); at >= 0; at = rest.indexOf('--json')) rest.splice(at, 1);
   const command = rest.shift() ?? 'help';
-  const run = COMMANDS[command];
+  // Own keys only: `orgs constructor` is an unknown command, not Object's.
+  const run = Object.hasOwn(COMMANDS, command) ? COMMANDS[command] : undefined;
   if (!run || rest.includes('--help') || rest.includes('-h')) {
     if (!run && !['help', '--help', '-h'].includes(command)) {
       throw new Error(`unknown orgs command: ${command}; see agents-city orgs --help`);
@@ -286,6 +327,6 @@ export async function organizationsCli(args: string[], deps: OrganizationsDeps):
     return ask(action, fields);
   };
   const { value, lines } = await run(rest, lazy);
-  if (jsonAt >= 0) print(JSON.stringify(value, null, 2));
+  if (json) print(JSON.stringify(value, null, 2));
   else for (const line of lines) print(line);
 }

@@ -593,28 +593,34 @@ def envia(connection_id, texto):
 # approved, and the delivery state are the ones a city route already has.
 
 
-def para_publicados(nombres, limite=50, vacios=()):
+def para_publicados(nombres, limite=50, vacios=(), admite=None):
     """Pending person messages that open with `@name` for a published agent.
 
     Only messages that can be answered: they arrived over a connection that is
     still active. Returns inert text; nothing is decided here. A name in
     `vacios` is one that means something with no text after it.
+
+    `admite` is asked about each candidate before the limit is counted. What it
+    turns down stays pending for the owner and takes no place in the answer, so
+    messages nobody will ever serve cannot starve the ones behind them.
     """
     conocidos = {str(n) for n in nombres}
     if not conocidos:
         return []
+    tope = max(1, min(int(limite), 200))
     db = _conecta()
     try:
+        # Not limited here: the window has to be counted after the mention and
+        # `admite` are applied, or fifty messages for nobody hide the fifty-first.
+        # The table itself is bounded by CITY_RECEPTION_MAX_PENDING.
         filas = db.execute(
             """SELECT m.message_id, m.body, m.connection_id, c.peer_name
                FROM reception_messages m
                JOIN reception_connections c
                  ON c.connection_id = m.connection_id AND c.status = 'active'
                WHERE m.state = 'pending' AND m.message_kind = 'message'
-                 AND m.body IS NOT NULL
-               ORDER BY m.received_at, m.message_id
-               LIMIT ?""",
-            (max(1, min(int(limite), 200)),),
+                 AND m.body IS NOT NULL AND ltrim(m.body) LIKE '@%'
+               ORDER BY m.received_at, m.message_id"""
         ).fetchall()
     finally:
         db.close()
@@ -626,15 +632,18 @@ def para_publicados(nombres, limite=50, vacios=()):
         texto = fila["body"][mencion.end():].strip()
         if not texto and mencion.group(1) not in vacios:
             continue
-        fuera.append(
-            {
-                "id": fila["message_id"],
-                "agent": mencion.group(1),
-                "text": texto,
-                "connection_id": fila["connection_id"],
-                "from": fila["peer_name"],
-            }
-        )
+        mensaje = {
+            "id": fila["message_id"],
+            "agent": mencion.group(1),
+            "text": texto,
+            "connection_id": fila["connection_id"],
+            "from": fila["peer_name"],
+        }
+        if admite is not None and not admite(mensaje):
+            continue
+        fuera.append(mensaje)
+        if len(fuera) >= tope:
+            break
     return fuera
 
 

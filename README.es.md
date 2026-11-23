@@ -814,10 +814,10 @@ agents-city orgs remove acme maria        # o: agents-city orgs leave acme
 
 `auth login` es el mismo flujo de dispositivo que `connect`: las claves se
 crean en este ordenador, un PASCO de un solo uso se aprueba en el navegador, y
-no se sube ninguna clave privada ni ningún token reutilizable. En un ordenador
-sin ciudad identifica la cuenta y se detiene ahí, que es todo lo que necesita
-`orgs`; recibir mensajes sigue necesitando una ciudad, así que ejecuta
-`agents-city connect` cuando exista una. `--sandbox` es el sandbox gestionado,
+no se sube ninguna clave privada ni ningún token reutilizable. Identifica la
+cuenta y se detiene ahí, que es todo lo que necesita `orgs`: no conecta ninguna
+ciudad, aunque exista. Recibir mensajes sigue necesitando una ciudad; para eso
+ejecuta `agents-city connect`. `--sandbox` es el sandbox gestionado,
 el único servicio cuya raíz firmada viene con Agents City; cualquier otro
 necesita `--service` y `--trust-file`.
 
