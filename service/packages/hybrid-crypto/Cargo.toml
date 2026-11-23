@@ -1,0 +1,40 @@
+[package]
+name = "agents-city-hybrid-crypto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Narrow ML-KEM-768 and X25519 hybrid establishment primitive for Agents City"
+repository = "https://github.com/jlcases/agents-city"
+publish = false
+
+[features]
+fuzzing = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc", "zeroize"] }
+hkdf = "=0.12.4"
+libcrux-ml-kem = { version = "=0.0.10", default-features = false, features = ["mlkem768"] }
+sha2 = "=0.10.9"
+wasm-bindgen = "=0.2.104"
+zeroize = "=1.9.0"
+
+[dev-dependencies]
+hex = "=0.4.3"
+serde_json = "=1.0.151"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+# Keep production builds reproducible and independent from wasm-pack downloading
+# an unpinned Binaryen archive at build time. Rust still performs LTO and size
+# optimisation above; a separately pinned wasm-opt step can be added after the
+# security review without changing the cryptographic artifact.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

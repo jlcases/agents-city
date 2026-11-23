@@ -1,0 +1,96 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "agents-city-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-27",
+  "workers_dev": true,
+  "vars": {
+    "APP_ENV": "sandbox",
+    "SEALED_CAPABILITY_PEPPER_VERSION": "1"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false,
+      "persist": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": false
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPERATIONS",
+      "dataset": "agents_city_relay_operations"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "CONTROL",
+      "database_name": "agents-city-control",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../../migrations/control-plane"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CITY_MAILBOX",
+        "class_name": "CityMailbox"
+      },
+      {
+        "name": "DELIVERY_LANE",
+        "class_name": "DeliveryLane"
+      },
+      {
+        "name": "TRANSPARENCY_LOG",
+        "class_name": "TransparencyLog"
+      },
+      {
+        "name": "CAPABILITY_SHARD",
+        "class_name": "CapabilityShard"
+      },
+      {
+        "name": "ROAD_AUTHORITY",
+        "class_name": "RoadAuthority"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CityMailbox"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["DeliveryLane"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["TransparencyLog"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["CapabilityShard"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["RoadAuthority"]
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "SEALED_SUBMIT_LIMIT",
+      "namespace_id": "41001",
+      "simple": {
+        "limit": 120000,
+        "period": 60
+      }
+    }
+  ],
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  }
+}

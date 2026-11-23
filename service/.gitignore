@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.DS_Store
+*.log
+packages/hybrid-crypto/target/
+packages/hybrid-crypto/fuzz/target/
+packages/hybrid-crypto/fuzz/artifacts/
+packages/hybrid-crypto/fuzz/coverage/
+.fuzz-build/
+fuzz/protocol/artifacts/*
+!fuzz/protocol/artifacts/.gitkeep
+worker-configuration.d.ts

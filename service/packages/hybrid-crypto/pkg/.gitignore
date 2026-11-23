@@ -1,0 +1,9 @@
+*
+!.gitignore
+!README.md
+!SHA256SUMS
+!agents_city_hybrid_crypto.d.ts
+!agents_city_hybrid_crypto.js
+!agents_city_hybrid_crypto_bg.wasm
+!agents_city_hybrid_crypto_bg.wasm.d.ts
+!package.json

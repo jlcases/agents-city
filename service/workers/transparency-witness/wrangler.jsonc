@@ -1,0 +1,52 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "agents-city-transparency-witness",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-27",
+  "workers_dev": true,
+  "vars": {
+    "APP_ENV": "sandbox"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false,
+      "persist": true
+    },
+    "traces": {
+      "enabled": false,
+      "persist": false
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPERATIONS",
+      "dataset": "agents_city_witness_operations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WITNESS_STATE",
+        "class_name": "TransparencyWitness"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TransparencyWitness"]
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "WITNESS_COSIGN_LIMIT",
+      "namespace_id": "41002",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ]
+}

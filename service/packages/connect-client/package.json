@@ -1,0 +1,14 @@
+{
+  "name": "@agents-city/connect-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@kinsh/vodozemac-wasm": "0.4.2",
+    "@napi-rs/keyring": "1.3.0"
+  }
+}
