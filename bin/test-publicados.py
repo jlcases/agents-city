@@ -7,14 +7,18 @@ Everything lands in a throwaway AGENTS_CITY_HOME, and herdr is a fake that
 records what it was asked — so this never opens a tab in somebody's real
 session. The load-bearing cases: a level is a write set the cage is handed, not
 a sentence; an agent is never opened uncaged; a request-level question delivers
-nothing until the owner approves; and a question cannot close its own fence.
+nothing until the owner approves; a question cannot close its own fence; and
+over a managed Road, only a message that names a published agent leaves the
+human reception.
 """
 
+import hashlib
 import os
 import re
 import shutil
 import sys
 import tempfile
+import uuid
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 RAIZ = os.path.dirname(AQUI)
@@ -239,6 +243,157 @@ def la_aprobacion():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def _llega(texto, conexion, ident=None, nombre='Ana'):
+    """One person message in the real reception database, as the managed client
+    would have left it: pending, with the connection it can be answered on."""
+    reception = publicados.reception
+    ident = ident or 'msg_' + uuid.uuid4().hex[:12]
+    ahora = reception._ahora()
+    db = reception._conecta()
+    try:
+        db.execute(
+            """INSERT OR IGNORE INTO reception_connections (
+                 road_id, connection_id, peer_name, peer_endpoint, status, updated_at
+               ) VALUES (?, ?, ?, 'remote/rx-000000000001', 'active', ?)""",
+            ('road_' + conexion[:8], conexion, nombre, ahora))
+        db.execute(
+            """INSERT INTO reception_messages (
+                 message_id, protocol, state, source_city, source_name,
+                 source_created_at, received_city_id, received_city_address,
+                 body, body_sha256, connection_id, road_id, remote_message_id,
+                 received_at
+               ) VALUES (?, ?, 'pending', 'remote/rx-000000000001', ?, ?, 'city_x',
+                 'me/home', ?, ?, ?, ?, ?, ?)""",
+            (ident, reception.PROTOCOL, nombre, ahora, texto,
+             hashlib.sha256(texto.encode()).hexdigest(), conexion,
+             'road_' + conexion[:8], str(uuid.uuid4()), ahora))
+    finally:
+        db.close()
+    return ident
+
+
+def _fila(consulta, *valores):
+    db = publicados.reception._conecta()
+    try:
+        return [tuple(f) for f in db.execute(consulta, valores).fetchall()]
+    finally:
+        db.close()
+
+
+def por_la_carretera():
+    base, repo, falso = _prepara()
+    try:
+        publicados.cage.linea = lambda *a, **k: 'CAGE '
+        ana, otro = str(uuid.uuid4()), str(uuid.uuid4())
+        publicados.publica(repo, 'docs')
+        comprueba('· happy: with nothing addressed to an agent, a pass does nothing',
+                  publicados.atiende(), [])
+
+        suelto = _llega('hello, are you there?', ana)
+        ajeno = _llega('@nobody what is this?', ana)
+        suyo = _llega('@docs: what is this repo for?', ana)
+        falso.responde = 'it is for testing'
+        comprueba('· happy: a message that opens with @name reaches that agent',
+                  publicados.atiende(), [(suyo, 'docs', 'answered')])
+        afirma('· happy: and the agent was opened for it, caged', falso.tabs == ['pub-docs'])
+        sobre = [p for p in falso.pedidos if p[:2] == ('agent', 'prompt')][-1][3]
+        afirma('· happy: the mention is the address, not part of the question',
+               'what is this repo for?' in sobre and '@docs' not in sobre, sobre[-300:])
+        afirma('· happy: the envelope names the connected person', 'from: Ana' in sobre)
+        comprueba('· happy: the reception records it as routed to a published agent',
+                  _fila("""SELECT m.state, m.body, r.target_city_id, r.state, r.approved_by
+                           FROM reception_messages m JOIN reception_routes r
+                             ON r.message_id = m.message_id WHERE m.message_id = ?""", suyo),
+                  [('routed', None, 'published:docs', 'delivered', 'auto')])
+        comprueba('· happy: and the answer goes back over the same connection',
+                  _fila('SELECT connection_id, kind, body FROM reception_outbox'),
+                  [(ana, 'message', '@docs:\n\nit is for testing')])
+        comprueba('· non-happy: a message with no mention stays for the owner',
+                  _fila('SELECT state FROM reception_messages WHERE message_id = ?', suelto),
+                  [('pending',)])
+        comprueba('· non-happy: and so does one naming an agent nobody published',
+                  _fila('SELECT state FROM reception_messages WHERE message_id = ?', ajeno),
+                  [('pending',)])
+        comprueba('· happy: a second pass does not answer the same message twice',
+                  publicados.atiende(), [])
+
+        falso.responde = None
+        roto = _llega('@docs again?', ana)
+        comprueba('· non-happy: an agent that writes no answer is a failed delivery',
+                  publicados.atiende(), [(roto, 'docs', 'failed')])
+        comprueba('· and the route says why',
+                  [f[0] for f in _fila("""SELECT state FROM reception_routes
+                                          WHERE message_id = ?""", roto)], ['failed'])
+        afirma('· and the person who asked is told, not left waiting',
+               any('could not answer' in f[0] for f in
+                   _fila('SELECT body FROM reception_outbox')))
+
+        falso.responde = 'x' * 20_000
+        _llega('@docs write a lot', ana)
+        publicados.atiende()
+        largo = max(len(f[0].encode()) for f in _fila('SELECT body FROM reception_outbox'))
+        afirma('· non-happy: an answer longer than a message carries is cut, and says so',
+               largo <= publicados.reception.MAX_OUTBOX_BYTES
+               and any('[answer cut' in f[0] for f in _fila('SELECT body FROM reception_outbox')),
+               str(largo))
+
+        publicados.publica(repo, 'vault', 'consult', '', [ana])
+        falso.responde = 'secret-ish'
+        negado = _llega('@vault tell me', otro, nombre='Other')
+        comprueba('· non-happy: a connection the agent does not allow is not served',
+                  publicados.atiende(), [])
+        comprueba('· and its message stays for the owner to decide',
+                  _fila('SELECT state FROM reception_messages WHERE message_id = ?', negado),
+                  [('pending',)])
+        permitido = _llega('@vault tell me', ana)
+        comprueba('· happy: the connection it does allow is',
+                  publicados.atiende(), [(permitido, 'vault', 'answered')])
+        _rechaza('· non-happy: an allow-list of display names is refused',
+                 lambda: publicados.publica(repo, 'named', 'consult', '', ['Ana']),
+                 'connection ids')
+
+        publicados.publica(repo, 'ops', 'request')
+        pedido = _llega('@ops please change X', ana)
+        antes = len([p for p in falso.pedidos if p[:2] == ('agent', 'prompt')])
+        comprueba('· happy: a request-level agent parks a Road question for the owner',
+                  publicados.atiende(), [(pedido, 'ops', 'pending')])
+        comprueba('· non-happy: nothing reached the agent',
+                  len([p for p in falso.pedidos if p[:2] == ('agent', 'prompt')]), antes)
+        comprueba('· non-happy: and the message is still pending in the reception',
+                  _fila('SELECT state FROM reception_messages WHERE message_id = ?', pedido),
+                  [('pending',)])
+        comprueba('· happy: a second pass does not park it twice',
+                  (publicados.atiende(), len(publicados.pendientes())), ([], 1))
+        cola = publicados.pendientes()[0]
+        falso.responde = 'changed'
+        comprueba('· happy: approved, it is delivered and answered', publicados.aprueba(cola['id']),
+                  'changed')
+        comprueba('· happy: recorded as approved by a human, not by the level',
+                  _fila("""SELECT approved_by, state FROM reception_routes
+                           WHERE message_id = ?""", pedido), [('human', 'delivered')])
+        afirma('· happy: and the answer went back over the Road',
+               ('@ops:\n\nchanged',) in _fila('SELECT body FROM reception_outbox'))
+
+        otro_pedido = _llega('@ops and Y', ana)
+        publicados.atiende()
+        publicados.rechaza(publicados.pendientes()[0]['id'])
+        comprueba('· happy: rejected, the reception drops the text',
+                  _fila('SELECT state, body FROM reception_messages WHERE message_id = ?',
+                        otro_pedido), [('rejected', None)])
+        afirma('· happy: and tells the person who asked',
+               ('rejection',) in _fila('SELECT kind FROM reception_outbox'))
+
+        tarde = _llega('@ops and Z', ana)
+        publicados.atiende()
+        publicados.reception.toma_publicado(tarde, 'docs', 'human')
+        _rechaza('· non-happy: approving one the Hall already decided is refused',
+                 lambda: publicados.aprueba(publicados.pendientes()[0]['id']),
+                 'already been decided')
+        comprueba('· and the stale request leaves the queue', publicados.pendientes(), [])
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 def la_puerta():
     guion = open(os.path.join(RAIZ, 'bin', 'publish'), encoding='utf-8').read()
     afirma('· the door is a wrapper with no logic of its own',
@@ -254,6 +409,7 @@ try:
     los_niveles()
     una_pregunta()
     la_aprobacion()
+    por_la_carretera()
     la_puerta()
 finally:
     publicados.cage.linea = CAGE_LINEA

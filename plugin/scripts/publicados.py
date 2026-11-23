@@ -3,7 +3,7 @@
 
     agents-city publish list
     agents-city publish add <repo-or-folder> [--name N] [--level consult|request|operate]
-                                             [--workspace LABEL]
+                                             [--workspace LABEL] [--allow ID,ID]
     agents-city publish open <name>
     agents-city publish close <name>
     agents-city publish remove <name>
@@ -11,6 +11,7 @@
     agents-city publish pending
     agents-city publish approve <request-id>
     agents-city publish reject <request-id>
+    agents-city publish serve [--once] [--every SECONDS]
 
 A person's own agents live in herdr and stay private. What the network may
 reach is a SEPARATE agent, opened for that purpose: its own herdr tab, its own
@@ -27,6 +28,12 @@ The level is what the kernel lets that agent touch, not a sentence in a prompt:
 The agent answers by writing a file in its own workspace — the one place a
 consult-level cage lets it write. Reading a reply off a terminal screen is a
 guess; a file is the answer or it is not there.
+
+Over a managed Road, a connected person reaches one by opening their message
+with `@name`. `serve` is the bridge: it takes those messages out of the human
+reception, delivers them under the agent's level, and sends the answer back
+over the same connection. A message that names nothing published is left
+exactly where it was, for the owner to read.
 
 Verified against the binary, not its documentation: herdr detects an agent
 started behind `sandbox-exec`, lets it be named, and `agent prompt --wait`
@@ -46,12 +53,17 @@ import time
 import cage
 import cities
 import mux_herdr
+import reception
 import rutas
 
 PROTOCOLO = 'agents-city-published/1'
 NIVELES = ('consult', 'request', 'operate')
 NOMBRE = re.compile(r'^[a-z0-9][a-z0-9-]{0,39}$')
 PETICION = re.compile(r'^[a-z0-9]{12}$')
+#: A managed connection, as the service names it. The only identity a
+#: published agent's allow-list accepts: a display name is whatever the
+#: other person typed.
+CONEXION = reception.CONNECTION_ID
 #: A question travels as one argv entry to herdr. Bounded so a long one is a
 #: refusal with a reason instead of a truncated prompt.
 MAX_PREGUNTA = 8000
@@ -139,7 +151,7 @@ def _nombre_de(repo):
     return base[:40] or 'agent'
 
 
-def publica(repo, nombre='', nivel='consult', espacio=''):
+def publica(repo, nombre='', nivel='consult', espacio='', permitidos=()):
     """Declare one published agent. Writes the registry and its workspace;
     opens nothing — `abre` is the step that starts a process."""
     real = rutas.canonicaliza(os.path.expanduser(repo))
@@ -155,11 +167,15 @@ def publica(repo, nombre='', nivel='consult', espacio=''):
     motivo = rutas.motivo_bloqueo(real, cage.sellados(rutas.canonicaliza('~')))
     if motivo:
         raise Rechazo(f'that folder cannot be published: {motivo}')
+    permitidos = sorted({str(p).strip().lower() for p in permitidos if str(p).strip()})
+    if not all(CONEXION.fullmatch(p) for p in permitidos):
+        raise Rechazo('--allow takes connection ids, as `agents-city connect '
+                      'roads` prints them')
     agentes = lee()
     if any(a['name'] == nombre for a in agentes):
         raise Rechazo(f'{nombre!r} is already published; remove it first')
     entrada = {'name': nombre, 'mount': real, 'level': nivel,
-               'workspace': espacio, 'created_at': _ahora()}
+               'workspace': espacio, 'allow': permitidos, 'created_at': _ahora()}
     sitio = carpeta(nombre)
     for sub in ('mounts', 'replies', 'pending'):
         os.makedirs(os.path.join(sitio, sub), mode=0o700, exist_ok=True)
@@ -343,21 +359,33 @@ def _entrega(entrada, ident, texto, de, segundos):
         raise Rechazo('the agent finished without writing an answer') from None
 
 
-def pregunta(nombre, texto, de='local', segundos=300):
-    """Ask a published agent. Returns `(state, request-id, answer)`; a
-    request-level agent returns `pending` and delivers nothing."""
-    entrada = busca(nombre)
+def _valida(texto):
     texto = str(texto or '').strip()
     if not texto:
         raise Rechazo('an empty question')
     if len(texto) > MAX_PREGUNTA:
         raise Rechazo(f'a question is at most {MAX_PREGUNTA} characters')
+    return texto
+
+
+def _encola(nombre, texto, de, origen=None):
+    """Park one question for the owner. `origen` is the reception message it
+    came from, when it came over a Road — what an approval answers to."""
     ident = secrets.token_hex(6)
+    _atomico(_pendiente(nombre, ident),
+             {'id': ident, 'agent': nombre, 'from': str(de)[:80], 'text': texto,
+              'asked_at': _ahora(), **(origen or {})})
+    return ident
+
+
+def pregunta(nombre, texto, de='local', segundos=300):
+    """Ask a published agent. Returns `(state, request-id, answer)`; a
+    request-level agent returns `pending` and delivers nothing."""
+    entrada = busca(nombre)
+    texto = _valida(texto)
     if entrada['level'] == 'request':
-        _atomico(_pendiente(nombre, ident),
-                 {'id': ident, 'agent': nombre, 'from': str(de)[:80],
-                  'text': texto, 'asked_at': _ahora()})
-        return 'pending', ident, ''
+        return 'pending', _encola(nombre, texto, de), ''
+    ident = secrets.token_hex(6)
     return 'answered', ident, _entrega(entrada, ident, texto, de, segundos)
 
 
@@ -390,10 +418,24 @@ def _toma(ident):
 
 
 def aprueba(ident, segundos=300):
-    """The owner says yes: deliver it now. The request leaves the queue only
-    once there is an answer, so a failed delivery can be approved again."""
+    """The owner says yes: deliver it now. A local request leaves the queue
+    only once there is an answer, so a failed delivery can be approved again.
+    One that came over a Road is answered either way — with the answer, or with
+    why there is none — because the person who asked is waiting on the far side.
+    """
     p = _toma(ident)
     entrada = busca(p['agent'])
+    if p.get('reception'):
+        estado, respuesta = _atiende_uno(entrada, {
+            'id': p['reception'], 'text': p['text'], 'from': p.get('from') or 'unknown',
+            'connection_id': p.get('connection_id')}, 'human', segundos)
+        # `left` is the one ending where nothing was claimed: the agent would
+        # not open. The request stays, to approve again once it does.
+        if estado != 'left':
+            os.remove(_pendiente(p['agent'], ident))
+        if estado != 'answered':
+            raise Rechazo(respuesta)
+        return respuesta
     respuesta = _entrega(entrada, ident, p['text'], p.get('from') or 'unknown', segundos)
     os.remove(_pendiente(p['agent'], ident))
     return respuesta
@@ -401,8 +443,90 @@ def aprueba(ident, segundos=300):
 
 def rechaza(ident):
     p = _toma(ident)
+    if p.get('reception'):
+        # The reception's own rejection: it drops the text and tells the sender.
+        try:
+            reception.decide(cities.usuario_actual(), p['reception'], 'reject',
+                             motivo='The owner declined this request.')
+        except reception.ReceptionError:
+            pass  # already decided in the Hall; the queue entry is just stale
     os.remove(_pendiente(p['agent'], ident))
     return p
+
+
+# ══ the bridge: questions that arrive over a managed Road ════════════════════
+
+def _responde(conexion, texto):
+    """Queue the answer on the connection the question came over. Cut at the
+    outbox's byte limit, and say so, rather than refused whole."""
+    cola = '\n\n[answer cut: it was longer than one message carries]'
+    crudo = texto.encode('utf-8')
+    if len(crudo) > reception.MAX_OUTBOX_BYTES:
+        corte = reception.MAX_OUTBOX_BYTES - len(cola.encode('utf-8'))
+        texto = crudo[:corte].decode('utf-8', 'ignore') + cola
+    try:
+        reception.envia(conexion, texto)
+        return True
+    except reception.ReceptionError:
+        return False
+
+
+def _atiende_uno(entrada, m, por, segundos=300):
+    """One Road question, start to finish: claim it, deliver it, answer it.
+
+    Returns `(state, text)`. `left` means it was never claimed and is still in
+    the human reception, because the agent could not be opened. `gone` means
+    somebody decided the message first — the Hall, or another bridge. After the
+    claim there are only two endings, and both send something back.
+    """
+    nombre = entrada['name']
+    try:
+        abre(nombre)
+        texto = _valida(m['text'])
+    except Rechazo as e:
+        return 'left', str(e)
+    try:
+        reception.toma_publicado(m['id'], nombre, por)
+    except reception.ReceptionError as e:
+        return 'gone', str(e)
+    try:
+        respuesta = _entrega(entrada, secrets.token_hex(6), texto, m['from'], segundos)
+    except Rechazo as e:
+        reception.cierra_publicado(m['id'], nombre, str(e))
+        _responde(m['connection_id'], f'@{nombre} could not answer: {e}')
+        return 'failed', str(e)
+    reception.cierra_publicado(m['id'], nombre)
+    _responde(m['connection_id'], f'@{nombre}:\n\n{respuesta}')
+    return 'answered', respuesta
+
+
+def atiende(segundos=300):
+    """One pass over the reception. Returns `[(message-id, agent, state)]`.
+
+    What is not for a published agent is not touched: an unknown `@name`, a
+    sender the agent's allow-list does not name, a message with no mention at
+    all — each stays pending for the owner, exactly as before this existed.
+    """
+    agentes = {a['name']: a for a in lee()}
+    if not agentes:
+        return []
+    ya = {p.get('reception') for p in pendientes()}
+    hechos = []
+    for m in reception.para_publicados(sorted(agentes)):
+        entrada = agentes[m['agent']]
+        permitidos = entrada.get('allow') or []
+        if permitidos and m['connection_id'] not in permitidos:
+            continue
+        if m['id'] in ya:
+            continue
+        if entrada['level'] == 'request':
+            _encola(entrada['name'], m['text'][:MAX_PREGUNTA], m['from'],
+                    {'reception': m['id'], 'connection_id': m['connection_id']})
+            hechos.append((m['id'], entrada['name'], 'pending'))
+            continue
+        estado, _ = _atiende_uno(entrada, m, 'auto', segundos)
+        hechos.append((m['id'], entrada['name'], estado))
+    return hechos
 
 
 # ══ the door ═════════════════════════════════════════════════════════════════
@@ -428,16 +552,19 @@ def _cli_list(resto):
         print('  Nothing is published. Your herdr agents are private.')
     for a in agentes:
         estado = 'open' if abierto(a) else 'closed'
-        print(f"  {a['name']:<24} {a['level']:<8} {estado:<7} {a['mount']}")
+        quien = (f"{len(a['allow'])} connection(s)" if a.get('allow')
+                 else 'any connection')
+        print(f"  {a['name']:<24} {a['level']:<8} {estado:<7} {quien:<16} {a['mount']}")
 
 
 def _cli_add(resto):
     nombre = _opcion(resto, '--name')
     nivel = _opcion(resto, '--level', 'consult')
     espacio = _opcion(resto, '--workspace')
+    permitidos = [p for p in _opcion(resto, '--allow').split(',') if p]
     if len(resto) != 1:
         raise Rechazo('add takes one folder')
-    a = publica(resto[0], nombre, nivel, espacio)
+    a = publica(resto[0], nombre, nivel, espacio, permitidos)
     print(f"  Published {a['name']} ({a['level']}). Not open yet: "
           f"agents-city publish open {a['name']}")
 
@@ -479,13 +606,31 @@ def _cli_reject(resto):
     print('  Rejected.')
 
 
+def _cli_serve(resto):
+    una = '--once' in resto
+    if una:
+        resto.remove('--once')
+    cada = _opcion(resto, '--every', '5')
+    if resto or not cada.isdigit() or not 1 <= int(cada) <= 3600:
+        raise Rechazo('serve takes --once and --every SECONDS (1 to 3600)')
+    if not una:
+        print('  Serving published agents over managed Roads. Ctrl-C stops it.')
+    while True:
+        for ident, nombre, estado in atiende():
+            print(f'  {_ahora()}  {nombre:<24} {estado:<8} {ident}', flush=True)
+        if una:
+            return
+        time.sleep(int(cada))
+
+
 #: Each order, with how many arguments it takes. `None` is "at least one, and
-#: the order counts them itself" — `add` carries options.
+#: the order counts them itself" — `add` carries options. `-1` is "any number,
+#: including none".
 ORDENES = {
     'list': (_cli_list, 0), 'add': (_cli_add, None), 'open': (_cli_abre, 1),
     'close': (_cli_close, 1), 'remove': (_cli_remove, 1), 'ask': (_cli_ask, 2),
     'pending': (_cli_pending, 0), 'approve': (_cli_approve, 1),
-    'reject': (_cli_reject, 1),
+    'reject': (_cli_reject, 1), 'serve': (_cli_serve, -1),
 }
 
 
@@ -497,14 +642,16 @@ def main(argv=None):
     funcion, cuantos = ORDENES.get(args[0], (None, 0))
     resto = args[1:]
     if funcion is None or (cuantos is None and not resto) or (
-            cuantos is not None and len(resto) != cuantos):
+            cuantos is not None and cuantos >= 0 and len(resto) != cuantos):
         print(_ayuda(), file=sys.stderr)
         return 1
     try:
         funcion(resto)
-    except (Rechazo, OSError) as e:
+    except (Rechazo, reception.ReceptionError, OSError) as e:
         print(f'  {e}', file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print()
     return 0
 
 

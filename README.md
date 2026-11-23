@@ -748,8 +748,28 @@ agents-city publish remove api
 agent behind the cage; on a machine that cannot cage a window it refuses rather
 than opening one uncaged. The agent answers by writing a file in its own
 workspace under `~/.agents-city/published/<name>/`, which is the only place a
-`consult` cage lets it write. `ask` is the local door; delivery of a question
-that arrives over a managed Road is not wired to it yet.
+`consult` cage lets it write. `ask` is the local door.
+
+Over a managed Road, a connected person reaches a published agent by opening
+their message with its name:
+
+```text
+@api which endpoints changed this week?
+```
+
+```bash
+agents-city publish serve            # the bridge; --once for a single pass
+agents-city publish add ~/code/api --allow <connection-id>,<connection-id>
+```
+
+`serve` takes those messages out of the human reception, delivers them under
+the agent's level and sends the answer back over the same connection. A
+`consult` or `operate` agent answers without the owner; a `request` agent parks
+the question until `approve`, and `reject` tells the sender. A message with no
+mention, one naming an agent nobody published, or one from a connection outside
+the agent's `--allow` list is left in the reception exactly as before. Without
+`--allow`, every connection the owner has accepted may ask. The Hall does not
+show published agents yet; this is CLI only.
 
 ### `agents-city connect`
 

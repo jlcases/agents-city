@@ -760,9 +760,28 @@ agents-city publish remove api
 agente detrás de la jaula; en una máquina que no puede enjaular una ventana se
 niega en vez de abrirla sin jaula. El agente responde escribiendo un fichero en
 su propio workspace, `~/.agents-city/published/<nombre>/`, que es el único
-sitio donde una jaula `consult` le deja escribir. `ask` es la puerta local; la
-entrega de una pregunta que llega por una Road gestionada todavía no está
-conectada a esto.
+sitio donde una jaula `consult` le deja escribir. `ask` es la puerta local.
+
+Por una Road gestionada, una persona conectada llega a un agente publicado
+empezando su mensaje con el nombre:
+
+```text
+@api ¿qué endpoints han cambiado esta semana?
+```
+
+```bash
+agents-city publish serve            # el puente; --once para una sola pasada
+agents-city publish add ~/code/api --allow <connection-id>,<connection-id>
+```
+
+`serve` saca esos mensajes de la recepción humana, los entrega según el nivel
+del agente y devuelve la respuesta por la misma conexión. Un agente `consult` u
+`operate` responde sin el dueño; uno `request` aparca la pregunta hasta
+`approve`, y `reject` avisa a quien preguntó. Un mensaje sin mención, uno que
+nombra un agente que nadie ha publicado, o uno de una conexión fuera de la
+lista `--allow` del agente se queda en la recepción igual que antes. Sin
+`--allow`, puede preguntar cualquier conexión que el dueño haya aceptado. El
+Hall todavía no muestra los agentes publicados; esto es solo CLI.
 
 ### `agents-city connect`
 
