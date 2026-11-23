@@ -62,10 +62,13 @@ The wire constant is `agents-city-relay/4`. A new Road works as follows:
    rest holds none and writes nothing to the relay. This has a price. The
    relay sees a registration and a grant envelope, both identified, just before
    the first sealed message after a pause: it can tell that a conversation
-   started on a Road, when, and which side started it. It still does not see
-   who sent each later message, nor any content. A message to a peer that is
-   offline is queued by the relay only if the two exchanged messages in the
-   last fifteen minutes; otherwise the sender keeps it and tries again.
+   started on a Road, when, and which side started it. As before, it sees the
+   recipient replace each capability a message spent. It does not see content,
+   and no message names its sender. A message to a peer that is offline is
+   queued by the relay only while the peer's capabilities live, fifteen to
+   thirty minutes after the two last exchanged messages; after that the send
+   fails and it is for the sending program to try again, which the reception
+   outbox does.
 9. Decrypted text stays in encrypted local pending state until the Hall durably
    inserts it under the stable message ID and returns an exact inbox receipt.
    Before commit, an at-least-once retry returns the same pending plaintext and

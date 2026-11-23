@@ -40,7 +40,8 @@ with WebSocket protocol pings, which Cloudflare does not bill, and the one-use
 capabilities that hide a sender from the relay are minted when two computers
 start talking, not held in reserve. What an operator pays for is messages.
 
-Measured on the local Cloudflare runtime with its own `rowsWritten` counter:
+Measured on the local Cloudflare runtime with its own `rowsWritten` counter
+(`workers/relay/test/capability-cost.spec.ts` keeps the figure honest):
 one capability is 10 rows written over its life (4 to register and 1 to expire,
 in each of the two places that hold it). The first message after a pause mints
 32 on each side, about 640 rows. Cloudflare's free plan allows 100,000 rows
@@ -53,6 +54,12 @@ The price is in what the relay can observe: that a conversation started
 between two computers, when, and which one started it. Step 8 of
 [docs/PRIVATE_ROADS_PROTOCOL.md](docs/PRIVATE_ROADS_PROTOCOL.md) says exactly
 what it does and does not see.
+
+Two things still cost while nobody is talking. A message waiting for a
+computer that is switched off asks for a capability on every retry, a few
+thousand rows a day for as long as it waits. And a transport with no protocol
+ping, which the Node client is not, falls back to a message that wakes the
+mailbox.
 
 Not measured yet: the full row count of one delivered message, and whether
 every request stays under the free plan's 10 ms of CPU. Both need a real
