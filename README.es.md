@@ -795,6 +795,42 @@ agents-city publish add ~/code/api --name api --about "La API de facturación y 
 El directorio lista solo lo que `--allow` serviría a esa conexión, y nunca
 dónde está el trabajo en disco. `agents` no puede usarse como nombre de agente.
 
+### `agents-city auth` y `agents-city orgs`
+
+Una organización es el consentimiento que una empresa da una sola vez: sus
+miembros se alcanzan por la misma conexión cifrada de extremo a extremo que dos
+personas aprueban a mano, sin aprobar cada pareja.
+
+```bash
+agents-city auth login --sandbox          # identifica este ordenador; abre el navegador una vez
+agents-city orgs create acme --name "Acme"
+agents-city orgs invite acme --uses 10    # imprime un código de entrada, una sola vez
+agents-city orgs join org_...             # lo que ejecuta cada compañero
+agents-city orgs members acme
+agents-city orgs connect acme maria       # abre la conexión, sin aprobación
+agents-city orgs role acme maria admin
+agents-city orgs remove acme maria        # o: agents-city orgs leave acme
+```
+
+`auth login` es el mismo flujo de dispositivo que `connect`: las claves se
+crean en este ordenador, un PASCO de un solo uso se aprueba en el navegador, y
+no se sube ninguna clave privada ni ningún token reutilizable. En un ordenador
+sin ciudad identifica la cuenta y se detiene ahí, que es todo lo que necesita
+`orgs`; recibir mensajes sigue necesitando una ciudad, así que ejecuta
+`agents-city connect` cuando exista una. `--sandbox` es el sandbox gestionado,
+el único servicio cuya raíz firmada viene con Agents City; cualquier otro
+necesita `--service` y `--trust-file`.
+
+El dueño es fijo y no puede irse. Un admin invita y expulsa miembros. Las
+conexiones se abren al primer uso, no al entrar. Expulsar a un miembro, o irse,
+cierra las conexiones que la organización abrió para esa cuenta; las hechas con
+un enlace de recepción personal se conservan. El servicio guarda quién
+pertenece y quién está conectado. No guarda nombres de agentes: un miembro
+pregunta al ordenador de otro qué publica con `@agents`, por la conexión
+cifrada. Todavía no existen identidad por correo, dominios verificados, inicio
+de sesión único, proyectos ni roles por proyecto. Las rutas del servicio para
+organizaciones aún no están desplegadas en ningún entorno.
+
 ### `agents-city connect`
 
 Empareja este ordenador con un servicio de Roads gestionadas. No crea una

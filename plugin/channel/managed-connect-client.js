@@ -4514,6 +4514,27 @@ var syncDeviceCities = async (controlPlaneUrl, identity, cities, fetcher = fetch
 };
 var listDeviceRoads = async (controlPlaneUrl, identity, fetcher = fetch) => apiJson(await signedDeviceRequest(controlPlaneUrl, identity, "/api/device/roads"), fetcher);
 var signedRelayHeaders = (identity, city) => signDeviceProof(identity, "GET", "/v1/connect", "", city);
+var ORGANIZATION_ACTIONS = [
+  "list",
+  "create",
+  "invite",
+  "join",
+  "members",
+  "connect",
+  "role",
+  "remove"
+];
+var organizationRequest = async (controlPlaneUrl, identity, action, fields = {}, fetcher = fetch) => {
+  if (!ORGANIZATION_ACTIONS.includes(action)) throw new Error("unknown_organization_action");
+  if (action === "list") {
+    return apiJson(await signedDeviceRequest(controlPlaneUrl, identity, "/api/device/orgs"), fetcher);
+  }
+  const pathname = action === "create" ? "/api/device/orgs" : `/api/device/orgs/${action}`;
+  return apiJson(await signedDeviceRequest(controlPlaneUrl, identity, pathname, {
+    method: "POST",
+    body: JSON.stringify(fields)
+  }), fetcher);
+};
 
 // packages/connect-client/src/road.ts
 var MAX_ROAD_TEXT_BYTES = 12e3;
@@ -6544,6 +6565,7 @@ export {
   ManagedRelaySession,
   MemoryRatchetBackend,
   NodeDeviceVault,
+  ORGANIZATION_ACTIONS,
   RELAY_PROTOCOL,
   ROAD_RATCHET_PROTOCOL,
   ROAD_RATCHET_SUITE,
@@ -6586,6 +6608,7 @@ export {
   openHybridEstablishment,
   openRoadEnvelope,
   openSealedRoadDelivery,
+  organizationRequest,
   parseKeyTransparencyRootChain,
   parseKeyTransparencyRootEnvelope,
   parseRelayServerFrame,
