@@ -109,6 +109,43 @@ jobs:
           npm run typecheck
           npm run build
 
+  # The service a company deploys on its own Cloudflare account: accounts,
+  # organizations and the encrypted relay. Its own job because it needs Rust,
+  # and because nothing in it is reached by the suites above.
+  service:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUST_STABLE: 1.96.0
+    defaults:
+      run: {working-directory: service}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22.12.0}
+      - name: the pinned Rust toolchain
+        run: rustup toolchain install "$RUST_STABLE" --profile minimal && rustup default "$RUST_STABLE"
+      # The Rust tests and the licence contracts run cargo with --offline on
+      # purpose; this is the one step allowed to reach the registry.
+      - name: fetch the locked crates
+        run: |
+          cargo fetch --locked --manifest-path packages/hybrid-crypto/Cargo.toml
+          cargo fetch --locked --manifest-path packages/hybrid-crypto/fuzz/Cargo.toml
+      - run: npm ci
+      - name: the service sources hold under tsc --strict
+        run: npm run typecheck
+      - name: control plane, relay, witness, client, cryptography and licence contracts
+        run: npm test
+      # The client the CLI ships is generated from this directory. A committed
+      # copy that differs from what the sources build is a client nobody reviewed.
+      - name: the committed client is the one these sources build
+        run: |
+          npm run export:client
+          git diff --exit-code -- ../plugin/channel || {
+            echo "::error::plugin/channel does not match service/packages/connect-client. Run: cd service && npm run export:client"
+            exit 1
+          }
+
   # Windows is most of the desktops there are, and this product refused to
   # install on all of them. That is being closed, and this job is what makes the
   # closing real rather than hopeful: every piece claimed to run there is run

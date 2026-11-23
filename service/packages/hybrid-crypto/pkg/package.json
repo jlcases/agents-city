@@ -1,0 +1,21 @@
+{
+  "name": "agents-city-hybrid-crypto",
+  "type": "module",
+  "description": "Narrow ML-KEM-768 and X25519 hybrid establishment primitive for Agents City",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlcases/agents-city"
+  },
+  "files": [
+    "agents_city_hybrid_crypto_bg.wasm",
+    "agents_city_hybrid_crypto.js",
+    "agents_city_hybrid_crypto.d.ts"
+  ],
+  "main": "agents_city_hybrid_crypto.js",
+  "types": "agents_city_hybrid_crypto.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

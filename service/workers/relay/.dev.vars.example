@@ -1,0 +1,12 @@
+ROADS_CONTROL_SECRET=replace-with-at-least-32-random-characters
+SEALED_CAPABILITY_PEPPER_VERSION=1
+SEALED_CAPABILITY_PEPPER_CURRENT=replace-with-at-least-32-random-characters
+# Set only while rotating, then remove after every prior capability has expired.
+# SEALED_CAPABILITY_PEPPER_PREVIOUS=replace-with-the-previous-secret
+TRANSPARENCY_OPERATOR_KEY_ID=agents-city-local-1
+TRANSPARENCY_OPERATOR_PRIVATE_JWK={"kty":"OKP","crv":"Ed25519","x":"replace","d":"replace","ext":true}
+# Production requires all three witness values. The witness must run outside
+# the relay operator's Cloudflare account.
+# TRANSPARENCY_WITNESS_URL=https://independent-witness.example/v1/cosign
+# TRANSPARENCY_WITNESS_KEY_ID=independent-witness-1
+# TRANSPARENCY_WITNESS_PUBLIC_JWK={"kty":"OKP","crv":"Ed25519","x":"replace","ext":true}
