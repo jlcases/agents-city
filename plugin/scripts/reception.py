@@ -33,6 +33,12 @@ CONNECTION_ID = re.compile(
 )
 MAX_DESTINATIONS = 32
 MAX_OUTBOX_BYTES = 11_500
+#: A person message that opens with `@name` is addressed to a published agent.
+#: The name grammar is the one `publicados.py` accepts, so a mention can never
+#: name something that module would refuse to publish.
+MENCION = re.compile(r"^\s*@([a-z0-9][a-z0-9-]{0,39})(?![a-z0-9-])[\s:,]*")
+PUBLISHED_ID = "published:"
+PUBLISHED_ADDRESS = "published/"
 
 
 SCHEMA = f"""
@@ -569,6 +575,144 @@ def envia(connection_id, texto):
             "status": "queued",
             "connectionId": connection_id,
         }
+    finally:
+        if not comprometida:
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        db.close()
+
+
+# ── published agents: a destination that is not a city ──────────────────────
+#
+# A route row names where an approved message goes. Cities consume only the rows
+# carrying their own id and address, so a row addressed to `published:<name>` is
+# inert to every city bus and belongs to the published-agent bridge alone. That
+# is why this needs no new table: the decision boundary, the audit of who
+# approved, and the delivery state are the ones a city route already has.
+
+
+def para_publicados(nombres, limite=50):
+    """Pending person messages that open with `@name` for a published agent.
+
+    Only messages that can be answered: they arrived over a connection that is
+    still active. Returns inert text; nothing is decided here.
+    """
+    conocidos = {str(n) for n in nombres}
+    if not conocidos:
+        return []
+    db = _conecta()
+    try:
+        filas = db.execute(
+            """SELECT m.message_id, m.body, m.connection_id, c.peer_name
+               FROM reception_messages m
+               JOIN reception_connections c
+                 ON c.connection_id = m.connection_id AND c.status = 'active'
+               WHERE m.state = 'pending' AND m.message_kind = 'message'
+                 AND m.body IS NOT NULL
+               ORDER BY m.received_at, m.message_id
+               LIMIT ?""",
+            (max(1, min(int(limite), 200)),),
+        ).fetchall()
+    finally:
+        db.close()
+    fuera = []
+    for fila in filas:
+        mencion = MENCION.match(fila["body"])
+        if not mencion or mencion.group(1) not in conocidos:
+            continue
+        texto = fila["body"][mencion.end():].strip()
+        if not texto:
+            continue
+        fuera.append(
+            {
+                "id": fila["message_id"],
+                "agent": mencion.group(1),
+                "text": texto,
+                "connection_id": fila["connection_id"],
+                "from": fila["peer_name"],
+            }
+        )
+    return fuera
+
+
+def toma_publicado(message_id, nombre, por):
+    """Atomically hand one pending message to a published agent.
+
+    `por` records who approved: `auto` when the owner published the agent at a
+    level that delivers directly, `human` when they approved this one request.
+    Fails if anybody — the Hall, another bridge — decided it first.
+    """
+    message_id, nombre, por = str(message_id or ""), str(nombre or ""), str(por or "")
+    if not MESSAGE_ID.fullmatch(message_id):
+        raise ReceptionError("invalid reception message id")
+    if not MENCION.fullmatch("@" + nombre):
+        raise ReceptionError("invalid published agent name")
+    if por not in ("human", "auto"):
+        raise ReceptionError("approval must be human or auto")
+    ahora = _ahora()
+    db = _conecta()
+    comprometida = False
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            """UPDATE reception_messages
+               SET state = 'routed', decided_at = ?, decision_reason = NULL
+               WHERE message_id = ? AND state = 'pending'""",
+            (ahora, message_id),
+        )
+        if db.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ReceptionError("that reception message has already been decided")
+        db.execute(
+            """INSERT INTO reception_routes
+               (message_id, target_city_id, target_city_address, state,
+                approved_by, approved_at)
+               VALUES (?, ?, ?, 'queued', ?, ?)""",
+            (message_id, PUBLISHED_ID + nombre, PUBLISHED_ADDRESS + nombre, por, ahora),
+        )
+        db.execute("COMMIT")
+        comprometida = True
+    finally:
+        if not comprometida:
+            try:
+                db.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        db.close()
+
+
+def cierra_publicado(message_id, nombre, error=""):
+    """Record how the delivery ended, and drop the text either way.
+
+    Both ends are final: the bridge answers the sender itself, so there is no
+    retry that would need the body kept around.
+    """
+    error = " ".join(str(error or "").split())[:300]
+    db = _conecta()
+    comprometida = False
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            """UPDATE reception_routes
+               SET state = ?, delivered_at = ?, error = ?, next_attempt_at = NULL
+               WHERE message_id = ? AND target_city_id = ? AND state = 'queued'""",
+            (
+                "failed" if error else "delivered",
+                None if error else _ahora(),
+                error or None,
+                str(message_id),
+                PUBLISHED_ID + str(nombre),
+            ),
+        )
+        if db.execute("SELECT changes()").fetchone()[0] != 1:
+            raise ReceptionError("no queued published route for that message")
+        db.execute(
+            "UPDATE reception_messages SET body = NULL WHERE message_id = ? AND state = 'routed'",
+            (str(message_id),),
+        )
+        db.execute("COMMIT")
+        comprometida = True
     finally:
         if not comprometida:
             try:

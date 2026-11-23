@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Publish a herdr agent to the network: a separate, caged tab with a level.
+exec python3 "$(cd "$(dirname "$0")/../plugin/scripts" && pwd)/publicados.py" "$@"
