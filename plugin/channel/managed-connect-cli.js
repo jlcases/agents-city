@@ -3716,6 +3716,7 @@ import {
   ConnectApiError,
   beginDeviceAuthorization,
   listDeviceRoads,
+  organizationRequest,
   pollDeviceAuthorization,
   signedRelayHeaders,
   syncDeviceCities
@@ -4257,6 +4258,218 @@ async function loadConnectIdentity(state, appHome = "") {
   return identity;
 }
 
+// managed-connect/orgs.ts
+var SLUG = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
+var ACCOUNT = /^[a-z0-9_-]{1,32}$/;
+function organizationsUsage() {
+  return `usage:
+  agents-city orgs list
+  agents-city orgs create <organization> [--name "Display name"]
+  agents-city orgs invite <organization> [--uses N]
+  agents-city orgs join <code>
+  agents-city orgs members <organization>
+  agents-city orgs connect <organization> <account>
+  agents-city orgs role <organization> <account> admin|member
+  agents-city orgs remove <organization> <account>
+  agents-city orgs leave <organization>
+
+An organization is named by a lowercase slug, 3 to 40 characters. Its owner or
+an admin hands out a join code; whoever joins can open an encrypted connection
+to any other member with no further approval. Removing a member, or leaving,
+closes the connections the organization opened for that account. Add --json to
+any command for machine-readable output. Run agents-city auth login first.`;
+}
+var EXPLAINED = {
+  invalid_device_proof: "this computer is not recognised by the service; run agents-city auth login",
+  organization_not_found: "no such organization, or this account does not belong to it",
+  organization_taken: "that organization name is already taken",
+  invalid_organization: "an organization is a lowercase slug, 3 to 40 letters, digits or dashes",
+  invalid_organization_name: "a display name is up to 60 letters, digits, spaces and . & ' -",
+  organization_allowance_exceeded: "one account may own three organizations",
+  forbidden: "your role in this organization does not allow that",
+  organization_code_unavailable: "that code is not valid: used up, expired, or mistyped",
+  organization_code_already_used: "this account already used that code",
+  invalid_organization_code: "that is not a join code; it starts with org_",
+  member_allowance_exceeded: "the organization's plan has no seats left",
+  membership_suspended: "this membership is suspended; ask the owner",
+  guest_must_be_removed_first: "this account is a guest there; the owner must remove it before it can join",
+  member_not_found: "no member with that account in this organization",
+  second_account_required: "a connection needs a second account",
+  connection_device_required: "the other member has not paired a computer yet",
+  connection_allowance_exceeded: "the organization's plan has no connections left",
+  connection_unavailable: "one of you closed or blocked this connection; membership does not reopen it",
+  connection_request_already_pending: "a connection request between you two is already waiting for review",
+  owner_cannot_leave: "the owner cannot leave their own organization",
+  owner_role_is_fixed: "the owner's role cannot be changed",
+  organization_invitations_unavailable: "this organization is not accepting new members",
+  organization_invitation_allowance_exceeded: "today's join codes are used up for this plan",
+  too_many_join_attempts: "too many attempts; wait fifteen minutes"
+};
+function explainOrganizationError(error) {
+  const code = error?.name === "ConnectApiError" ? String(error.code) : "";
+  if (code) return EXPLAINED[code] ?? code;
+  return error instanceof Error ? error.message : String(error);
+}
+function take(rest, flag) {
+  const at = rest.indexOf(flag);
+  if (at < 0) return "";
+  const value = rest[at + 1];
+  if (value === void 0) throw new Error(`${flag} needs a value`);
+  rest.splice(at, 2);
+  return value;
+}
+function slugOf(value) {
+  if (!value || !SLUG.test(value)) throw new Error(EXPLAINED.invalid_organization);
+  return value;
+}
+function accountOf(value) {
+  if (!value || !ACCOUNT.test(value))
+    throw new Error("an account is its handle: lowercase letters, digits, _ or -");
+  return value;
+}
+function only(rest, count, what) {
+  if (rest.length !== count) throw new Error(`${what}; see agents-city orgs --help`);
+}
+var COMMANDS = {
+  async list(rest, ask) {
+    only(rest, 0, "list takes no arguments");
+    const value = await ask("list");
+    const lines = value.organizations.length ? value.organizations.map(
+      (o) => `  ${o.organization.padEnd(24)} ${o.role.padEnd(7)} ${String(o.members).padStart(4)} member(s)  ${o.plan}`
+    ) : [`  ${value.account} belongs to no organization. Create one, or join with a code.`];
+    return { value, lines };
+  },
+  async create(rest, ask) {
+    const name = take(rest, "--name");
+    only(rest, 1, "create takes one organization");
+    const organization = slugOf(rest[0]);
+    const value = await ask(
+      "create",
+      name ? { organization, name } : { organization }
+    );
+    return {
+      value,
+      lines: [
+        `  Created ${value.organization}. You are its owner.`,
+        `  Invite people: agents-city orgs invite ${value.organization} --uses 10`
+      ]
+    };
+  },
+  async invite(rest, ask) {
+    const uses = take(rest, "--uses");
+    only(rest, 1, "invite takes one organization");
+    const organization = slugOf(rest[0]);
+    const count = uses ? Number(uses) : 1;
+    if (!Number.isSafeInteger(count) || count < 1 || count > 100) {
+      throw new Error("--uses is a number from 1 to 100");
+    }
+    const value = await ask("invite", { organization, uses: count });
+    return {
+      value,
+      lines: [
+        `  ${value.code}`,
+        `  Good for ${value.uses} ${value.uses === 1 ? "person" : "people"}, for 7 days. It is shown once:`,
+        "  the service keeps only its hash. Whoever has it runs:",
+        "    agents-city orgs join <code>"
+      ]
+    };
+  },
+  async join(rest, ask) {
+    only(rest, 1, "join takes one code");
+    const value = await ask("join", {
+      code: rest[0] ?? ""
+    });
+    return {
+      value,
+      lines: [
+        value.duplicate ? `  You already belong to ${value.organization}. The code was not used.` : `  Joined ${value.organization} as ${value.role}. See who is there: agents-city orgs members ${value.organization}`
+      ]
+    };
+  },
+  async members(rest, ask) {
+    only(rest, 1, "members takes one organization");
+    const value = await ask("members", {
+      organization: slugOf(rest[0])
+    });
+    const lines = value.members.map((m) => {
+      const link = m.self ? "you" : m.connection === "active" ? "connected" : m.connection ? "connecting" : m.paired ? "not connected yet" : "no computer paired";
+      return `  ${m.account.padEnd(24)} ${m.role.padEnd(7)} ${link}`;
+    });
+    return { value, lines };
+  },
+  async connect(rest, ask) {
+    only(rest, 2, "connect takes an organization and an account");
+    const account = accountOf(rest[1]);
+    const value = await ask(
+      "connect",
+      { organization: slugOf(rest[0]), account }
+    );
+    const ready = value.connection.status === "active";
+    return {
+      value,
+      lines: [
+        value.duplicate ? `  Already connected with ${account}.` : `  Connected with ${account}. No approval was needed: you share an organization.`,
+        ...ready ? [] : ["  The relay is still opening it; it will carry messages in a moment."]
+      ]
+    };
+  },
+  async role(rest, ask) {
+    only(rest, 3, "role takes an organization, an account and admin or member");
+    if (!["admin", "member"].includes(rest[2] ?? "")) throw new Error("a role is admin or member");
+    const value = await ask("role", {
+      organization: slugOf(rest[0]),
+      account: accountOf(rest[1]),
+      role: rest[2]
+    });
+    return { value, lines: [`  ${value.account} is now ${value.role}.`] };
+  },
+  async remove(rest, ask) {
+    only(rest, 2, "remove takes an organization and an account");
+    return removal(ask, slugOf(rest[0]), accountOf(rest[1]), false);
+  },
+  async leave(rest, ask) {
+    only(rest, 1, "leave takes one organization");
+    return removal(ask, slugOf(rest[0]), "", true);
+  }
+};
+async function removal(ask, organization, account, leaving) {
+  const value = await ask(
+    "remove",
+    account ? { organization, account } : { organization }
+  );
+  const { closed, closing } = value.connections;
+  return {
+    value,
+    lines: [
+      leaving ? `  You left ${organization}.` : `  Removed ${value.account} from ${organization}.`,
+      `  ${closed + closing} connection(s) the organization had opened ${closing ? "are closing" : "are closed"}.`
+    ]
+  };
+}
+async function organizationsCli(args, deps) {
+  const rest = [...args];
+  const print = deps.print ?? ((line) => console.log(line));
+  const jsonAt = rest.indexOf("--json");
+  if (jsonAt >= 0) rest.splice(jsonAt, 1);
+  const command = rest.shift() ?? "help";
+  const run = COMMANDS[command];
+  if (!run || rest.includes("--help") || rest.includes("-h")) {
+    if (!run && !["help", "--help", "-h"].includes(command)) {
+      throw new Error(`unknown orgs command: ${command}; see agents-city orgs --help`);
+    }
+    print(organizationsUsage());
+    return;
+  }
+  let ask;
+  const lazy = async (action, fields) => {
+    ask ??= await deps.open();
+    return ask(action, fields);
+  };
+  const { value, lines } = await run(rest, lazy);
+  if (jsonAt >= 0) print(JSON.stringify(value, null, 2));
+  else for (const line of lines) print(line);
+}
+
 // hub-client.ts
 import { spawn } from "child_process";
 import { mkdirSync as mkdirSync3, openSync as openSync3 } from "fs";
@@ -4460,6 +4673,35 @@ chain through --trust-file. Passing a newer chain later rotates operator or
 witness keys without silently replacing trust. The official managed service
 ships its initial root with Agents City before production is enabled.`;
 }
+var NOT_SIGNED_IN = "this computer is not signed in; run agents-city auth login";
+async function openOrganizations() {
+  const stored = readConnectState();
+  if (!stored || stored.status !== "connected") throw new Error(NOT_SIGNED_IN);
+  const { state } = await refreshStoredTransparency();
+  if (state.status !== "connected") throw new Error(NOT_SIGNED_IN);
+  const identity = await loadConnectIdentity(state);
+  return (action, fields = {}) => organizationRequest(state.serviceUrl, identity, action, fields);
+}
+function authUsage() {
+  return `usage:
+  agents-city auth login [--sandbox | --service URL] [--trust-file FILE] [--no-open]
+  agents-city auth status [--json]
+
+Signs this computer in to a managed service. It creates the signing and
+encryption keys here, prints a one-use PASCO and opens the browser to approve
+it; no private key and no reusable token ever leaves this computer. With no
+local city it signs in the account alone, which is all \`agents-city orgs\`
+needs. --sandbox is the managed sandbox, the only service whose signed root
+ships with Agents City; any other service needs --service and --trust-file.`;
+}
+function authArguments(args) {
+  const [verb, ...rest] = args;
+  if (verb === "login") return { args: rest, help: false };
+  if (verb === "status") return { args: ["status", ...rest], help: false };
+  if (verb === void 0 || ["help", "-h", "--help"].includes(verb))
+    return { args: [], help: true };
+  throw new Error(`unknown auth command: ${verb}; see agents-city auth --help`);
+}
 function optionsOf(args) {
   const options = {
     serviceUrl: process.env.AGENTS_CITY_CONNECT_URL || "",
@@ -4468,7 +4710,9 @@ function optionsOf(args) {
     openBrowser: true,
     trustFile: "",
     json: false,
-    command: "connect"
+    command: "connect",
+    identityOnly: false,
+    viaAuth: false
   };
   const rest = [...args];
   if (["status", "roads", "help"].includes(rest[0] || "")) {
@@ -4488,7 +4732,8 @@ function optionsOf(args) {
       const value = rest.shift();
       if (!value) throw new Error("--trust-file needs a JSON file");
       options.trustFile = value;
-    } else if (arg === "--all") options.all = true;
+    } else if (arg === "--sandbox") options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
+    else if (arg === "--all") options.all = true;
     else if (arg === "--no-open") options.openBrowser = false;
     else if (arg === "--json") options.json = true;
     else if (["-h", "--help"].includes(arg)) options.command = "help";
@@ -4623,7 +4868,9 @@ async function connect(options) {
   agentsCityHome();
   const remembered = readConnectState()?.serviceUrl ?? "";
   if (!options.serviceUrl && !remembered) {
-    throw new Error("first pairing needs --service URL or AGENTS_CITY_CONNECT_URL");
+    throw new Error(
+      options.identityOnly ? "no service to sign in to: use --sandbox for the managed sandbox, or --service URL with --trust-file" : "first pairing needs --service URL or AGENTS_CITY_CONNECT_URL"
+    );
   }
   options.serviceUrl = normalizedService(options.serviceUrl || remembered);
   let existing = readConnectState();
@@ -4640,7 +4887,8 @@ async function connect(options) {
     existing?.keyTransparency.root ?? null
   );
   const catalogue = discoverLocalCities();
-  const chosen = selectLocalCities(catalogue, options.selectors, options.all);
+  const accountOnly = options.identityOnly && !catalogue.length && !options.selectors.length && !options.all;
+  const chosen = accountOnly ? [] : selectLocalCities(catalogue, options.selectors, options.all);
   const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
   if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
     throw new Error("key_transparency_relay_mismatch");
@@ -4651,11 +4899,11 @@ async function connect(options) {
       "two selected local cities have the same slug; their managed addresses would collide"
     );
   }
-  const synced = await syncDeviceCities(
+  const synced = cities.length ? await syncDeviceCities(
     options.serviceUrl,
     paired.identity,
     cities.map((city) => ({ slug: city.slug, name: city.name, connected: true }))
-  );
+  ) : { cities: [] };
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const state = {
     protocol: CONNECT_STATE_PROTOCOL,
@@ -4682,6 +4930,12 @@ async function connect(options) {
   };
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else {
+    if (!state.cities.length) {
+      console.log(`  Signed in to ${state.serviceUrl} as ${state.device.ownerPrefix}.`);
+      console.log("  No city is connected, so this computer receives nothing yet.");
+      console.log("  Organizations work already: agents-city orgs --help\n");
+      return;
+    }
     console.log(`  Connected ${chosen.map((city) => city.name).join(", ")}.`);
     for (const city of state.cities) console.log(`  ${city.name}: ${city.remoteAddress}`);
     console.log("  This computer's reception now keeps one outbound encrypted connection open.\n");
@@ -4689,7 +4943,11 @@ async function connect(options) {
 }
 async function status(options) {
   const state = readConnectState();
-  if (!state) throw new Error("this computer has not been paired; run agents-city connect");
+  if (!state) {
+    throw new Error(
+      options.viaAuth ? NOT_SIGNED_IN : "this computer has not been paired; run agents-city connect"
+    );
+  }
   await resolveStoredTransparency(state);
   if (state.status === "pending") {
     const value2 = {
@@ -4710,6 +4968,7 @@ async function status(options) {
   const value = {
     status: "connected",
     service: state.serviceUrl,
+    account: state.device.ownerPrefix,
     deviceId: state.device.deviceId,
     trustRootVersion: state.keyTransparency.root.signed.version,
     trustRootExpiresAt: new Date(state.keyTransparency.root.signed.expiresAt).toISOString(),
@@ -4721,7 +4980,8 @@ async function status(options) {
   };
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else {
-    console.log(`  Connected to ${state.serviceUrl}`);
+    console.log(`  Signed in to ${state.serviceUrl} as ${state.device.ownerPrefix}`);
+    if (!state.cities.length) console.log("  No city is connected.");
     for (const city of state.cities)
       console.log(`  ${city.connected ? "\u25CF" : "\u25CB"} ${city.name}  ${city.remoteAddress}`);
   }
@@ -4760,7 +5020,25 @@ async function roads(options) {
     }
 }
 async function managedConnectCli(args = process.argv.slice(2)) {
+  if (args[0] === "orgs") return organizationsCli(args.slice(1), { open: openOrganizations });
+  let identityOnly = false;
+  const viaAuth = args[0] === "auth";
+  if (args[0] === "auth") {
+    const auth = authArguments(args.slice(1));
+    if (auth.help) {
+      console.log(authUsage());
+      return;
+    }
+    args = auth.args;
+    identityOnly = args[0] !== "status";
+  }
   const options = optionsOf(args);
+  options.identityOnly = identityOnly;
+  options.viaAuth = viaAuth;
+  if (options.command === "help" && identityOnly) {
+    console.log(authUsage());
+    return;
+  }
   if (options.command === "help") {
     console.log(usage());
     return;
@@ -4771,7 +5049,8 @@ async function managedConnectCli(args = process.argv.slice(2)) {
 }
 
 // managed-connect-cli.ts
+var door = ["auth", "orgs"].includes(process.argv[2] ?? "") ? process.argv[2] : "connect";
 managedConnectCli().catch((error) => {
-  console.error(`agents-city connect: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`agents-city ${door}: ${explainOrganizationError(error)}`);
   process.exitCode = 1;
 });

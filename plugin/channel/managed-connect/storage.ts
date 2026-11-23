@@ -41,7 +41,7 @@ const MAX_ROOT_CHAIN_BYTES = 128 * 1024;
 const CITY_ADDRESS_RE = /^[a-z0-9][a-z0-9_-]{0,31}\/[a-z0-9][a-z0-9_-]{0,31}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OWNER_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const MANAGED_SANDBOX_ORIGIN = 'https://agents-city-connect-sandbox.pages.dev';
+export const MANAGED_SANDBOX_ORIGIN = 'https://agents-city-connect-sandbox.pages.dev';
 
 const builtInRootChain = (serviceUrl: string) =>
   serviceUrl === MANAGED_SANDBOX_ORIGIN

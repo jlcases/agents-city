@@ -255,6 +255,16 @@ export function listDeviceRoads(
   identity: DeviceIdentity,
   fetcher?: typeof fetch,
 ): Promise<{ protocol: string; device_id: string; roads: DeviceRoad[] }>;
+export type OrganizationAction =
+  'list' | 'create' | 'invite' | 'join' | 'members' | 'connect' | 'role' | 'remove';
+export const ORGANIZATION_ACTIONS: readonly OrganizationAction[];
+export function organizationRequest<T = Record<string, unknown>>(
+  controlPlaneUrl: string,
+  identity: DeviceIdentity,
+  action: OrganizationAction,
+  fields?: Record<string, string | number>,
+  fetcher?: typeof fetch,
+): Promise<T>;
 export function signedRelayHeaders(
   identity: DeviceIdentity,
   city: string,

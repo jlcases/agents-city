@@ -5,6 +5,7 @@ import {
   beginDeviceAuthorization,
   ConnectApiError,
   listDeviceRoads,
+  organizationRequest,
   pollDeviceAuthorization,
   syncDeviceCities,
   type DeviceIdentity,
@@ -12,6 +13,7 @@ import {
 import { discoverLocalCities, selectLocalCities, type LocalCity } from './local-cities.js';
 import {
   CONNECT_STATE_PROTOCOL,
+  MANAGED_SANDBOX_ORIGIN,
   agentsCityHome,
   loadConnectIdentity,
   loadOrCreateConnectKeys,
@@ -27,6 +29,7 @@ import {
   type PendingConnectState,
   type StoredTransparencyProfile,
 } from './storage.js';
+import { organizationsCli, type Ask } from './orgs.js';
 import { ensureHub } from '../hub-client.js';
 import { loadCityContext } from '../city-config.js';
 import { readEndpoint } from '../runtime-files.js';
@@ -39,6 +42,10 @@ type CliOptions = {
   trustFile: string;
   json: boolean;
   command: 'connect' | 'status' | 'roads' | 'help';
+  /** `auth login`: an account on this computer, whether or not a city exists. */
+  identityOnly: boolean;
+  /** Reached through `agents-city auth`, so messages name that command. */
+  viaAuth: boolean;
 };
 
 function usage(): string {
@@ -59,6 +66,41 @@ witness keys without silently replacing trust. The official managed service
 ships its initial root with Agents City before production is enabled.`;
 }
 
+const NOT_SIGNED_IN = 'this computer is not signed in; run agents-city auth login';
+
+/** The signed channel `agents-city orgs` asks through. */
+async function openOrganizations(): Promise<Ask> {
+  const stored = readConnectState();
+  if (!stored || stored.status !== 'connected') throw new Error(NOT_SIGNED_IN);
+  const { state } = await refreshStoredTransparency();
+  if (state.status !== 'connected') throw new Error(NOT_SIGNED_IN);
+  const identity = await loadConnectIdentity(state);
+  return (action, fields = {}) => organizationRequest(state.serviceUrl, identity, action, fields);
+}
+
+function authUsage(): string {
+  return `usage:
+  agents-city auth login [--sandbox | --service URL] [--trust-file FILE] [--no-open]
+  agents-city auth status [--json]
+
+Signs this computer in to a managed service. It creates the signing and
+encryption keys here, prints a one-use PASCO and opens the browser to approve
+it; no private key and no reusable token ever leaves this computer. With no
+local city it signs in the account alone, which is all \`agents-city orgs\`
+needs. --sandbox is the managed sandbox, the only service whose signed root
+ships with Agents City; any other service needs --service and --trust-file.`;
+}
+
+/** `agents-city auth <verb>` is the account's face of the same device flow. */
+function authArguments(args: string[]): { args: string[]; help: boolean } {
+  const [verb, ...rest] = args;
+  if (verb === 'login') return { args: rest, help: false };
+  if (verb === 'status') return { args: ['status', ...rest], help: false };
+  if (verb === undefined || ['help', '-h', '--help'].includes(verb))
+    return { args: [], help: true };
+  throw new Error(`unknown auth command: ${verb}; see agents-city auth --help`);
+}
+
 function optionsOf(args: string[]): CliOptions {
   const options: CliOptions = {
     serviceUrl: process.env.AGENTS_CITY_CONNECT_URL || '',
@@ -68,6 +110,8 @@ function optionsOf(args: string[]): CliOptions {
     trustFile: '',
     json: false,
     command: 'connect',
+    identityOnly: false,
+    viaAuth: false,
   };
   const rest = [...args];
   if (['status', 'roads', 'help'].includes(rest[0] || '')) {
@@ -87,7 +131,8 @@ function optionsOf(args: string[]): CliOptions {
       const value = rest.shift();
       if (!value) throw new Error('--trust-file needs a JSON file');
       options.trustFile = value;
-    } else if (arg === '--all') options.all = true;
+    } else if (arg === '--sandbox') options.serviceUrl = MANAGED_SANDBOX_ORIGIN;
+    else if (arg === '--all') options.all = true;
     else if (arg === '--no-open') options.openBrowser = false;
     else if (arg === '--json') options.json = true;
     else if (['-h', '--help'].includes(arg)) options.command = 'help';
@@ -248,7 +293,11 @@ async function connect(options: CliOptions): Promise<void> {
   agentsCityHome();
   const remembered = readConnectState()?.serviceUrl ?? '';
   if (!options.serviceUrl && !remembered) {
-    throw new Error('first pairing needs --service URL or AGENTS_CITY_CONNECT_URL');
+    throw new Error(
+      options.identityOnly
+        ? 'no service to sign in to: use --sandbox for the managed sandbox, or --service URL with --trust-file'
+        : 'first pairing needs --service URL or AGENTS_CITY_CONNECT_URL',
+    );
   }
   options.serviceUrl = normalizedService(options.serviceUrl || remembered);
   let existing = readConnectState();
@@ -265,7 +314,11 @@ async function connect(options: CliOptions): Promise<void> {
     existing?.keyTransparency.root ?? null,
   );
   const catalogue = discoverLocalCities();
-  const chosen = selectLocalCities(catalogue, options.selectors, options.all);
+  // An account does not need a city. `auth login` on a computer that has none
+  // signs the account in and stops there; a city joins later with `connect`.
+  const accountOnly =
+    options.identityOnly && !catalogue.length && !options.selectors.length && !options.all;
+  const chosen = accountOnly ? [] : selectLocalCities(catalogue, options.selectors, options.all);
   const paired = await identityFor(options.serviceUrl, options.openBrowser, transparency.stored);
   if (transparency.stored.root.signed.relayUrl !== paired.identity.relayUrl) {
     throw new Error('key_transparency_relay_mismatch');
@@ -276,11 +329,13 @@ async function connect(options: CliOptions): Promise<void> {
       'two selected local cities have the same slug; their managed addresses would collide',
     );
   }
-  const synced = await syncDeviceCities(
-    options.serviceUrl,
-    paired.identity,
-    cities.map((city) => ({ slug: city.slug, name: city.name, connected: true })),
-  );
+  const synced = cities.length
+    ? await syncDeviceCities(
+        options.serviceUrl,
+        paired.identity,
+        cities.map((city) => ({ slug: city.slug, name: city.name, connected: true })),
+      )
+    : { cities: [] };
   const now = new Date().toISOString();
   const state: ConnectedConnectState = {
     protocol: CONNECT_STATE_PROTOCOL,
@@ -307,6 +362,12 @@ async function connect(options: CliOptions): Promise<void> {
   };
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else {
+    if (!state.cities.length) {
+      console.log(`  Signed in to ${state.serviceUrl} as ${state.device.ownerPrefix}.`);
+      console.log('  No city is connected, so this computer receives nothing yet.');
+      console.log('  Organizations work already: agents-city orgs --help\n');
+      return;
+    }
     console.log(`  Connected ${chosen.map((city) => city.name).join(', ')}.`);
     for (const city of state.cities) console.log(`  ${city.name}: ${city.remoteAddress}`);
     console.log("  This computer's reception now keeps one outbound encrypted connection open.\n");
@@ -315,7 +376,13 @@ async function connect(options: CliOptions): Promise<void> {
 
 async function status(options: CliOptions): Promise<void> {
   const state = readConnectState();
-  if (!state) throw new Error('this computer has not been paired; run agents-city connect');
+  if (!state) {
+    throw new Error(
+      options.viaAuth
+        ? NOT_SIGNED_IN
+        : 'this computer has not been paired; run agents-city connect',
+    );
+  }
   await resolveStoredTransparency(state);
   if (state.status === 'pending') {
     const value = {
@@ -335,6 +402,7 @@ async function status(options: CliOptions): Promise<void> {
   const value = {
     status: 'connected',
     service: state.serviceUrl,
+    account: state.device.ownerPrefix,
     deviceId: state.device.deviceId,
     trustRootVersion: state.keyTransparency.root.signed.version,
     trustRootExpiresAt: new Date(state.keyTransparency.root.signed.expiresAt).toISOString(),
@@ -346,7 +414,8 @@ async function status(options: CliOptions): Promise<void> {
   };
   if (options.json) console.log(JSON.stringify(value, null, 2));
   else {
-    console.log(`  Connected to ${state.serviceUrl}`);
+    console.log(`  Signed in to ${state.serviceUrl} as ${state.device.ownerPrefix}`);
+    if (!state.cities.length) console.log('  No city is connected.');
     for (const city of state.cities)
       console.log(`  ${city.connected ? '●' : '○'} ${city.name}  ${city.remoteAddress}`);
   }
@@ -405,7 +474,25 @@ async function roads(options: CliOptions): Promise<void> {
 }
 
 export async function managedConnectCli(args = process.argv.slice(2)): Promise<void> {
+  if (args[0] === 'orgs') return organizationsCli(args.slice(1), { open: openOrganizations });
+  let identityOnly = false;
+  const viaAuth = args[0] === 'auth';
+  if (args[0] === 'auth') {
+    const auth = authArguments(args.slice(1));
+    if (auth.help) {
+      console.log(authUsage());
+      return;
+    }
+    args = auth.args;
+    identityOnly = args[0] !== 'status';
+  }
   const options = optionsOf(args);
+  options.identityOnly = identityOnly;
+  options.viaAuth = viaAuth;
+  if (options.command === 'help' && identityOnly) {
+    console.log(authUsage());
+    return;
+  }
   if (options.command === 'help') {
     console.log(usage());
     return;

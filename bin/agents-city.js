@@ -53,6 +53,16 @@ const ORDENES = {
     di: 'let the network reach one caged herdr agent, at a level',
   },
   road: { py: 'plugin/scripts/roads.py', di: 'connect two cities explicitly' },
+  auth: {
+    node: 'plugin/channel/managed-connect-cli.js',
+    antes: ['auth'],
+    di: 'sign this computer in to a managed service',
+  },
+  orgs: {
+    node: 'plugin/channel/managed-connect-cli.js',
+    antes: ['orgs'],
+    di: 'an organization whose members connect without pairwise approval',
+  },
   connect: {
     node: 'plugin/channel/managed-connect-cli.js',
     di: 'pair this computer and open encrypted managed Roads',

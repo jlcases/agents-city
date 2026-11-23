@@ -4,6 +4,7 @@ export {
   ConnectApiError,
   beginDeviceAuthorization,
   listDeviceRoads,
+  organizationRequest,
   pollDeviceAuthorization,
   signedRelayHeaders,
   syncDeviceCities,
@@ -12,4 +13,5 @@ export {
   type DeviceKeys,
   type DeviceRoad,
   type KeyTransparencyTrust,
+  type OrganizationAction,
 } from '../managed-connect-client.js';

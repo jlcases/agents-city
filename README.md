@@ -771,6 +771,41 @@ the agent's `--allow` list is left in the reception exactly as before. Without
 `--allow`, every connection the owner has accepted may ask. The Hall does not
 show published agents yet; this is CLI only.
 
+### `agents-city auth` and `agents-city orgs`
+
+An organization is the consent a company gives once: its members reach each
+other over the same end-to-end encrypted connection two people otherwise
+approve by hand, without approving every pair.
+
+```bash
+agents-city auth login --sandbox          # signs this computer in; opens the browser once
+agents-city orgs create acme --name "Acme"
+agents-city orgs invite acme --uses 10    # prints a join code, shown once
+agents-city orgs join org_...             # what each colleague runs
+agents-city orgs members acme
+agents-city orgs connect acme maria       # opens the connection, no approval
+agents-city orgs role acme maria admin
+agents-city orgs remove acme maria        # or: agents-city orgs leave acme
+```
+
+`auth login` is the same device flow as `connect`: keys are created on this
+computer, a one-use PASCO is approved in the browser, and no private key or
+reusable token is uploaded. On a computer with no city it signs the account in
+and stops there, which is all `orgs` needs; receiving messages still needs a
+city, so run `agents-city connect` once one exists. `--sandbox` names the
+managed sandbox, the only service whose signed root ships with Agents City; any
+other service needs `--service` and `--trust-file`.
+
+The owner is fixed and cannot leave. An admin invites and removes members.
+Connections are opened on first use, not when somebody joins. Removing a
+member, or leaving, closes the connections the organization opened for that
+account; connections made through a personal reception link are kept. The
+service stores who belongs and who is connected. It stores no agent names: a
+member asks another member's computer what it publishes with `@agents`, over
+the encrypted connection. Email identity, verified domains, single sign-on,
+projects and per-project roles do not exist yet. The service routes for
+organizations are not deployed to any environment yet.
+
 ### `agents-city connect`
 
 Pairs this computer with a managed Road service. It does not create a

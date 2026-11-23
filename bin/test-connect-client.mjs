@@ -605,6 +605,158 @@ async function rootRefreshBoundary() {
   }
 }
 
+async function organizationsBoundary() {
+  const out = mkdtempSync(join(tmpdir(), 'agents-city-orgs-'));
+  try {
+    const built = spawnSync(join(ROOT, 'plugin/channel/node_modules/.bin/esbuild'), [
+      join(ROOT, 'plugin/channel/managed-connect/orgs.ts'),
+      '--format=esm', '--platform=node', `--outfile=${join(out, 'orgs.mjs')}`, '--log-level=error',
+    ], { encoding: 'utf8' });
+    assert.equal(built.status, 0, built.stderr);
+    const source = readFileSync(join(ROOT, 'plugin/channel/managed-connect/orgs.ts'), 'utf8');
+    check('the organization command surface imports no transport, keyring or crypto',
+      !/^\s*import\s/m.test(source));
+    const { organizationsCli, explainOrganizationError } = await import(join(out, 'orgs.mjs'));
+
+    const run = async (args, answers = {}) => {
+      const asked = [];
+      const printed = [];
+      let opened = 0;
+      const open = async () => {
+        opened += 1;
+        return async (action, fields = {}) => {
+          asked.push([action, fields]);
+          const answer = answers[action];
+          if (answer instanceof Error) throw answer;
+          return answer;
+        };
+      };
+      let error = null;
+      try {
+        await organizationsCli(args, { open, print: (line) => printed.push(line) });
+      } catch (caught) {
+        error = caught;
+      }
+      return { asked, printed: printed.join('\n'), opened, error };
+    };
+    const refused = (code, status = 409) => Object.assign(new Error(code), {
+      name: 'ConnectApiError', code, status,
+    });
+
+    const created = await run(['create', 'rankia', '--name', 'Rankia'], {
+      create: { organization: 'rankia', name: 'Rankia', plan: 'free', role: 'owner', members: 1 },
+    });
+    check('creating an organization sends its slug and display name and nothing else',
+      JSON.stringify(created.asked) === JSON.stringify([['create', { organization: 'rankia', name: 'Rankia' }]])
+        && created.printed.includes('You are its owner'), created.printed);
+
+    for (const bad of [['create', 'Rankia'], ['create', 'ra'], ['members', '../x'],
+      ['connect', 'rankia', 'Ana María'], ['role', 'rankia', 'ana', 'owner'],
+      ['invite', 'rankia', '--uses', '500'], ['create'], ['frobnicate']]) {
+      const result = await run(bad);
+      check(`a malformed "orgs ${bad.join(' ')}" is refused before the service is reached`,
+        result.error instanceof Error && result.opened === 0 && result.asked.length === 0,
+        String(result.error));
+    }
+
+    const code = 'org_' + 'k'.repeat(48);
+    const invited = await run(['invite', 'rankia', '--uses', '10'], {
+      invite: { organization: 'rankia', code, uses: 10, expiresIn: 604800 },
+    });
+    check('a join code is printed once, with how many people it admits',
+      invited.printed.includes(code) && invited.printed.includes('10 people')
+        && JSON.stringify(invited.asked[0]) === JSON.stringify(['invite', { organization: 'rankia', uses: 10 }]));
+
+    const joined = await run(['join', code], { join: { organization: 'rankia', role: 'member' } });
+    const already = await run(['join', code], {
+      join: { organization: 'rankia', role: 'member', duplicate: true },
+    });
+    check('joining says which organization, and says when the code was not spent',
+      joined.printed.includes('Joined rankia as member') && already.printed.includes('was not used'));
+
+    const listed = await run(['members', 'rankia'], {
+      members: {
+        organization: 'rankia',
+        members: [
+          { account: 'ana', name: 'Ana', role: 'owner', self: true, paired: true, connection: null },
+          { account: 'ben', name: 'Ben', role: 'admin', self: false, paired: true, connection: 'active' },
+          { account: 'cai', name: 'Cai', role: 'member', self: false, paired: true, connection: null },
+          { account: 'dee', name: 'Dee', role: 'member', self: false, paired: false, connection: null },
+        ],
+      },
+    });
+    check('the member list tells each state apart: you, connected, not yet, no computer',
+      /ana\s+owner\s+you/.test(listed.printed) && /ben\s+admin\s+connected/.test(listed.printed)
+        && /cai\s+member\s+not connected yet/.test(listed.printed)
+        && /dee\s+member\s+no computer paired/.test(listed.printed), listed.printed);
+
+    const connected = await run(['connect', 'rankia', 'ben'], {
+      connect: { connection: { id: randomUUID(), status: 'provisioning' } },
+    });
+    check('connecting to a member says no approval was needed, and when the relay is not ready',
+      connected.printed.includes('No approval was needed')
+        && connected.printed.includes('still opening'), connected.printed);
+
+    const left = await run(['leave', 'rankia'], {
+      remove: { account: 'ana', connections: { closed: 1, closing: 1 } },
+    });
+    const removed = await run(['remove', 'rankia', 'ben'], {
+      remove: { account: 'ben', connections: { closed: 2, closing: 0 } },
+    });
+    check('leaving names no account; removing names exactly one; both report closed connections',
+      JSON.stringify(left.asked[0]) === JSON.stringify(['remove', { organization: 'rankia' }])
+        && JSON.stringify(removed.asked[0]) === JSON.stringify(['remove', { organization: 'rankia', account: 'ben' }])
+        && left.printed.includes('2 connection(s)') && left.printed.includes('are closing')
+        && removed.printed.includes('Removed ben') && removed.printed.includes('are closed'));
+
+    const json = await run(['list', '--json'], {
+      list: { account: 'ana', organizations: [] },
+    });
+    const empty = await run(['list'], { list: { account: 'ana', organizations: [] } });
+    check('--json prints the answer itself; without it an empty list says what to do next',
+      JSON.parse(json.printed).account === 'ana' && empty.printed.includes('belongs to no organization'));
+
+    const denied = await run(['invite', 'rankia'], { invite: refused('forbidden', 403) });
+    const unknown = await run(['invite', 'rankia'], { invite: refused('some_new_code') });
+    check('a refusal is explained in words, and an unknown one is passed through unchanged',
+      explainOrganizationError(denied.error).includes('your role')
+        && explainOrganizationError(unknown.error) === 'some_new_code');
+
+    const help = await run(['--help']);
+    check('help needs no account and reaches no service',
+      help.printed.includes('agents-city orgs create') && help.opened === 0);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}
+
+function accountDoors() {
+  const home = mkdtempSync(join(tmpdir(), 'agents-city-auth-'));
+  try {
+    const front = readFileSync(join(ROOT, 'bin/agents-city.js'), 'utf8');
+    check('the front door ships auth and orgs as their own commands',
+      /auth: \{[\s\S]*?antes: \['auth'\]/.test(front) && /orgs: \{[\s\S]*?antes: \['orgs'\]/.test(front));
+    const unsigned = cli(home, 'orgs', 'list');
+    const status = cli(home, 'auth', 'status');
+    check('an unsigned computer is told to sign in, by the command it ran',
+      unsigned.status === 1 && unsigned.stderr.includes('agents-city orgs: this computer is not signed in')
+        && status.status === 1 && status.stderr.includes('agents-city auth: this computer is not signed in'),
+      unsigned.stderr + status.stderr);
+    const nowhere = spawnSync(process.execPath, [CLI, 'auth', 'login', '--no-open'], {
+      encoding: 'utf8',
+      env: { ...process.env, AGENTS_CITY_HOME: home, AGENTS_CITY_CONNECT_URL: '' },
+    });
+    check('signing in with no service named is refused rather than guessed',
+      nowhere.status === 1 && nowhere.stderr.includes('--sandbox') && nowhere.stderr.includes('--trust-file'),
+      nowhere.stderr);
+    const help = cli(home, 'auth', '--help');
+    check('auth help states that no private key or reusable token leaves the computer',
+      help.status === 0 && help.stdout.includes('no private key and no reusable token'));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 check('the exported constants identify key transparency and relay v4',
   RELAY_PROTOCOL === 'agents-city-relay/4'
     && KEY_TRANSPARENCY_PROTOCOL === 'agents-city-key-transparency/1');
@@ -614,4 +766,6 @@ await cryptoBoundary();
 builtInPinBoundary();
 await localStateBoundary();
 await rootRefreshBoundary();
+await organizationsBoundary();
+accountDoors();
 console.log(JSON.stringify({ ok: true, checks: checks.length, names: checks }, null, 2));
