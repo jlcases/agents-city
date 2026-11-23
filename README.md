@@ -771,6 +771,17 @@ the agent's `--allow` list is left in the reception exactly as before. Without
 `--allow`, every connection the owner has accepted may ask. The Hall does not
 show published agents yet; this is CLI only.
 
+A connected person finds out what they can ask by sending `@agents`. The bridge
+answers that itself, opening no agent: the names that connection may reach,
+each with its level and the line its owner gave it with `--about`.
+
+```bash
+agents-city publish add ~/code/api --name api --about "The billing API and its migrations"
+```
+
+The directory lists only what `--allow` would serve to that connection, and
+never where the work is on disk. `agents` cannot be used as an agent name.
+
 ### `agents-city connect`
 
 Pairs this computer with a managed Road service. It does not create a
