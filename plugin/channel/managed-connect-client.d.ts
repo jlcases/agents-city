@@ -135,6 +135,7 @@ export type RoadInboxReceipt = {
 
 export type RelayTransport = {
   send(raw: string): void;
+  ping?(): void;
   close(code?: number, reason?: string): void;
   onMessage(handler: (raw: string) => void): void;
   onClose(handler: () => void): void;

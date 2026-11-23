@@ -50,6 +50,10 @@ export async function openManagedRelaySession(
       if (socket.readyState !== WebSocket.OPEN) throw new Error('relay_connection_closed');
       socket.send(raw);
     },
+    ping: () => {
+      if (socket.readyState !== WebSocket.OPEN) throw new Error('relay_connection_closed');
+      socket.ping();
+    },
     close: (code, reason) => socket.close(code, reason),
     onMessage: (handler) => {
       socket.on('message', (raw: RawData, isBinary: boolean) => {

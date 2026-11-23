@@ -6844,6 +6844,10 @@ async function openManagedRelaySession(identity, city, options) {
       if (socket.readyState !== wrapper_default.OPEN) throw new Error("relay_connection_closed");
       socket.send(raw);
     },
+    ping: () => {
+      if (socket.readyState !== wrapper_default.OPEN) throw new Error("relay_connection_closed");
+      socket.ping();
+    },
     close: (code, reason) => socket.close(code, reason),
     onMessage: (handler) => {
       socket.on("message", (raw, isBinary) => {

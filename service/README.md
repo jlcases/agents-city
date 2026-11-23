@@ -33,6 +33,31 @@ it and run it. One thing is still missing before one command deploys it:
   database id is a placeholder. Until it exists, nothing here has run on a real
   Cloudflare account, the terminal sign-up below included.
 
+## What it costs to run
+
+A connection nobody is using costs nothing. An open connection is kept alive
+with WebSocket protocol pings, which Cloudflare does not bill, and the one-use
+capabilities that hide a sender from the relay are minted when two computers
+start talking, not held in reserve. What an operator pays for is messages.
+
+Measured on the local Cloudflare runtime with its own `rowsWritten` counter:
+one capability is 10 rows written over its life (4 to register and 1 to expire,
+in each of the two places that hold it). The first message after a pause mints
+32 on each side, about 640 rows. Cloudflare's free plan allows 100,000 rows
+written a day in Durable Objects. Before this was changed, each side of each
+connection renewed 32 capabilities every twelve minutes whether or not anybody
+wrote: about 38,000 rows a day for a computer left on, and the free plan was
+spent by three connections.
+
+The price is in what the relay can observe: that a conversation started
+between two computers, when, and which one started it. Step 8 of
+[docs/PRIVATE_ROADS_PROTOCOL.md](docs/PRIVATE_ROADS_PROTOCOL.md) says exactly
+what it does and does not see.
+
+Not measured yet: the full row count of one delivered message, and whether
+every request stays under the free plan's 10 ms of CPU. Both need a real
+deployment.
+
 ## Accounts without a website
 
 `POST /api/device/enroll` creates an account from the terminal and approves the

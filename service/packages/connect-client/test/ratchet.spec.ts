@@ -440,4 +440,79 @@ describe('Apache-compatible private Road ratchet', () => {
     expect(new Set(refreshed.map(({ channelTag }) => channelTag)).size).toBe(1);
     expect(refreshed[0]!.channelTag).not.toBe(original[0]!.channelTag);
   });
+
+  test('a full pool mints nothing unless a fresh capability is asked for', async () => {
+    const bob = await device();
+    const now = Date.now();
+    const pool = await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now);
+    await bob.ratchet.confirmInboundSealedCapabilities(
+      pool.map(({ receiptTag }) => receiptTag), now,
+    );
+    expect(await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now)).toEqual([]);
+    // Registered but not yet handed to the peer: a grant is owed, so no more.
+    expect(await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now, { fresh: 1 }))
+      .toEqual([]);
+    await bob.ratchet.confirmSharedInboundSealedCapabilities(
+      pool.map(({ receiptTag }) => receiptTag), now,
+    );
+    const woken = await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now, { fresh: 1 });
+    expect(woken).toHaveLength(1);
+    expect(woken[0]!.channelTag).toBe(pool[0]!.channelTag);
+    // The registration never arrived: asking again repeats it and adds nothing.
+    expect(await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now, { fresh: 1 }))
+      .toEqual(woken);
+    await expect(bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now, { fresh: 3 }))
+      .rejects.toThrow('invalid_sealed_capability_request');
+    await expect(bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now, { fresh: -1 }))
+      .rejects.toThrow('invalid_sealed_capability_request');
+    await expect(bob.ratchet.ensureInboundSealedCapabilities(
+      ROAD_ID, 1, 2, now, { horizonMs: 15 * 60_000 },
+    )).rejects.toThrow('invalid_sealed_capability_request');
+  });
+
+  test('a failed registration never grows past one batch, and a wake stops at twice the pool', async () => {
+    const bob = await device();
+    const now = Date.now();
+    const first = await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 32, now);
+    expect(first).toHaveLength(32);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 32, now, { fresh: 1 }))
+        .toHaveLength(32);
+    }
+    let held = 32;
+    const settle = async (batch: { receiptTag: string }[]) => {
+      const tags = batch.map(({ receiptTag }) => receiptTag);
+      await bob.ratchet.confirmInboundSealedCapabilities(tags, now);
+      await bob.ratchet.confirmSharedInboundSealedCapabilities(tags, now);
+    };
+    await settle(first);
+    for (let wake = 0; wake < 100; wake += 1) {
+      const minted = await bob.ratchet.ensureInboundSealedCapabilities(
+        ROAD_ID, 1, 32, now, { fresh: 1 },
+      );
+      if (!minted.length) break;
+      held += minted.length;
+      await settle(minted);
+    }
+    expect(held).toBe(64);
+  });
+
+  test('an answer to a grant replaces a pool that is no longer new', async () => {
+    const bob = await device();
+    const now = Date.now();
+    const pool = await bob.ratchet.ensureInboundSealedCapabilities(ROAD_ID, 1, 2, now);
+    await bob.ratchet.confirmInboundSealedCapabilities(
+      pool.map(({ receiptTag }) => receiptTag), now,
+    );
+    await bob.ratchet.confirmSharedInboundSealedCapabilities(
+      pool.map(({ receiptTag }) => receiptTag), now,
+    );
+    const horizonMs = 15 * 60_000 - 150_000;
+    expect(await bob.ratchet.ensureInboundSealedCapabilities(
+      ROAD_ID, 1, 2, now + 60_000, { horizonMs },
+    )).toEqual([]);
+    expect(await bob.ratchet.ensureInboundSealedCapabilities(
+      ROAD_ID, 1, 2, now + 3 * 60_000, { horizonMs },
+    )).toHaveLength(2);
+  });
 });
