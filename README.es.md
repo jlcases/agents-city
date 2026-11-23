@@ -783,6 +783,18 @@ lista `--allow` del agente se queda en la recepción igual que antes. Sin
 `--allow`, puede preguntar cualquier conexión que el dueño haya aceptado. El
 Hall todavía no muestra los agentes publicados; esto es solo CLI.
 
+Una persona conectada averigua a quién puede preguntar enviando `@agents`. Eso
+lo responde el propio puente, sin abrir ningún agente: los nombres que esa
+conexión puede alcanzar, cada uno con su nivel y la línea que su dueño le puso
+con `--about`.
+
+```bash
+agents-city publish add ~/code/api --name api --about "La API de facturación y sus migraciones"
+```
+
+El directorio lista solo lo que `--allow` serviría a esa conexión, y nunca
+dónde está el trabajo en disco. `agents` no puede usarse como nombre de agente.
+
 ### `agents-city auth` y `agents-city orgs`
 
 Una organización es el consentimiento que una empresa da una sola vez: sus

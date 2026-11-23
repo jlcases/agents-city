@@ -352,7 +352,32 @@ def por_la_carretera():
                  lambda: publicados.publica(repo, 'named', 'consult', '', ['Ana']),
                  'connection ids')
 
-        publicados.publica(repo, 'ops', 'request')
+        publicados.publica(repo, 'ops', 'request', acerca='the  deploy\nscripts')
+        quien = _llega('@agents', ana)
+        comprueba('· happy: @agents is answered by the bridge, with no text after it',
+                  publicados.atiende(), [(quien, 'agents', 'answered')])
+        lista = _fila('SELECT body FROM reception_outbox ORDER BY rowid DESC LIMIT 1')[0][0]
+        afirma('· happy: it lists every agent that connection may reach',
+               all(f'@{n} ' in lista for n in ('docs', 'vault', 'ops')), lista)
+        afirma('· happy: with the level and the line its owner wrote, on one line',
+               '@ops (the owner approves each question) — the deploy scripts' in lista, lista)
+        afirma('· non-happy: and never where the work is on disk', repo not in lista, lista)
+        comprueba('· happy: the reception records it as routed to the directory',
+                  _fila("""SELECT target_city_id, state, approved_by FROM reception_routes
+                           WHERE message_id = ?""", quien),
+                  [('published:agents', 'delivered', 'auto')])
+        antes = len(falso.pedidos)
+        _llega('@agents who is there?', otro, nombre='Other')
+        publicados.atiende()
+        ajena = _fila('SELECT body FROM reception_outbox ORDER BY rowid DESC LIMIT 1')[0][0]
+        afirma('· non-happy: a connection is not shown an agent that would not serve it',
+               '@docs ' in ajena and '@vault' not in ajena, ajena)
+        afirma('· non-happy: and no agent is opened or prompted to answer the directory',
+               len(falso.pedidos) == antes)
+        _rechaza('· non-happy: nobody can publish an agent named like the directory',
+                 lambda: publicados.publica(repo, 'agents'), 'directory')
+        _rechaza('· non-happy: a description longer than a line is refused',
+                 lambda: publicados.publica(repo, 'wordy', acerca='x' * 201), 'one line')
         pedido = _llega('@ops please change X', ana)
         antes = len([p for p in falso.pedidos if p[:2] == ('agent', 'prompt')])
         comprueba('· happy: a request-level agent parks a Road question for the owner',
